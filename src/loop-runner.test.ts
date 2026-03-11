@@ -249,12 +249,160 @@ describe('LoopRunner', () => {
     expect(obs.length).toBeGreaterThan(0);
   });
 
-  it('decide: returns null in Phase 0', () => {
-    const result = loopRunner.decide(
+  it('decide: returns null in Phase 0', async () => {
+    const result = await loopRunner.decide(
       { id: chiefId, village_id: villageId, name: 'test', role: 'r', version: 1, status: 'active', skills: [], permissions: [], personality: { risk_tolerance: 'moderate', communication_style: 'concise', decision_speed: 'fast' }, constraints: [], created_at: '', updated_at: '' },
       [],
       [],
     );
     expect(result).toBeNull();
+  });
+
+  describe('decide with EddaBridge', () => {
+    it('queries Edda for precedents when bridge is provided', async () => {
+      const constitutionStore = new ConstitutionStore(db);
+      const skillRegistry = new SkillRegistry(db);
+      const chiefEngine = new ChiefEngine(db, constitutionStore, skillRegistry);
+      const lawEngine = new LawEngine(db, constitutionStore, chiefEngine);
+      const ra = new RiskAssessor(db);
+
+      let queryCalled = false;
+      let queryOpts: Record<string, unknown> = {};
+      const mockBridge = {
+        queryDecisions: async (opts: Record<string, unknown>) => {
+          queryCalled = true;
+          queryOpts = opts;
+          return {
+            query: 'law',
+            input_type: 'domain',
+            decisions: [
+              { event_id: 'evt-1', key: 'law.test', value: 'allow', reason: 'precedent', domain: 'law', branch: 'main', ts: new Date().toISOString(), is_active: true },
+            ],
+            timeline: [],
+            related_commits: [],
+            related_notes: [],
+          };
+        },
+      } as unknown as import('./edda-bridge').EddaBridge;
+
+      const runner = new LoopRunner(db, constitutionStore, chiefEngine, lawEngine, ra, mockBridge);
+      const chief = { id: chiefId, village_id: villageId, name: 'test', role: 'r', version: 1, status: 'active' as const, skills: [], permissions: [], personality: { risk_tolerance: 'moderate' as const, communication_style: 'concise' as const, decision_speed: 'fast' as const }, constraints: [], created_at: '', updated_at: '' };
+
+      await runner.decide(chief, [], [{ some: 'obs' }], villageId);
+
+      expect(queryCalled).toBe(true);
+      expect(queryOpts).toEqual({ domain: 'law', keyword: villageId });
+    });
+
+    it('decide works without EddaBridge (graceful degradation)', async () => {
+      // loopRunner from beforeEach has no eddaBridge
+      const chief = { id: chiefId, village_id: villageId, name: 'test', role: 'r', version: 1, status: 'active' as const, skills: [], permissions: [], personality: { risk_tolerance: 'moderate' as const, communication_style: 'concise' as const, decision_speed: 'fast' as const }, constraints: [], created_at: '', updated_at: '' };
+
+      const result = await loopRunner.decide(chief, [], [{ some: 'obs' }], villageId);
+      expect(result).toBeNull();
+    });
+
+    it('decide handles Edda bridge failure gracefully', async () => {
+      const constitutionStore = new ConstitutionStore(db);
+      const skillRegistry = new SkillRegistry(db);
+      const chiefEngine = new ChiefEngine(db, constitutionStore, skillRegistry);
+      const lawEngine = new LawEngine(db, constitutionStore, chiefEngine);
+      const ra = new RiskAssessor(db);
+
+      const mockBridge = {
+        queryDecisions: async () => {
+          throw new Error('Edda is down');
+        },
+      } as unknown as import('./edda-bridge').EddaBridge;
+
+      const runner = new LoopRunner(db, constitutionStore, chiefEngine, lawEngine, ra, mockBridge);
+      const chief = { id: chiefId, village_id: villageId, name: 'test', role: 'r', version: 1, status: 'active' as const, skills: [], permissions: [], personality: { risk_tolerance: 'moderate' as const, communication_style: 'concise' as const, decision_speed: 'fast' as const }, constraints: [], created_at: '', updated_at: '' };
+
+      // Should not throw — graceful degradation
+      const result = await runner.decide(chief, [], [{ some: 'obs' }], villageId);
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('observeKarviEvents', () => {
+    it('returns karvi_event entries from audit_log', () => {
+      const now = new Date().toISOString();
+      db.prepare(`
+        INSERT INTO audit_log (entity_type, entity_id, action, payload, actor, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('karvi_event', 'task-001', 'task_completed', JSON.stringify({ result: 'success' }), 'karvi', now);
+
+      const events = loopRunner.observeKarviEvents(villageId);
+      expect(events).toHaveLength(1);
+      expect(events[0].entity_type).toBe('karvi_event');
+      expect(events[0].entity_id).toBe('task-001');
+      expect(events[0].action).toBe('task_completed');
+      expect(events[0].source).toBe('karvi');
+    });
+
+    it('returns empty array when no karvi events exist', () => {
+      const events = loopRunner.observeKarviEvents(villageId);
+      expect(events).toHaveLength(0);
+    });
+
+    it('respects limit parameter', () => {
+      const now = new Date().toISOString();
+      for (let i = 0; i < 5; i++) {
+        db.prepare(`
+          INSERT INTO audit_log (entity_type, entity_id, action, payload, actor, created_at)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run('karvi_event', `task-${i}`, 'task_completed', '{}', 'karvi', now);
+      }
+      const events = loopRunner.observeKarviEvents(villageId, 3);
+      expect(events).toHaveLength(3);
+    });
+  });
+
+  describe('observe with karvi events', () => {
+    it('merges karvi events into observe results', () => {
+      loopRunner.startCycle(villageId, { chief_id: chiefId });
+
+      const now = new Date().toISOString();
+      db.prepare(`
+        INSERT INTO audit_log (entity_type, entity_id, action, payload, actor, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('karvi_event', 'task-abc', 'task_started', JSON.stringify({ agent: 'bot-1' }), 'karvi', now);
+
+      const obs = loopRunner.observe(villageId);
+      expect(obs.length).toBeGreaterThan(0);
+
+      const karviObs = obs.filter((o) => o.entity_type === 'karvi_event');
+      expect(karviObs.length).toBeGreaterThanOrEqual(1);
+      expect(karviObs[0].entity_id).toBe('task-abc');
+    });
+
+    it('observe does not crash when no karvi events exist', () => {
+      loopRunner.startCycle(villageId, { chief_id: chiefId });
+      const obs = loopRunner.observe(villageId);
+      expect(obs.length).toBeGreaterThan(0);
+      const karviObs = obs.filter((o) => o.entity_type === 'karvi_event');
+      expect(karviObs).toHaveLength(0);
+    });
+
+    it('observe results are sorted by created_at descending', () => {
+      loopRunner.startCycle(villageId, { chief_id: chiefId });
+
+      const futureTime = new Date(Date.now() + 60000).toISOString();
+      db.prepare(`
+        INSERT INTO audit_log (entity_type, entity_id, action, payload, actor, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('karvi_event', 'task-future', 'task_completed', '{}', 'karvi', futureTime);
+
+      const obs = loopRunner.observe(villageId);
+      expect(obs.length).toBeGreaterThan(1);
+      expect(obs[0].entity_type).toBe('karvi_event');
+      expect(obs[0].entity_id).toBe('task-future');
+
+      for (let i = 0; i < obs.length - 1; i++) {
+        const ta = obs[i].created_at as string;
+        const tb = obs[i + 1].created_at as string;
+        expect(ta >= tb).toBe(true);
+      }
+    });
   });
 });

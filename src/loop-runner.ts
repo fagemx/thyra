@@ -5,6 +5,7 @@ import type { ConstitutionStore, Constitution } from './constitution-store';
 import type { ChiefEngine, Chief } from './chief-engine';
 import type { LawEngine } from './law-engine';
 import type { RiskAssessor, Action, AssessmentResult } from './risk-assessor';
+import type { EddaBridge, EddaDecisionHit } from './edda-bridge';
 import { StartCycleInput as StartCycleSchema } from './schemas/loop';
 import type { StartCycleInputRaw, LoopAction } from './schemas/loop';
 
@@ -34,6 +35,7 @@ interface Decision {
   estimated_cost: number;
   reason: string;
   rollback_plan: string;
+  edda_refs?: string[];
 }
 
 export class LoopRunner {
@@ -45,6 +47,7 @@ export class LoopRunner {
     private chiefEngine: ChiefEngine,
     private lawEngine: LawEngine,
     private riskAssessor: RiskAssessor,
+    private eddaBridge?: EddaBridge,
   ) {}
 
   startCycle(villageId: string, rawInput: StartCycleInputRaw): LoopCycle {
@@ -135,7 +138,7 @@ export class LoopRunner {
 
         // Phase 2: DECIDE (rule-based Phase 0)
         const activeLaws = this.lawEngine.getActiveLaws(cycle.village_id);
-        const decision = this.decide(chief, activeLaws, observations);
+        const decision = await this.decide(chief, activeLaws, observations, cycle.village_id);
         if (!decision) {
           // No action needed — complete
           this.finishCycle(cycle.id, 'completed', 'No more actions needed');
@@ -183,7 +186,22 @@ export class LoopRunner {
   }
 
   observe(villageId: string): Record<string, unknown>[] {
-    const rows = this.db.prepare(`
+    const internal = this.observeInternal(villageId);
+    const karvi = this.observeKarviEvents(villageId);
+    // Merge and sort by created_at descending, limit to 20
+    const combined = [...internal, ...karvi]
+      .sort((a, b) => {
+        const ta = a.created_at as string;
+        const tb = b.created_at as string;
+        return tb.localeCompare(ta);
+      })
+      .slice(0, 20);
+    return combined;
+  }
+
+  /** Query internal entity audit entries (villages, chiefs, laws, budget) */
+  private observeInternal(villageId: string): Record<string, unknown>[] {
+    return this.db.prepare(`
       SELECT * FROM audit_log WHERE entity_id IN (
         SELECT id FROM villages WHERE id = ?
         UNION SELECT id FROM chiefs WHERE village_id = ?
@@ -191,14 +209,34 @@ export class LoopRunner {
       ) OR (entity_type = 'budget' AND entity_id = ?)
       ORDER BY created_at DESC LIMIT 20
     `).all(villageId, villageId, villageId, villageId) as Record<string, unknown>[];
+  }
+
+  /** Query karvi_event entries from audit_log for the observe phase */
+  observeKarviEvents(villageId: string, limit = 20): Record<string, unknown>[] {
+    const rows = this.db.prepare(`
+      SELECT *, 'karvi' as source FROM audit_log
+      WHERE entity_type = 'karvi_event'
+      ORDER BY created_at DESC LIMIT ?
+    `).all(limit) as Record<string, unknown>[];
     return rows;
   }
 
-  decide(chief: Chief, activeLaws: unknown[], observations: Record<string, unknown>[]): Decision | null {
+  async decide(chief: Chief, activeLaws: unknown[], observations: Record<string, unknown>[], villageId?: string): Promise<Decision | null> {
     // Phase 0: Rule-based decision engine
     // In Phase 0, we return null (no action) after observing — the loop completes immediately
     // Phase 1 will plug in LLM-based decision making
     if (observations.length === 0) return null;
+
+    // Query Edda for village-scoped precedents (graceful degradation)
+    let eddaPrecedents: EddaDecisionHit[] = [];
+    if (this.eddaBridge && villageId) {
+      try {
+        const result = await this.eddaBridge.queryDecisions({ domain: 'law', keyword: villageId });
+        eddaPrecedents = result.decisions;
+      } catch {
+        // Edda offline → proceed without precedents
+      }
+    }
 
     // Check if there's a "pending_review" action in observations
     for (const obs of observations) {
@@ -207,6 +245,13 @@ export class LoopRunner {
         // There's a proposed law that might need attention
         return null; // Phase 0: don't auto-act on proposals
       }
+    }
+
+    // Attach edda_refs if precedents were found (for future Phase 1 LLM usage)
+    if (eddaPrecedents.length > 0) {
+      // Phase 0 still returns null, but when Phase 1 produces decisions,
+      // edda_refs will be attached. Store them for potential use.
+      return null; // Phase 0: complete immediately
     }
 
     return null; // Phase 0: complete immediately

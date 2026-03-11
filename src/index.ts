@@ -32,7 +32,7 @@ const constitutionStore = new ConstitutionStore(db, karviBridge);
 const riskAssessor = new RiskAssessor(db);
 const chiefEngine = new ChiefEngine(db, constitutionStore, skillRegistry);
 const lawEngine = new LawEngine(db, constitutionStore, chiefEngine, eddaBridge);
-const loopRunner = new LoopRunner(db, constitutionStore, chiefEngine, lawEngine, riskAssessor);
+const loopRunner = new LoopRunner(db, constitutionStore, chiefEngine, lawEngine, riskAssessor, eddaBridge);
 const territoryCoordinator = new TerritoryCoordinator(db, constitutionStore, skillRegistry);
 
 app.get('/api/health', (c) => {
