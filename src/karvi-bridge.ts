@@ -1,14 +1,8 @@
 import type { Database } from 'bun:sqlite';
 import { appendAudit } from './db';
+import type { KarviEventNormalized } from './schemas/karvi-event';
 
-export interface KarviEvent {
-  type: 'karvi.event.v1';
-  event: 'task.completed' | 'task.failed' | 'step.completed' | 'step.failed';
-  task_id: string;
-  step_id?: string;
-  timestamp: string;
-  payload: Record<string, unknown>;
-}
+export type { KarviEventNormalized } from './schemas/karvi-event';
 
 export interface DispatchOpts {
   villageId: string;
@@ -88,28 +82,55 @@ export class KarviBridge {
     return this.healthy;
   }
 
-  // Webhook event ingestion
-  ingestEvent(event: KarviEvent): void {
+  // Webhook event ingestion with idempotency via event_id
+  ingestEvent(event: KarviEventNormalized): { ingested: boolean } {
+    // Idempotency check
+    const existing = this.db.prepare(
+      'SELECT 1 FROM audit_log WHERE event_id = ?'
+    ).get(event.event_id) as Record<string, unknown> | null;
+
+    if (existing) {
+      return { ingested: false };
+    }
+
     this.db.prepare(`
-      INSERT INTO audit_log (entity_type, entity_id, action, payload, actor, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run('karvi_event', event.task_id, event.event, JSON.stringify(event.payload), 'karvi', event.timestamp);
+      INSERT INTO audit_log (entity_type, entity_id, action, payload, actor, created_at, event_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'karvi_event',
+      event.task_id,
+      event.event_type,
+      JSON.stringify(event.raw),
+      'karvi',
+      event.occurred_at,
+      event.event_id,
+    );
+
+    return { ingested: true };
   }
 
-  getRecentEvents(limit = 20): KarviEvent[] {
+  getRecentEvents(limit = 20): KarviEventNormalized[] {
     const rows = this.db.prepare(`
-      SELECT entity_id as task_id, action as event, payload, created_at as timestamp
+      SELECT entity_id as task_id, action as event_type,
+             payload as raw, created_at as occurred_at, event_id
       FROM audit_log WHERE entity_type = 'karvi_event'
       ORDER BY created_at DESC LIMIT ?
     `).all(limit) as Record<string, unknown>[];
 
-    return rows.map((r) => ({
-      type: 'karvi.event.v1' as const,
-      event: r.event as KarviEvent['event'],
-      task_id: r.task_id as string,
-      timestamp: r.timestamp as string,
-      payload: JSON.parse((r.payload as string) || '{}'),
-    }));
+    return rows.map((r) => {
+      const raw = JSON.parse((r.raw as string) || '{}') as Record<string, unknown>;
+      return {
+        event_id: (r.event_id as string) || '',
+        event_type: r.event_type as string,
+        task_id: r.task_id as string,
+        step_id: (raw.stepId as string) || '',
+        occurred_at: r.occurred_at as string,
+        step_type: raw.stepType as string | undefined,
+        state: raw.state as string | undefined,
+        error: raw.error as string | undefined,
+        raw,
+      };
+    });
   }
 
   startMonitor(intervalMs = 30_000): void {

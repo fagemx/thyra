@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
-import type { KarviBridge, KarviEvent } from '../karvi-bridge';
+import type { KarviBridge } from '../karvi-bridge';
 import type { EddaBridge } from '../edda-bridge';
+import { KarviWebhookPayloadSchema, normalizeKarviEvent } from '../schemas/karvi-event';
 
 export function bridgeRoutes(karvi: KarviBridge, edda: EddaBridge): Hono {
   const app = new Hono();
@@ -37,12 +38,24 @@ export function bridgeRoutes(karvi: KarviBridge, edda: EddaBridge): Hono {
 
   app.post('/api/webhooks/karvi', async (c) => {
     try {
-      const event = await c.req.json() as KarviEvent;
-      if (event.type !== 'karvi.event.v1') {
-        return c.json({ ok: false, error: { code: 'INVALID_EVENT', message: 'Unknown event type' } }, 400);
+      const body = await c.req.json();
+      const parsed = KarviWebhookPayloadSchema.safeParse(body);
+
+      if (!parsed.success) {
+        return c.json({
+          ok: false,
+          error: { code: 'INVALID_EVENT', message: parsed.error.message },
+        }, 400);
       }
-      karvi.ingestEvent(event);
-      return c.json({ ok: true });
+
+      const event = normalizeKarviEvent(parsed.data);
+      const result = karvi.ingestEvent(event);
+
+      if (!result.ingested) {
+        return c.json({ ok: true, data: { duplicate: true } });
+      }
+
+      return c.json({ ok: true, data: { event_id: event.event_id } });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
       return c.json({ ok: false, error: { code: 'BAD_REQUEST', message: msg } }, 400);

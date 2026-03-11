@@ -32,13 +32,16 @@ export function initSchema(db: Database): void {
       action TEXT NOT NULL,
       payload TEXT NOT NULL,
       actor TEXT NOT NULL,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      event_id TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_audit_entity
       ON audit_log(entity_type, entity_id);
     CREATE INDEX IF NOT EXISTS idx_audit_time
       ON audit_log(created_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_event_id
+      ON audit_log(event_id) WHERE event_id IS NOT NULL;
 
     CREATE TABLE IF NOT EXISTS skills (
       id TEXT PRIMARY KEY,
