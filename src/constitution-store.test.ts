@@ -1,0 +1,140 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import { Database } from 'bun:sqlite';
+import { createDb, initSchema } from './db';
+import { VillageManager } from './village-manager';
+import { ConstitutionStore, checkPermission, checkBudget } from './constitution-store';
+
+const RULES = [{ description: 'must review', enforcement: 'hard' as const, scope: ['*'] }];
+const PERMS: ['dispatch_task', 'propose_law'] = ['dispatch_task', 'propose_law'];
+
+describe('ConstitutionStore', () => {
+  let db: Database;
+  let store: ConstitutionStore;
+  let villageId: string;
+
+  beforeEach(() => {
+    db = createDb(':memory:');
+    initSchema(db);
+    const mgr = new VillageManager(db);
+    villageId = mgr.create({ name: 'test', target_repo: 'r' }, 'u').id;
+    store = new ConstitutionStore(db);
+  });
+
+  it('creates constitution for village', () => {
+    const c = store.create(villageId, {
+      rules: RULES,
+      allowed_permissions: PERMS,
+      budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+    }, 'human');
+    expect(c.id).toMatch(/^const-/);
+    expect(c.version).toBe(1);
+    expect(c.status).toBe('active');
+    expect(c.rules[0].id).toBe('rule-1');
+  });
+
+  it('rejects create when active constitution exists', () => {
+    store.create(villageId, { rules: RULES, allowed_permissions: ['dispatch_task'] }, 'h');
+    expect(() => store.create(villageId, { rules: RULES, allowed_permissions: ['deploy'] }, 'h'))
+      .toThrow('already has');
+  });
+
+  it('get → returns created constitution', () => {
+    const c = store.create(villageId, { rules: RULES, allowed_permissions: PERMS }, 'h');
+    expect(store.get(c.id)?.version).toBe(1);
+  });
+
+  it('getActive → returns active constitution', () => {
+    store.create(villageId, { rules: RULES, allowed_permissions: PERMS }, 'h');
+    expect(store.getActive(villageId)?.status).toBe('active');
+  });
+
+  it('supersede: old superseded, new active, version +1', () => {
+    const v1 = store.create(villageId, { rules: RULES, allowed_permissions: ['dispatch_task'] }, 'h');
+    const v2 = store.supersede(v1.id, { rules: [{ description: 'r2', enforcement: 'soft' }], allowed_permissions: ['dispatch_task', 'deploy'] }, 'h');
+    expect(v2.version).toBe(2);
+    expect(store.get(v1.id)?.status).toBe('superseded');
+    expect(store.getActive(villageId)?.id).toBe(v2.id);
+  });
+
+  it('supersede chain v1→v2→v3', () => {
+    const v1 = store.create(villageId, { rules: RULES, allowed_permissions: ['dispatch_task'] }, 'h');
+    const v2 = store.supersede(v1.id, { rules: RULES, allowed_permissions: ['dispatch_task'] }, 'h');
+    const v3 = store.supersede(v2.id, { rules: RULES, allowed_permissions: ['dispatch_task'] }, 'h');
+    expect(v3.version).toBe(3);
+    expect(store.list(villageId)).toHaveLength(3);
+  });
+
+  it('revoke: status → revoked', () => {
+    const c = store.create(villageId, { rules: RULES, allowed_permissions: ['dispatch_task'] }, 'h');
+    store.revoke(c.id, 'h');
+    expect(store.get(c.id)?.status).toBe('revoked');
+    expect(store.getActive(villageId)).toBeNull();
+  });
+
+  it('list returns all versions descending', () => {
+    const v1 = store.create(villageId, { rules: RULES, allowed_permissions: ['dispatch_task'] }, 'h');
+    store.supersede(v1.id, { rules: RULES, allowed_permissions: ['dispatch_task'] }, 'h');
+    const list = store.list(villageId);
+    expect(list).toHaveLength(2);
+    expect(list[0].version).toBe(2);
+    expect(list[1].version).toBe(1);
+  });
+
+  it('cannot supersede non-active constitution', () => {
+    const c = store.create(villageId, { rules: RULES, allowed_permissions: ['dispatch_task'] }, 'h');
+    store.revoke(c.id, 'h');
+    expect(() => store.supersede(c.id, { rules: RULES, allowed_permissions: ['dispatch_task'] }, 'h')).toThrow();
+  });
+});
+
+describe('checkPermission', () => {
+  let store: ConstitutionStore;
+  let villageId: string;
+
+  beforeEach(() => {
+    const db = createDb(':memory:');
+    initSchema(db);
+    villageId = new VillageManager(db).create({ name: 't', target_repo: 'r' }, 'u').id;
+    store = new ConstitutionStore(db);
+  });
+
+  it('returns true for allowed permission', () => {
+    const c = store.create(villageId, { rules: [{ description: 'r', enforcement: 'hard' }], allowed_permissions: ['dispatch_task'] }, 'h');
+    expect(checkPermission(c, 'dispatch_task')).toBe(true);
+  });
+
+  it('returns false for disallowed permission', () => {
+    const c = store.create(villageId, { rules: [{ description: 'r', enforcement: 'hard' }], allowed_permissions: ['dispatch_task'] }, 'h');
+    expect(checkPermission(c, 'deploy')).toBe(false);
+  });
+});
+
+describe('checkBudget', () => {
+  let store: ConstitutionStore;
+  let villageId: string;
+
+  beforeEach(() => {
+    const db = createDb(':memory:');
+    initSchema(db);
+    villageId = new VillageManager(db).create({ name: 't', target_repo: 'r' }, 'u').id;
+    store = new ConstitutionStore(db);
+  });
+
+  it('within limit → true', () => {
+    const c = store.create(villageId, {
+      rules: [{ description: 'r', enforcement: 'hard' }],
+      allowed_permissions: ['dispatch_task'],
+      budget_limits: { max_cost_per_action: 5, max_cost_per_day: 50, max_cost_per_loop: 25 },
+    }, 'h');
+    expect(checkBudget(c, 3, 'per_action')).toBe(true);
+  });
+
+  it('over limit → false', () => {
+    const c = store.create(villageId, {
+      rules: [{ description: 'r', enforcement: 'hard' }],
+      allowed_permissions: ['dispatch_task'],
+      budget_limits: { max_cost_per_action: 5, max_cost_per_day: 50, max_cost_per_loop: 25 },
+    }, 'h');
+    expect(checkBudget(c, 10, 'per_action')).toBe(false);
+  });
+});
