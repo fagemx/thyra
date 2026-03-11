@@ -39,7 +39,6 @@ export class LawEngine {
       aspect: `${lawId}.${aspect}`,
       value,
       reason,
-      refs: [lawId],
     }).catch(() => {}); // 不 throw — Edda 離線不影響 LawEngine
   }
 

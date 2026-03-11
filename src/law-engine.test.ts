@@ -6,7 +6,7 @@ import { ConstitutionStore } from './constitution-store';
 import { SkillRegistry } from './skill-registry';
 import { ChiefEngine } from './chief-engine';
 import { LawEngine } from './law-engine';
-import type { EddaBridge, EddaDecision } from './edda-bridge';
+import type { EddaBridge } from './edda-bridge';
 
 const LAW_INPUT = {
   category: 'review',
@@ -219,7 +219,7 @@ describe('LawEngine + Edda recording', () => {
     const skillRegistry = new SkillRegistry(db);
     chiefEngine = new ChiefEngine(db, constitutionStore, skillRegistry);
 
-    mockRecordDecision = vi.fn().mockResolvedValue({ ok: true, eventId: 'evt_test' });
+    mockRecordDecision = vi.fn().mockResolvedValue({ event_id: 'evt_test' });
     mockEddaBridge = { recordDecision: mockRecordDecision } as unknown as EddaBridge;
     lawEngine = new LawEngine(db, constitutionStore, chiefEngine, mockEddaBridge);
 
