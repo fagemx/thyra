@@ -1,0 +1,112 @@
+import type { Database } from 'bun:sqlite';
+import { randomUUID } from 'crypto';
+import { appendAudit } from './db';
+import { CreateVillageInput as CreateVillageSchema } from './schemas/village';
+import type { CreateVillageInputRaw, UpdateVillageInput } from './schemas/village';
+
+export interface Village {
+  id: string;
+  name: string;
+  description: string;
+  target_repo: string;
+  status: 'active' | 'paused' | 'archived';
+  metadata: Record<string, unknown>;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export class VillageManager {
+  constructor(private db: Database) {}
+
+  create(rawInput: CreateVillageInputRaw, actor: string): Village {
+    const input = CreateVillageSchema.parse(rawInput);
+    const now = new Date().toISOString();
+    const village: Village = {
+      id: `village-${randomUUID()}`,
+      name: input.name,
+      description: input.description,
+      target_repo: input.target_repo,
+      status: 'active',
+      metadata: input.metadata,
+      version: 1,
+      created_at: now,
+      updated_at: now,
+    };
+
+    this.db.prepare(`
+      INSERT INTO villages (id, name, description, target_repo, status, metadata, version, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      village.id, village.name, village.description, village.target_repo,
+      village.status, JSON.stringify(village.metadata), village.version,
+      village.created_at, village.updated_at
+    );
+
+    appendAudit(this.db, 'village', village.id, 'create', village, actor);
+    return village;
+  }
+
+  get(id: string): Village | null {
+    const row = this.db.prepare('SELECT * FROM villages WHERE id = ?').get(id) as Record<string, unknown> | null;
+    return row ? this.deserialize(row) : null;
+  }
+
+  list(filters?: { status?: string }): Village[] {
+    let sql = 'SELECT * FROM villages';
+    const params: string[] = [];
+    if (filters?.status) {
+      sql += ' WHERE status = ?';
+      params.push(filters.status);
+    }
+    sql += ' ORDER BY created_at DESC';
+    const rows = this.db.prepare(sql).all(...params) as Record<string, unknown>[];
+    return rows.map((r) => this.deserialize(r));
+  }
+
+  update(id: string, input: UpdateVillageInput, actor: string): Village {
+    const existing = this.get(id);
+    if (!existing) throw new Error('Village not found');
+
+    const now = new Date().toISOString();
+    const updated: Village = {
+      ...existing,
+      ...(input.name !== undefined && { name: input.name }),
+      ...(input.description !== undefined && { description: input.description }),
+      ...(input.target_repo !== undefined && { target_repo: input.target_repo }),
+      ...(input.status !== undefined && { status: input.status }),
+      ...(input.metadata !== undefined && { metadata: input.metadata }),
+      version: existing.version + 1,
+      updated_at: now,
+    };
+
+    this.db.prepare(`
+      UPDATE villages SET name=?, description=?, target_repo=?, status=?,
+        metadata=?, version=?, updated_at=? WHERE id=?
+    `).run(
+      updated.name, updated.description, updated.target_repo, updated.status,
+      JSON.stringify(updated.metadata), updated.version, updated.updated_at, id
+    );
+
+    appendAudit(this.db, 'village', id, 'update', { before: existing, after: updated }, actor);
+    return updated;
+  }
+
+  archive(id: string, actor: string): void {
+    this.update(id, { status: 'archived' }, actor);
+  }
+
+  private deserialize(row: Record<string, unknown>): Village {
+    return {
+      id: row.id as string,
+      name: row.name as string,
+      description: row.description as string,
+      target_repo: row.target_repo as string,
+      status: row.status as Village['status'],
+      metadata: JSON.parse((row.metadata as string) || '{}'),
+      version: row.version as number,
+      created_at: row.created_at as string,
+      updated_at: row.updated_at as string,
+    };
+  }
+}
