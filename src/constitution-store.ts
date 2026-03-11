@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { appendAudit } from './db';
 import { CreateConstitutionInput as CreateConstitutionSchema } from './schemas/constitution';
 import type { CreateConstitutionInputRaw, Permission } from './schemas/constitution';
+import type { KarviBridge } from './karvi-bridge';
 
 export interface ConstitutionRule {
   id: string;
@@ -31,7 +32,16 @@ export interface Constitution {
 }
 
 export class ConstitutionStore {
-  constructor(private db: Database) {}
+  constructor(
+    private db: Database,
+    private karviBridge?: KarviBridge,
+  ) {}
+
+  /** Fire-and-forget: sync budget to Karvi controls */
+  private syncToKarvi(villageId: string, budgetLimits: BudgetLimits): void {
+    if (!this.karviBridge) return;
+    void this.karviBridge.syncBudgetControls(villageId, budgetLimits).catch(() => {});
+  }
 
   create(villageId: string, rawInput: CreateConstitutionInputRaw, actor: string): Constitution {
     const input = CreateConstitutionSchema.parse(rawInput);
@@ -67,6 +77,7 @@ export class ConstitutionStore {
     );
 
     appendAudit(this.db, 'constitution', constitution.id, 'create', constitution, actor);
+    this.syncToKarvi(villageId, constitution.budget_limits);
     return constitution;
   }
 
@@ -134,6 +145,7 @@ export class ConstitutionStore {
     })();
 
     appendAudit(this.db, 'constitution', id, 'supersede', { old_id: id, new_id: newConstitution.id, new_version: newConstitution.version }, actor);
+    this.syncToKarvi(newConstitution.village_id, newConstitution.budget_limits);
     return newConstitution;
   }
 

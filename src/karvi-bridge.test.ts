@@ -76,48 +76,172 @@ describe('KarviBridge', () => {
     }
   });
 
-  describe('dispatchTask', () => {
-    it('dispatches task to Karvi and returns taskId', async () => {
-      mockResponses.set('POST /api/projects', { status: 201, body: { ok: true } });
+  describe('dispatchProject', () => {
+    const PROJECT_RESPONSE = {
+      ok: true,
+      title: 'Review PR',
+      taskCount: 1,
+      project: {
+        id: 'PROJ-abc',
+        title: 'Review PR',
+        repo: 'org/repo',
+        status: 'executing',
+        concurrency: 3,
+        completionTrigger: 'pr_merged',
+        taskIds: ['task-1'],
+        createdAt: '2026-03-12T00:00:00Z',
+      },
+    };
+
+    it('dispatches project to Karvi with correct format', async () => {
+      mockResponses.set('POST /api/projects', { status: 201, body: PROJECT_RESPONSE });
       startMockKarvi(MOCK_PORT);
 
-      const result = await bridge.dispatchTask({
-        villageId: 'v1',
+      const result = await bridge.dispatchProject({
         title: 'Review PR',
-        description: 'Check code quality',
-        targetRepo: 'org/repo',
+        tasks: [{ id: 'task-1', title: 'Check code', assignee: 'engineer_lite', target_repo: 'org/repo' }],
       });
 
-      expect(result.taskId).toMatch(/^THYRA-v1-/);
+      expect(result).not.toBeNull();
+      expect(result!.project?.id).toBe('PROJ-abc');
+      expect(result!.taskCount).toBe(1);
       expect(lastRequest?.method).toBe('POST');
       expect(lastRequest?.url).toBe('/api/projects');
     });
 
-    it('throws on Karvi error', async () => {
+    it('throws on Karvi error response', async () => {
       mockResponses.set('POST /api/projects', { status: 500, body: { error: 'fail' } });
       startMockKarvi(MOCK_PORT);
 
-      await expect(bridge.dispatchTask({
-        villageId: 'v1',
+      await expect(bridge.dispatchProject({
         title: 'test',
-        description: 'test',
-        targetRepo: 'r',
+        tasks: [{ title: 'a' }],
       })).rejects.toThrow('Karvi dispatch failed: 500');
     });
 
-    it('records audit log on dispatch', async () => {
-      mockResponses.set('POST /api/projects', { status: 201, body: { ok: true } });
+    it('returns null when Karvi unreachable (graceful degradation)', async () => {
+      // Use a port where nothing is listening
+      const offlineBridge = new KarviBridge(db, 'http://localhost:19999');
+      const result = await offlineBridge.dispatchProject({
+        title: 'test',
+        tasks: [{ title: 'a' }],
+      });
+      expect(result).toBeNull();
+    });
+
+    it('records audit log on successful dispatch', async () => {
+      mockResponses.set('POST /api/projects', { status: 201, body: PROJECT_RESPONSE });
       startMockKarvi(MOCK_PORT);
 
-      await bridge.dispatchTask({
-        villageId: 'v1',
+      await bridge.dispatchProject({
         title: 'test',
-        description: 'desc',
-        targetRepo: 'r',
+        tasks: [{ title: 'a' }],
       });
 
-      const logs = db.prepare("SELECT * FROM audit_log WHERE entity_type = 'karvi'").all();
+      const logs = db.prepare("SELECT * FROM audit_log WHERE entity_type = 'karvi' AND action = 'dispatch'").all();
       expect(logs).toHaveLength(1);
+    });
+
+    it('validates input with Zod (rejects empty tasks)', async () => {
+      await expect(bridge.dispatchProject({
+        title: 'test',
+        tasks: [],
+      })).rejects.toThrow();
+    });
+
+    it('supports optional fields: concurrency, autoStart, goal', async () => {
+      mockResponses.set('POST /api/projects', { status: 201, body: PROJECT_RESPONSE });
+      startMockKarvi(MOCK_PORT);
+
+      const result = await bridge.dispatchProject({
+        title: 'Big project',
+        tasks: [{ title: 'a' }, { title: 'b' }],
+        concurrency: 5,
+        autoStart: true,
+        goal: 'Ship feature X',
+      });
+
+      expect(result).not.toBeNull();
+    });
+  });
+
+  describe('dispatchSingleTask', () => {
+    it('dispatches single task by ID', async () => {
+      mockResponses.set('POST /api/tasks/task-1/dispatch', {
+        status: 200,
+        body: { ok: true, taskId: 'task-1', dispatched: true, planId: 'plan-abc' },
+      });
+      startMockKarvi(MOCK_PORT);
+
+      const result = await bridge.dispatchSingleTask('task-1');
+      expect(result).not.toBeNull();
+      expect(result!.dispatched).toBe(true);
+      expect(result!.planId).toBe('plan-abc');
+    });
+
+    it('throws BUDGET_EXCEEDED on 409', async () => {
+      mockResponses.set('POST /api/tasks/task-1/dispatch', {
+        status: 409,
+        body: { error: 'Budget exceeded', code: 'BUDGET_EXCEEDED', remaining: { llm_calls: 0, tokens: 0, wall_clock_ms: 0, steps: 0 } },
+      });
+      startMockKarvi(MOCK_PORT);
+
+      await expect(bridge.dispatchSingleTask('task-1')).rejects.toThrow('BUDGET_EXCEEDED');
+    });
+
+    it('returns null when Karvi unreachable', async () => {
+      const offlineBridge = new KarviBridge(db, 'http://localhost:19999');
+      const result = await offlineBridge.dispatchSingleTask('task-1');
+      expect(result).toBeNull();
+    });
+
+    it('records audit on budget exceeded', async () => {
+      mockResponses.set('POST /api/tasks/task-1/dispatch', {
+        status: 409,
+        body: { error: 'Budget exceeded', code: 'BUDGET_EXCEEDED', remaining: { llm_calls: 5 } },
+      });
+      startMockKarvi(MOCK_PORT);
+
+      await bridge.dispatchSingleTask('task-1').catch(() => {});
+      const logs = db.prepare("SELECT * FROM audit_log WHERE action = 'budget_exceeded'").all();
+      expect(logs).toHaveLength(1);
+    });
+  });
+
+  describe('syncBudgetControls', () => {
+    const BUDGET = { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 };
+
+    it('sends budget to Karvi controls endpoint', async () => {
+      mockResponses.set('POST /api/controls', { status: 200, body: { ok: true, controls: {} } });
+      startMockKarvi(MOCK_PORT);
+
+      const result = await bridge.syncBudgetControls('village-1', BUDGET);
+      expect(result).toBe(true);
+      expect(lastRequest?.method).toBe('POST');
+      expect(lastRequest?.url).toBe('/api/controls');
+    });
+
+    it('records audit on success', async () => {
+      mockResponses.set('POST /api/controls', { status: 200, body: { ok: true, controls: {} } });
+      startMockKarvi(MOCK_PORT);
+
+      await bridge.syncBudgetControls('village-1', BUDGET);
+      const logs = db.prepare("SELECT * FROM audit_log WHERE action = 'sync_budget'").all();
+      expect(logs).toHaveLength(1);
+    });
+
+    it('returns false on Karvi error', async () => {
+      mockResponses.set('POST /api/controls', { status: 500, body: { error: 'fail' } });
+      startMockKarvi(MOCK_PORT);
+
+      const result = await bridge.syncBudgetControls('village-1', BUDGET);
+      expect(result).toBe(false);
+    });
+
+    it('returns false when Karvi unreachable', async () => {
+      const offlineBridge = new KarviBridge(db, 'http://localhost:19999');
+      const result = await offlineBridge.syncBudgetControls('village-1', BUDGET);
+      expect(result).toBe(false);
     });
   });
 

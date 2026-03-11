@@ -14,20 +14,33 @@ export function bridgeRoutes(karvi: KarviBridge, edda: EddaBridge): Hono {
   });
 
   app.post('/api/bridges/karvi/dispatch', async (c) => {
-    const body = await c.req.json() as Record<string, unknown>;
+    const body = await c.req.json();
     try {
-      const result = await karvi.dispatchTask({
-        villageId: body.village_id as string,
-        title: body.title as string,
-        description: body.description as string,
-        targetRepo: body.target_repo as string,
-        runtimeHint: body.runtime_hint as string | undefined,
-        modelHint: body.model_hint as string | undefined,
-      });
+      const result = await karvi.dispatchProject(body);
+      if (!result) {
+        return c.json({ ok: false, error: { code: 'KARVI_UNAVAILABLE', message: 'Karvi unreachable' } }, 502);
+      }
       return c.json({ ok: true, data: result }, 201);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
       return c.json({ ok: false, error: { code: 'DISPATCH_FAILED', message: msg } }, 502);
+    }
+  });
+
+  app.post('/api/bridges/karvi/tasks/:taskId/dispatch', async (c) => {
+    const taskId = c.req.param('taskId');
+    const runtime = c.req.query('runtime') || undefined;
+    try {
+      const result = await karvi.dispatchSingleTask(taskId, runtime);
+      if (!result) {
+        return c.json({ ok: false, error: { code: 'KARVI_UNAVAILABLE', message: 'Karvi unreachable' } }, 502);
+      }
+      return c.json({ ok: true, data: result });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Unknown error';
+      const code = msg.startsWith('BUDGET_EXCEEDED') ? 'BUDGET_EXCEEDED' : 'DISPATCH_FAILED';
+      const status = code === 'BUDGET_EXCEEDED' ? 409 : 502;
+      return c.json({ ok: false, error: { code, message: msg } }, status);
     }
   });
 

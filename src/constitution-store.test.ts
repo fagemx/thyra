@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Database } from 'bun:sqlite';
 import { createDb, initSchema } from './db';
 import { VillageManager } from './village-manager';
 import { ConstitutionStore, checkPermission, checkBudget } from './constitution-store';
+import type { KarviBridge } from './karvi-bridge';
 
 const RULES = [{ description: 'must review', enforcement: 'hard' as const, scope: ['*'] }];
 const PERMS: ['dispatch_task', 'propose_law'] = ['dispatch_task', 'propose_law'];
@@ -84,6 +85,81 @@ describe('ConstitutionStore', () => {
     const c = store.create(villageId, { rules: RULES, allowed_permissions: ['dispatch_task'] }, 'h');
     store.revoke(c.id, 'h');
     expect(() => store.supersede(c.id, { rules: RULES, allowed_permissions: ['dispatch_task'] }, 'h')).toThrow();
+  });
+});
+
+describe('ConstitutionStore — Karvi budget sync', () => {
+  let db: Database;
+  let villageId: string;
+  let mockSyncBudget: ReturnType<typeof vi.fn>;
+  let store: ConstitutionStore;
+
+  beforeEach(() => {
+    db = createDb(':memory:');
+    initSchema(db);
+    villageId = new VillageManager(db).create({ name: 'sync-test', target_repo: 'r' }, 'u').id;
+    mockSyncBudget = vi.fn().mockResolvedValue(true);
+    const mockBridge = { syncBudgetControls: mockSyncBudget } as unknown as KarviBridge;
+    store = new ConstitutionStore(db, mockBridge);
+  });
+
+  it('create triggers syncBudgetControls', () => {
+    store.create(villageId, {
+      rules: RULES,
+      allowed_permissions: ['dispatch_task'],
+      budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+    }, 'h');
+
+    expect(mockSyncBudget).toHaveBeenCalledWith(villageId, {
+      max_cost_per_action: 10,
+      max_cost_per_day: 100,
+      max_cost_per_loop: 50,
+    });
+  });
+
+  it('supersede triggers syncBudgetControls with new budget', () => {
+    const v1 = store.create(villageId, {
+      rules: RULES,
+      allowed_permissions: ['dispatch_task'],
+      budget_limits: { max_cost_per_action: 5, max_cost_per_day: 50, max_cost_per_loop: 25 },
+    }, 'h');
+    mockSyncBudget.mockClear();
+
+    store.supersede(v1.id, {
+      rules: RULES,
+      allowed_permissions: ['dispatch_task'],
+      budget_limits: { max_cost_per_action: 20, max_cost_per_day: 200, max_cost_per_loop: 100 },
+    }, 'h');
+
+    expect(mockSyncBudget).toHaveBeenCalledWith(villageId, {
+      max_cost_per_action: 20,
+      max_cost_per_day: 200,
+      max_cost_per_loop: 100,
+    });
+  });
+
+  it('Karvi failure does not break constitution create', () => {
+    mockSyncBudget.mockRejectedValue(new Error('connection refused'));
+
+    const c = store.create(villageId, {
+      rules: RULES,
+      allowed_permissions: ['dispatch_task'],
+    }, 'h');
+
+    expect(c.status).toBe('active');
+  });
+
+  it('no bridge → no sync (graceful)', () => {
+    const noBridgeStore = new ConstitutionStore(db);
+    const mgr = new VillageManager(db);
+    const v2 = mgr.create({ name: 'v2', target_repo: 'r2' }, 'u').id;
+
+    // Should not throw
+    const c = noBridgeStore.create(v2, {
+      rules: RULES,
+      allowed_permissions: ['dispatch_task'],
+    }, 'h');
+    expect(c.status).toBe('active');
   });
 });
 

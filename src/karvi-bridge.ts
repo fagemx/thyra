@@ -1,17 +1,11 @@
 import type { Database } from 'bun:sqlite';
 import { appendAudit } from './db';
 import type { KarviEventNormalized } from './schemas/karvi-event';
+import { DispatchProjectInput } from './schemas/karvi-dispatch';
+import type { DispatchProjectInputRaw, KarviProjectResponse, KarviSingleDispatchResponse, KarviBudgetExceededError } from './schemas/karvi-dispatch';
 
 export type { KarviEventNormalized } from './schemas/karvi-event';
-
-export interface DispatchOpts {
-  villageId: string;
-  title: string;
-  description: string;
-  targetRepo: string;
-  runtimeHint?: string;
-  modelHint?: string;
-}
+export type { DispatchProjectInputRaw, KarviProjectResponse, KarviSingleDispatchResponse } from './schemas/karvi-dispatch';
 
 export interface TaskStatus {
   id: string;
@@ -29,29 +23,72 @@ export class KarviBridge {
     private karviUrl: string,
   ) {}
 
-  async dispatchTask(opts: DispatchOpts): Promise<{ taskId: string }> {
-    const taskId = `THYRA-${opts.villageId}-${Date.now()}`;
-    const res = await fetch(`${this.karviUrl}/api/projects`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: `${taskId}: ${opts.title}`,
-        tasks: [{
-          id: taskId,
-          title: opts.title,
-          assignee: 'engineer_lite',
-          target_repo: opts.targetRepo,
-          runtimeHint: opts.runtimeHint,
-          modelHint: opts.modelHint,
-          description: opts.description,
-        }],
-      }),
-    });
+  /**
+   * 派發專案到 Karvi，對齊 POST /api/projects 格式
+   * 回傳 Karvi 的 project response（含 project.id, taskIds 等）
+   * Karvi 離線時回傳 null（graceful degradation）
+   */
+  async dispatchProject(rawInput: DispatchProjectInputRaw): Promise<KarviProjectResponse | null> {
+    const input = DispatchProjectInput.parse(rawInput);
+    try {
+      const res = await fetch(`${this.karviUrl}/api/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+        signal: AbortSignal.timeout(10_000),
+      });
 
-    if (!res.ok) throw new Error(`Karvi dispatch failed: ${res.status}`);
+      if (!res.ok) {
+        appendAudit(this.db, 'karvi', input.title, 'dispatch_failed', { status: res.status }, 'system');
+        throw new Error(`Karvi dispatch failed: ${res.status}`);
+      }
 
-    appendAudit(this.db, 'karvi', taskId, 'dispatch', opts, 'system');
-    return { taskId };
+      const data = await res.json() as KarviProjectResponse;
+      const projectId = data.project?.id ?? input.title;
+      appendAudit(this.db, 'karvi', projectId, 'dispatch', {
+        title: input.title,
+        taskCount: data.taskCount,
+        taskIds: data.project?.taskIds,
+      }, 'system');
+      return data;
+    } catch (e) {
+      if (e instanceof Error && e.message.startsWith('Karvi dispatch failed')) throw e;
+      // Karvi offline → graceful degradation
+      appendAudit(this.db, 'karvi', input.title, 'dispatch_unreachable', { error: 'Karvi unreachable' }, 'system');
+      return null;
+    }
+  }
+
+  /**
+   * 單任務派發：POST /api/tasks/:id/dispatch
+   * 回傳 dispatch result 或 null（Karvi 離線）
+   * 409 BUDGET_EXCEEDED 時 throw 含 remaining 資訊
+   */
+  async dispatchSingleTask(taskId: string, runtimeHint?: string): Promise<KarviSingleDispatchResponse | null> {
+    try {
+      const qs = runtimeHint ? `?runtime=${encodeURIComponent(runtimeHint)}` : '';
+      const res = await fetch(`${this.karviUrl}/api/tasks/${encodeURIComponent(taskId)}/dispatch${qs}`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (res.status === 409) {
+        const body = await res.json() as KarviBudgetExceededError;
+        appendAudit(this.db, 'karvi', taskId, 'budget_exceeded', { remaining: body.remaining }, 'system');
+        throw new Error(`BUDGET_EXCEEDED: ${JSON.stringify(body.remaining)}`);
+      }
+
+      if (!res.ok) {
+        throw new Error(`Karvi single dispatch failed: ${res.status}`);
+      }
+
+      const data = await res.json() as KarviSingleDispatchResponse;
+      appendAudit(this.db, 'karvi', taskId, 'dispatch_single', { dispatched: data.dispatched, planId: data.planId }, 'system');
+      return data;
+    } catch (e) {
+      if (e instanceof Error && (e.message.startsWith('BUDGET_EXCEEDED') || e.message.startsWith('Karvi single dispatch'))) throw e;
+      return null;
+    }
   }
 
   async getTaskStatus(taskId: string): Promise<TaskStatus | null> {
@@ -62,6 +99,49 @@ export class KarviBridge {
       return board.taskPlan?.tasks?.find((t) => t.id === taskId) ?? null;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * 同步 Constitution budget_limits 到 Karvi controls
+   * 映射：Thyra budget → Karvi usage_limits + step_timeout_sec
+   * Karvi 離線時回傳 false（graceful degradation）
+   */
+  async syncBudgetControls(villageId: string, budgetLimits: {
+    max_cost_per_action: number;
+    max_cost_per_day: number;
+    max_cost_per_loop: number;
+  }): Promise<boolean> {
+    try {
+      const controls = {
+        // max_cost_per_action → step default timeout (秒，以 cost × 60 為近似)
+        step_timeout_sec: {
+          default: Math.min(Math.max(budgetLimits.max_cost_per_action * 60, 30), 3600),
+        },
+        // max_cost_per_day → usage_limits (以 daily × 30 估算 monthly)
+        usage_limits: {
+          dispatches_per_month: budgetLimits.max_cost_per_day * 30,
+          runtime_sec_per_month: budgetLimits.max_cost_per_loop * 60 * 30,
+        },
+        usage_alert_threshold: 0.8,
+      };
+
+      const res = await fetch(`${this.karviUrl}/api/controls`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(controls),
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (res.ok) {
+        appendAudit(this.db, 'karvi', villageId, 'sync_budget', { budgetLimits, controls }, 'system');
+        return true;
+      }
+      appendAudit(this.db, 'karvi', villageId, 'sync_budget_failed', { status: res.status }, 'system');
+      return false;
+    } catch {
+      appendAudit(this.db, 'karvi', villageId, 'sync_budget_unreachable', { error: 'Karvi unreachable' }, 'system');
+      return false;
     }
   }
 
