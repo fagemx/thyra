@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "command": "edda claim \"agent-$RANDOM\" --paths \"**/*\"",
+        "timeout": 5000
+      }
+    ]
+  }
+}
