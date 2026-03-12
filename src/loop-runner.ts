@@ -98,7 +98,8 @@ export class LoopRunner {
     this.abortControllers.set(cycle.id, ac);
 
     // Run the loop async — don't await it
-    this.runLoop(cycle, chief, constitution, ac.signal);
+    this.runLoop(cycle, chief, constitution, ac.signal)
+      .catch(() => { /* errors handled inside runLoop catch block */ });
 
     return cycle;
   }
@@ -176,6 +177,9 @@ export class LoopRunner {
 
       // Max iterations reached
       this.finishCycle(cycle.id, 'completed', 'Max iterations reached');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.finishCycle(cycle.id, 'aborted', `Loop error: ${msg}`);
     } finally {
       clearTimeout(timeoutId);
       this.abortControllers.delete(cycle.id);
