@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite';
 import type { Constitution, BudgetLimits } from './constitution-store';
+import { detectRuleViolation } from './constitution-store';
 import type { Permission } from './schemas/constitution';
 
 export interface Action {
@@ -127,11 +128,31 @@ export class RiskAssessor {
 
     // Layer 2: Constitution Rules
     if (ctx.constitution) {
+      const actionText = [action.type, action.description, action.reason]
+        .filter(Boolean)
+        .join(' ');
       for (const rule of ctx.constitution.rules) {
         const inScope = rule.scope.includes('*') || rule.scope.includes(action.initiated_by);
         if (!inScope) continue;
-        // Constitution rule compliance — framework for T4 Law Engine
+        if (detectRuleViolation(rule.description, actionText)) {
+          reasons.push({
+            source: 'constitution',
+            id: rule.id,
+            message: rule.description,
+            severity: rule.enforcement === 'hard' ? 'block' : 'medium',
+          });
+        }
       }
+    }
+
+    // Early return if any constitution hard rule blocks
+    if (reasons.some((r) => r.severity === 'block')) {
+      return {
+        level: 'high',
+        blocked: true,
+        reasons,
+        budget_check: this.checkBudgets(action, ctx),
+      };
     }
 
     // Layer 3: Heuristic Scoring

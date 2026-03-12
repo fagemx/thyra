@@ -149,4 +149,85 @@ describe('RiskAssessor', () => {
     );
     expect(result.budget_check.per_loop.ok).toBe(false);
   });
+
+  describe('Layer 2: Constitution Rules', () => {
+    it('hard rule violation blocks action', () => {
+      const v2Id = new VillageManager(db).create({ name: 'v2', target_repo: 'r2' }, 'u').id;
+      const constitution = constitutionStore.create(v2Id, {
+        rules: [{ id: 'R-NO-DEPLOY', description: 'must not auto-deploy', enforcement: 'hard', scope: ['*'] }],
+        allowed_permissions: ['dispatch_task'],
+        budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+      }, 'h');
+      // Action that triggers violation: rule says "must not auto-deploy", action does "auto-deploy"
+      const result = assessor.assess(
+        makeAction({ type: 'auto-deploy', description: 'auto-deploy to production', village_id: v2Id }),
+        { constitution, recent_rollbacks: [] },
+      );
+      expect(result.blocked).toBe(true);
+      expect(result.level).toBe('high');
+      expect(result.reasons.some((r) => r.source === 'constitution' && r.id === 'R-NO-DEPLOY' && r.severity === 'block')).toBe(true);
+    });
+
+    it('soft rule violation raises level to medium, not blocked', () => {
+      const v3Id = new VillageManager(db).create({ name: 'v3', target_repo: 'r3' }, 'u').id;
+      const constitution = constitutionStore.create(v3Id, {
+        rules: [{ id: 'R-NO-SKIP', description: 'must not skip testing', enforcement: 'soft', scope: ['*'] }],
+        allowed_permissions: ['dispatch_task'],
+        budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+      }, 'h');
+      // Action violates: rule says "must not skip testing", action does "skip testing"
+      const result = assessor.assess(
+        makeAction({ type: 'skip_testing', description: 'skip testing for hotfix', village_id: v3Id }),
+        { constitution, recent_rollbacks: [] },
+      );
+      expect(result.blocked).toBe(false);
+      expect(result.reasons.some((r) => r.source === 'constitution' && r.severity === 'medium')).toBe(true);
+      expect(result.level).toBe('medium');
+    });
+
+    it('out-of-scope rule ignored', () => {
+      const v4Id = new VillageManager(db).create({ name: 'v4', target_repo: 'r4' }, 'u').id;
+      const constitution = constitutionStore.create(v4Id, {
+        rules: [{ id: 'R-SCOPED', description: 'must not auto-deploy', enforcement: 'hard', scope: ['chief-2'] }],
+        allowed_permissions: ['dispatch_task'],
+        budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+      }, 'h');
+      // chief-1 is not in scope ['chief-2'], so rule should not apply
+      const result = assessor.assess(
+        makeAction({ type: 'auto-deploy', description: 'auto-deploy service', initiated_by: 'chief-1', village_id: v4Id }),
+        { constitution, recent_rollbacks: [] },
+      );
+      expect(result.reasons.filter((r) => r.source === 'constitution')).toHaveLength(0);
+    });
+
+    it('no constitution → Layer 2 skipped, level low', () => {
+      const result = assessor.assess(
+        makeAction({ village_id: villageId }),
+        { constitution: null, recent_rollbacks: [] },
+      );
+      expect(result.blocked).toBe(false);
+      expect(result.level).toBe('low');
+      expect(result.reasons.filter((r) => r.source === 'constitution')).toHaveLength(0);
+    });
+
+    it('multiple rules: hard + soft → hard blocks regardless', () => {
+      const v5Id = new VillageManager(db).create({ name: 'v5', target_repo: 'r5' }, 'u').id;
+      const constitution = constitutionStore.create(v5Id, {
+        rules: [
+          { id: 'R-HARD', description: 'never auto-deploy', enforcement: 'hard', scope: ['*'] },
+          { id: 'R-SOFT', description: 'not auto-deploy without approval', enforcement: 'soft', scope: ['*'] },
+        ],
+        allowed_permissions: ['dispatch_task'],
+        budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+      }, 'h');
+      const result = assessor.assess(
+        makeAction({ type: 'auto-deploy', description: 'auto-deploy service', village_id: v5Id }),
+        { constitution, recent_rollbacks: [] },
+      );
+      expect(result.blocked).toBe(true);
+      expect(result.level).toBe('high');
+      expect(result.reasons.some((r) => r.id === 'R-HARD' && r.severity === 'block')).toBe(true);
+      expect(result.reasons.some((r) => r.id === 'R-SOFT' && r.severity === 'medium')).toBe(true);
+    });
+  });
 });
