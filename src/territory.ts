@@ -99,6 +99,10 @@ export class TerritoryCoordinator {
     this.db.prepare("UPDATE agreements SET status = 'revoked', updated_at = ? WHERE territory_id = ? AND status IN ('pending', 'active')")
       .run(now, id);
 
+    // Revoke all active skill shares
+    this.db.prepare("UPDATE skill_shares SET status = 'revoked' WHERE territory_id = ? AND status = 'active'")
+      .run(id);
+
     appendAudit(this.db, 'territory', id, 'dissolve', {}, actor);
     return { ...territory, status: 'dissolved', updated_at: now };
   }
@@ -212,8 +216,27 @@ export class TerritoryCoordinator {
     if (skill.status !== 'verified') throw new Error('Skill must be verified to share');
     if (skill.village_id !== input.from_village_id) throw new Error('Skill does not belong to source village');
 
+    // Idempotent: check if already shared
+    const existing = this.db.prepare(`
+      SELECT id FROM skill_shares
+      WHERE skill_id = ? AND to_village_id = ? AND territory_id = ? AND status = 'active'
+    `).get(input.skill_id, input.to_village_id, sharedTerritory.id) as Record<string, unknown> | null;
+
+    if (existing) {
+      return { shared: true, message: `Skill "${skill.name}" already shared to ${input.to_village_id}` };
+    }
+
+    // Insert skill share record
+    const shareId = `skill-share-${randomUUID()}`;
+    const now = new Date().toISOString();
+    this.db.prepare(`
+      INSERT INTO skill_shares (id, skill_id, from_village_id, to_village_id, territory_id, agreement_id, status, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'active', ?)
+    `).run(shareId, input.skill_id, input.from_village_id, input.to_village_id, sharedTerritory.id, sharingAgreement.id, now);
+
     appendAudit(this.db, 'territory', sharedTerritory.id, 'share_skill', {
       skill_id: input.skill_id,
+      share_id: shareId,
       from: input.from_village_id,
       to: input.to_village_id,
     }, actor);
