@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { KarviBridge } from '../karvi-bridge';
 import type { EddaBridge } from '../edda-bridge';
 import { KarviWebhookPayloadSchema, normalizeKarviEvent } from '../schemas/karvi-event';
+import { EddaQueryInput, EddaDecideInput } from '../schemas/edda-bridge';
 
 export function bridgeRoutes(karvi: KarviBridge, edda: EddaBridge): Hono {
   const app = new Hono();
@@ -107,32 +108,28 @@ export function bridgeRoutes(karvi: KarviBridge, edda: EddaBridge): Hono {
   });
 
   app.post('/api/bridges/edda/query', async (c) => {
-    const body = await c.req.json() as Record<string, unknown>;
+    const parsed = EddaQueryInput.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: parsed.error.message } }, 400);
+    }
+    const { data } = parsed;
     const results = await edda.queryDecisions({
-      q: body.q as string | undefined,
-      domain: body.domain as string | undefined,
-      keyword: body.keyword as string | undefined,
-      limit: body.limit as number | undefined,
-      includeSuperseded: body.include_superseded as boolean | undefined,
-      branch: body.branch as string | undefined,
+      q: data.q,
+      domain: data.domain,
+      keyword: data.keyword,
+      limit: data.limit,
+      includeSuperseded: data.include_superseded,
+      branch: data.branch,
     });
     return c.json({ ok: true, data: results });
   });
 
   app.post('/api/bridges/edda/decide', async (c) => {
-    const body = await c.req.json() as Record<string, unknown>;
-    const domain = body.domain as string | undefined;
-    const aspect = body.aspect as string | undefined;
-    const value = body.value as string | undefined;
-    if (!domain || !aspect || !value) {
-      return c.json({ ok: false, error: { code: 'VALIDATION', message: 'domain, aspect, value required' } }, 400);
+    const parsed = EddaDecideInput.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: parsed.error.message } }, 400);
     }
-    const result = await edda.recordDecision({
-      domain,
-      aspect,
-      value,
-      reason: body.reason as string | undefined,
-    });
+    const result = await edda.recordDecision(parsed.data);
     if (!result) {
       return c.json({ ok: false, error: { code: 'EDDA_UNAVAILABLE', message: 'Edda unreachable or rejected' } }, 502);
     }
