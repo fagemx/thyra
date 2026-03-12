@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite';
 import { appendAudit } from './db';
+import { EddaLogResponseSchema } from './schemas/edda-bridge';
 
 // --- Edda-aligned types (matches edda-ask AskResult / DecisionHit) ---
 
@@ -241,18 +242,28 @@ export class EddaBridge {
       });
 
       if (!res.ok) return [];
-      const data = await res.json() as Record<string, unknown>;
-      const raw: Record<string, unknown>[] = Array.isArray(data)
-        ? (data as Record<string, unknown>[])
-        : ((data.events as Record<string, unknown>[]) ?? []);
-      return raw.map((e) => ({
-        event_id: e.event_id as string,
-        type: (e.event_type ?? e.type) as string,
-        summary: (e.detail ?? e.summary) as string,
-        ts: e.ts as string,
-        branch: e.branch as string | undefined,
-        tags: e.tags as string[] | undefined,
-      }));
+      const data = await res.json();
+      const parsed = EddaLogResponseSchema.safeParse(data);
+      if (!parsed.success) return [];
+
+      const entries: EddaLogEntry[] = Array.isArray(parsed.data)
+        ? parsed.data.map((e) => ({
+            event_id: e.event_id,
+            type: e.type,
+            summary: e.summary,
+            ts: e.ts,
+            branch: e.branch,
+            tags: e.tags,
+          }))
+        : parsed.data.events.map((e) => ({
+            event_id: e.event_id,
+            type: e.event_type,
+            summary: e.detail,
+            ts: e.ts,
+            branch: e.branch,
+            tags: e.tags,
+          }));
+      return entries;
     } catch {
       return [];
     }
