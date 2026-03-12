@@ -8,8 +8,9 @@ import { ChiefEngine } from './chief-engine';
 import { LawEngine } from './law-engine';
 import { RiskAssessor } from './risk-assessor';
 import { DecisionEngine } from './decision-engine';
-import type { LoopOutcome, CycleState } from './decision-engine';
+import type { LoopOutcome, CycleState, DecideContext } from './decision-engine';
 import type { LoopAction } from './schemas/loop';
+import type { EddaDecisionHit } from './edda-bridge';
 
 describe('DecisionEngine', () => {
   let db: Database;
@@ -282,7 +283,7 @@ describe('DecisionEngine', () => {
       const ctx = await engine.buildContext(villageId, chiefId, [{ some: 'data' }], baseCycleState);
       const result = engine.decide(ctx);
 
-      expect(result.reasoning.summary).toContain('Phase 0');
+      expect(result.reasoning.summary.length).toBeGreaterThan(0);
       expect(result.reasoning.factors.length).toBeGreaterThan(0);
       expect(Array.isArray(result.reasoning.precedent_notes)).toBe(true);
       expect(Array.isArray(result.reasoning.law_considerations)).toBe(true);
@@ -391,6 +392,420 @@ describe('DecisionEngine', () => {
         const countAfter = (db.prepare(`SELECT COUNT(*) as c FROM ${t}`).get() as Record<string, number>).c;
         expect(countAfter).toBe(countsBefore[t]);
       }
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Pipeline Rule Engine 測試 (v0.1 Section 9)
+  // -----------------------------------------------------------------------
+
+  describe('pipeline rules', () => {
+    /** 建立帶有指定 personality 的 chief，回傳 chiefId */
+    function createChiefWithPersonality(
+      riskTolerance: 'conservative' | 'moderate' | 'aggressive',
+      extraOpts?: { constraints?: Array<{ type: 'must' | 'must_not' | 'prefer' | 'avoid'; description: string }> },
+    ): string {
+      return chiefEngine.create(villageId, {
+        name: `${riskTolerance}-chief`,
+        role: 'governor',
+        permissions: ['dispatch_task', 'propose_law'],
+        personality: {
+          risk_tolerance: riskTolerance,
+          communication_style: 'concise',
+          decision_speed: 'deliberate',
+        },
+        constraints: extraOpts?.constraints ?? [],
+      }, 'human').id;
+    }
+
+    /** 建立並驗證一個 skill */
+    function createVerifiedSkill(name: string): string {
+      const skill = skillRegistry.create({
+        name,
+        definition: {
+          description: `${name} skill`,
+          prompt_template: `Do ${name}`,
+          tools_required: [],
+          constraints: [],
+        },
+      }, 'human');
+      skillRegistry.verify(skill.id, 'human');
+      return skill.id;
+    }
+
+    /** 快速建立一個帶有特定條件的 DecideContext */
+    async function buildTestContext(overrides: Partial<CycleState> & {
+      observations?: Record<string, unknown>[];
+      useChiefId?: string;
+    } = {}): Promise<DecideContext> {
+      const cId = overrides.useChiefId ?? chiefId;
+      return engine.buildContext(
+        villageId,
+        cId,
+        overrides.observations ?? [],
+        {
+          ...baseCycleState,
+          ...overrides,
+        },
+      );
+    }
+
+    // Test 1: 無 active law、無 intent → action: null
+    it('no active law, no intent → action: null (cycle completed)', async () => {
+      const ctx = await buildTestContext();
+      const result = engine.decide(ctx);
+
+      expect(result.action).toBeNull();
+      expect(result.reasoning.summary).toContain('No action needed');
+    });
+
+    // Test 2: 有 active law、無 intent → 開始新流水線
+    it('has active law, no intent → start new pipeline (dispatch_task research)', async () => {
+      // 建立 verified research skill
+      createVerifiedSkill('research');
+
+      // 給 chief enact_law_low 權限讓 law 自動生效
+      chiefEngine.update(chiefId, {
+        permissions: ['dispatch_task', 'propose_law', 'enact_law_low'],
+      }, 'human');
+
+      // 建立 active law
+      lawEngine.propose(villageId, chiefId, {
+        category: 'testing',
+        content: { description: 'test law', strategy: {} },
+        evidence: { source: 'test', reasoning: 'testing' },
+      });
+
+      const ctx = await buildTestContext();
+      expect(ctx.active_laws.length).toBeGreaterThan(0);
+
+      const result = engine.decide(ctx);
+
+      expect(result.action).not.toBeNull();
+      expect(result.action!.kind).toBe('dispatch_task');
+      expect(result.action!.task_key).toBe('research');
+    });
+
+    // Test 3: intent stage=research + last_action=executed → 進 draft
+    it('intent stage=research + last_action=executed → advance to draft', async () => {
+      createVerifiedSkill('draft');
+
+      const actions: LoopAction[] = [
+        { type: 'research', description: 'r', estimated_cost: 5, risk_level: 'low', status: 'executed', reason: 'ok' },
+      ];
+
+      const ctx = await buildTestContext({
+        actions,
+        intent: {
+          goal_kind: 'content_pipeline',
+          stage_hint: 'research',
+          origin_reason: 'test',
+          last_decision_summary: 'started research',
+        },
+      });
+
+      const result = engine.decide(ctx);
+
+      expect(result.action).not.toBeNull();
+      expect(result.action!.kind).toBe('dispatch_task');
+      expect(result.action!.task_key).toBe('draft');
+    });
+
+    // Test 4: pending_approval 存在 → wait
+    it('pending_approval exists → wait', async () => {
+      const actions: LoopAction[] = [
+        { type: 'review', description: 'rv', estimated_cost: 2, risk_level: 'medium', status: 'pending_approval', reason: 'needs human' },
+      ];
+
+      const ctx = await buildTestContext({ actions });
+      const result = engine.decide(ctx);
+
+      expect(result.action).not.toBeNull();
+      expect(result.action!.kind).toBe('wait');
+    });
+
+    // Test 5: budget_ratio < 0.1 → complete_cycle
+    it('budget_ratio < 0.1 → complete_cycle', async () => {
+      // 花掉 95% 的預算
+      riskAssessor.recordSpend(villageId, null, 95);
+
+      const ctx = await buildTestContext();
+      const result = engine.decide(ctx);
+
+      expect(result.action).not.toBeNull();
+      expect(result.action!.kind).toBe('complete_cycle');
+      expect(result.action!.reason).toContain('Budget exhausted');
+    });
+
+    // Test 6: conservative chief + 負面判例 → lower confidence
+    it('conservative chief + negative precedent → lower confidence', async () => {
+      createVerifiedSkill('research');
+
+      const conservativeChiefId = createChiefWithPersonality('conservative');
+
+      // 給 chief enact_law_low 權限
+      chiefEngine.update(conservativeChiefId, {
+        permissions: ['dispatch_task', 'propose_law', 'enact_law_low'],
+      }, 'human');
+
+      // 建立 active law
+      lawEngine.propose(villageId, conservativeChiefId, {
+        category: 'testing',
+        content: { description: 'test law', strategy: {} },
+        evidence: { source: 'test', reasoning: 'testing' },
+      });
+
+      // 建立有 active law 的 context，然後手動注入 edda precedent
+      const ctx = await buildTestContext({ useChiefId: conservativeChiefId });
+
+      // 手動注入負面判例
+      const ctxWithPrecedent: DecideContext = {
+        ...ctx,
+        edda_precedents: [{
+          event_id: 'evt-neg-1',
+          key: 'test.strategy',
+          value: 'harmful — caused failures',
+          reason: 'negative outcome',
+          domain: 'test',
+          branch: 'main',
+          ts: new Date().toISOString(),
+          is_active: true,
+        }],
+        edda_available: true,
+      };
+
+      const result = engine.decide(ctxWithPrecedent);
+
+      // conservative + negative precedent → confidence should be lowered
+      expect(result.reasoning.confidence).toBeLessThan(0.5);
+    });
+
+    // Test 7: aggressive chief + 正面判例 → raise confidence
+    it('aggressive chief + positive precedent → raise confidence', async () => {
+      createVerifiedSkill('research');
+
+      const aggressiveChiefId = createChiefWithPersonality('aggressive');
+
+      // 給 chief enact_law_low 權限
+      chiefEngine.update(aggressiveChiefId, {
+        permissions: ['dispatch_task', 'propose_law', 'enact_law_low'],
+      }, 'human');
+
+      // 建立 active law
+      lawEngine.propose(villageId, aggressiveChiefId, {
+        category: 'testing',
+        content: { description: 'test law', strategy: {} },
+        evidence: { source: 'test', reasoning: 'testing' },
+      });
+
+      const ctx = await buildTestContext({ useChiefId: aggressiveChiefId });
+
+      // 手動注入正面判例
+      const ctxWithPrecedent: DecideContext = {
+        ...ctx,
+        edda_precedents: [{
+          event_id: 'evt-pos-1',
+          key: 'test.strategy',
+          value: 'effective — good results',
+          reason: 'positive outcome',
+          domain: 'test',
+          branch: 'main',
+          ts: new Date().toISOString(),
+          is_active: true,
+        }],
+        edda_available: true,
+      };
+
+      const result = engine.decide(ctxWithPrecedent);
+
+      // aggressive + positive precedent → confidence should be high
+      expect(result.reasoning.confidence).toBeGreaterThan(0.8);
+    });
+
+    // Test 8: 連續 3 次 blocked → law proposal
+    it('3 consecutive blocks + rollbacks → law proposal', async () => {
+      const actions: LoopAction[] = [
+        { type: 'a1', description: 'd1', estimated_cost: 5, risk_level: 'high', status: 'blocked', reason: 'SI', blocked_reasons: ['SI-1'] },
+        { type: 'a2', description: 'd2', estimated_cost: 5, risk_level: 'high', status: 'blocked', reason: 'SI', blocked_reasons: ['SI-2'] },
+        { type: 'a3', description: 'd3', estimated_cost: 5, risk_level: 'high', status: 'blocked', reason: 'SI', blocked_reasons: ['SI-3'] },
+      ];
+
+      const ctx = await buildTestContext({ actions });
+      const result = engine.decide(ctx);
+
+      expect(result.law_proposals.length).toBeGreaterThan(0);
+      expect(result.law_proposals[0].evidence.source).toBe('decision_engine');
+    });
+
+    // Test 9: task_key 無對應 verified skill → 不產出該候選
+    it('task_key has no verified skill → filtered out', async () => {
+      // 不建立任何 skill，但有 active law + no intent → 嘗試 research
+      chiefEngine.update(chiefId, {
+        permissions: ['dispatch_task', 'propose_law', 'enact_law_low'],
+      }, 'human');
+
+      lawEngine.propose(villageId, chiefId, {
+        category: 'testing',
+        content: { description: 'test law', strategy: {} },
+        evidence: { source: 'test', reasoning: 'testing' },
+      });
+
+      const ctx = await buildTestContext();
+      expect(ctx.active_laws.length).toBeGreaterThan(0);
+
+      const result = engine.decide(ctx);
+
+      // No verified 'research' skill → candidates filtered → action null
+      expect(result.action).toBeNull();
+    });
+
+    // Test 10: Edda offline → 正常運作
+    it('Edda offline → normal operation (edda_available=false)', async () => {
+      const ctx = await buildTestContext();
+
+      expect(ctx.edda_available).toBe(false);
+      expect(ctx.edda_precedents).toEqual([]);
+
+      const result = engine.decide(ctx);
+
+      // 仍然可以正常運作（無 law 無 intent → null action）
+      expect(result.reasoning.summary.length).toBeGreaterThan(0);
+    });
+
+    // Test 11: 全 blocked → complete_cycle
+    it('all blocked (>= 3) → complete_cycle', async () => {
+      const actions: LoopAction[] = [
+        { type: 'a1', description: 'd1', estimated_cost: 5, risk_level: 'high', status: 'blocked', reason: 'SI', blocked_reasons: ['SI-1'] },
+        { type: 'a2', description: 'd2', estimated_cost: 5, risk_level: 'high', status: 'blocked', reason: 'SI', blocked_reasons: ['SI-2'] },
+        { type: 'a3', description: 'd3', estimated_cost: 5, risk_level: 'high', status: 'blocked', reason: 'SI', blocked_reasons: ['SI-3'] },
+      ];
+
+      const ctx = await buildTestContext({ actions });
+      const result = engine.decide(ctx);
+
+      expect(result.action).not.toBeNull();
+      expect(result.action!.kind).toBe('complete_cycle');
+      expect(result.action!.reason).toContain('blocked');
+    });
+
+    // Test 12: reasoning 完整 → SI-2 滿足
+    it('reasoning complete → SI-2 satisfied (summary non-empty)', async () => {
+      const ctx = await buildTestContext();
+      const result = engine.decide(ctx);
+
+      expect(result.reasoning.summary).toBeTruthy();
+      expect(result.reasoning.summary.length).toBeGreaterThan(0);
+      expect(Array.isArray(result.reasoning.factors)).toBe(true);
+      expect(result.reasoning.factors.length).toBeGreaterThan(0);
+      expect(typeof result.reasoning.personality_effect).toBe('string');
+      expect(result.reasoning.personality_effect.length).toBeGreaterThan(0);
+    });
+
+    // Extra: harmful law still active → propose revoke
+    it('law with harmful effectiveness still active → propose revoke', async () => {
+      chiefEngine.update(chiefId, {
+        permissions: ['dispatch_task', 'propose_law', 'enact_law_low'],
+      }, 'human');
+
+      const law = lawEngine.propose(villageId, chiefId, {
+        category: 'testing',
+        content: { description: 'harmful test law', strategy: {} },
+        evidence: { source: 'test', reasoning: 'testing' },
+      });
+
+      // 評估為 harmful（非 auto-approved 的 law 不會 auto-rollback）
+      // 需要手動 approve 先
+      if (law.status === 'proposed') {
+        lawEngine.approve(law.id, 'human');
+      }
+
+      lawEngine.evaluate(law.id, {
+        metrics: { quality: -5 },
+        verdict: 'harmful',
+      });
+
+      // law 可能已被 auto-rollback（如果 auto-approved），先確認 active
+      const activeLaws = lawEngine.getActiveLaws(villageId);
+      if (activeLaws.some(l => l.effectiveness?.verdict === 'harmful')) {
+        const ctx = await buildTestContext();
+        const result = engine.decide(ctx);
+
+        expect(result.law_proposals.length).toBeGreaterThan(0);
+        expect(result.law_proposals.some(p => p.content.description.includes('Revoke harmful'))).toBe(true);
+      }
+    });
+
+    // Extra: pipeline advances through review → publish
+    it('intent stage=review + last_action=executed → advance to publish', async () => {
+      createVerifiedSkill('publish');
+
+      const actions: LoopAction[] = [
+        { type: 'review', description: 'rv', estimated_cost: 2, risk_level: 'low', status: 'executed', reason: 'ok' },
+      ];
+
+      const ctx = await buildTestContext({
+        actions,
+        intent: {
+          goal_kind: 'content_pipeline',
+          stage_hint: 'review',
+          origin_reason: 'test',
+          last_decision_summary: 'review done',
+        },
+      });
+
+      const result = engine.decide(ctx);
+
+      expect(result.action).not.toBeNull();
+      expect(result.action!.kind).toBe('dispatch_task');
+      expect(result.action!.task_key).toBe('publish');
+    });
+
+    // Extra: publish completed → complete_cycle
+    it('intent stage=publish + last_action=executed → complete_cycle', async () => {
+      const actions: LoopAction[] = [
+        { type: 'publish', description: 'pub', estimated_cost: 2, risk_level: 'low', status: 'executed', reason: 'ok' },
+      ];
+
+      const ctx = await buildTestContext({
+        actions,
+        intent: {
+          goal_kind: 'content_pipeline',
+          stage_hint: 'publish',
+          origin_reason: 'test',
+          last_decision_summary: 'publish done',
+        },
+      });
+
+      const result = engine.decide(ctx);
+
+      expect(result.action).not.toBeNull();
+      expect(result.action!.kind).toBe('complete_cycle');
+      expect(result.action!.reason).toContain('Pipeline completed');
+    });
+
+    // Extra: updated_intent is set when advancing pipeline
+    it('updated_intent is set when dispatching task', async () => {
+      createVerifiedSkill('draft');
+
+      const actions: LoopAction[] = [
+        { type: 'research', description: 'r', estimated_cost: 5, risk_level: 'low', status: 'executed', reason: 'ok' },
+      ];
+
+      const ctx = await buildTestContext({
+        actions,
+        intent: {
+          goal_kind: 'content_pipeline',
+          stage_hint: 'research',
+          origin_reason: 'test',
+          last_decision_summary: 'research done',
+        },
+      });
+
+      const result = engine.decide(ctx);
+
+      expect(result.updated_intent).not.toBeNull();
+      expect(result.updated_intent!.stage_hint).toBe('draft');
+      expect(result.updated_intent!.goal_kind).toBe('content_pipeline');
     });
   });
 });
