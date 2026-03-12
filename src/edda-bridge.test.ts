@@ -429,5 +429,13 @@ describe('EddaBridge', () => {
       const result = await bridge.queryEventLog();
       expect(result).toEqual([]);
     });
+
+    it('returns empty array on malformed response (Zod validation failure)', async () => {
+      mockResponses.set('GET /api/log', { status: 200, body: { unexpected: true } });
+      startMockEdda(MOCK_PORT);
+
+      const result = await bridge.queryEventLog();
+      expect(result).toEqual([]);
+    });
   });
 });
