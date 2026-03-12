@@ -177,8 +177,32 @@ async function main() {
     log('6. Dispatch task to Karvi', false, 'Skipped — Karvi offline');
   }
 
+  // ── Step 6b: Wait for real Karvi webhook (if task dispatched) ──
+  let realWebhookReceived = false;
+  if (dispatchOk && taskId) {
+    console.log('   ⏳ Polling for real Karvi webhook events (up to 15s)...');
+    for (let i = 0; i < 15; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      try {
+        const events = await json(`${THYRA}/api/bridges/karvi/events?limit=20`);
+        const eventsData = events.data as Array<Record<string, unknown>> | undefined;
+        const realEvent = eventsData?.find((e) => e.task_id === taskId);
+        if (realEvent) {
+          realWebhookReceived = true;
+          log('6b. Real Karvi webhook received', true, `event_type=${realEvent.event_type}`);
+          break;
+        }
+      } catch { /* keep polling */ }
+    }
+    if (!realWebhookReceived) {
+      log('6b. Real Karvi webhook received', false, 'Timeout — Karvi may not have executable steps for this task');
+    }
+  } else {
+    log('6b. Real Karvi webhook received', false, 'Skipped — no task dispatched');
+  }
+
   // ── Step 7: Simulate Karvi webhook event ──
-  // Karvi 的真實 step 可能不會立刻完成，所以我們直接模擬一個 webhook POST
+  // 即使真實 webhook 已收到，仍模擬一個確認 Thyra handler 正常
   const eventId = `evt_e2e_${Date.now()}`;
   const webhookPayload = {
     version: 'karvi.event.v1',
@@ -260,6 +284,21 @@ async function main() {
   const badQueryData = eddaBadQuery.data as Record<string, unknown> | undefined;
   const badDecisions = badQueryData?.decisions as unknown[] | undefined;
   log('12. Edda query (empty domain)', badQueryOk && (badDecisions?.length ?? 0) === 0);
+
+  // ── Step 13: Verify Edda /api/log field names (type/summary) ──
+  const eddaLog = await json(`${THYRA}/api/bridges/edda/log`);
+  if (eddaLog.ok === true) {
+    const logData = eddaLog.data as Array<Record<string, unknown>> | undefined;
+    if (logData && logData.length > 0) {
+      const entry = logData[0];
+      const hasCorrectFields = typeof entry.type === 'string' && typeof entry.summary === 'string';
+      log('13. Edda log field names', hasCorrectFields, `type=${entry.type}, summary=${String(entry.summary).slice(0, 40)}`);
+    } else {
+      log('13. Edda log field names', true, 'No entries yet (format OK, empty log)');
+    }
+  } else {
+    log('13. Edda log field names', false, 'Edda log query failed');
+  }
 
   // ── Summary ──
   console.log('\n' + '═'.repeat(50));
