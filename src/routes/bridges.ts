@@ -49,6 +49,42 @@ export function bridgeRoutes(karvi: KarviBridge, edda: EddaBridge): Hono {
     return c.json({ ok: true, data: karvi.getRecentEvents(limit) });
   });
 
+  app.post('/api/bridges/karvi/tasks/:taskId/cancel', async (c) => {
+    const taskId = c.req.param('taskId');
+    const cancelled = await karvi.cancelTask(taskId);
+    if (!cancelled) {
+      return c.json({ ok: false, error: { code: 'KARVI_UNAVAILABLE', message: 'Cancel failed or Karvi unreachable' } }, 502);
+    }
+    return c.json({ ok: true, data: { cancelled: true } });
+  });
+
+  app.get('/api/bridges/karvi/board', async (c) => {
+    const board = await karvi.getBoard();
+    if (!board) {
+      return c.json({ ok: false, error: { code: 'KARVI_UNAVAILABLE', message: 'Karvi unreachable' } }, 502);
+    }
+    return c.json({ ok: true, data: board });
+  });
+
+  app.get('/api/bridges/karvi/runtime-status', async (c) => {
+    const fieldsParam = c.req.query('fields');
+    const fields = fieldsParam ? fieldsParam.split(',') : undefined;
+    const status = await karvi.getStatus(fields);
+    if (!status) {
+      return c.json({ ok: false, error: { code: 'KARVI_UNAVAILABLE', message: 'Karvi unreachable' } }, 502);
+    }
+    return c.json({ ok: true, data: status });
+  });
+
+  app.get('/api/bridges/karvi/tasks/:taskId/progress', async (c) => {
+    const taskId = c.req.param('taskId');
+    const progress = await karvi.getTaskProgress(taskId);
+    if (!progress) {
+      return c.json({ ok: false, error: { code: 'KARVI_UNAVAILABLE', message: 'Karvi unreachable or task not found' } }, 502);
+    }
+    return c.json({ ok: true, data: progress });
+  });
+
   app.post('/api/webhooks/karvi', async (c) => {
     try {
       const body = await c.req.json();

@@ -2,10 +2,10 @@ import type { Database } from 'bun:sqlite';
 import { appendAudit } from './db';
 import type { KarviEventNormalized } from './schemas/karvi-event';
 import { DispatchProjectInput } from './schemas/karvi-dispatch';
-import type { DispatchProjectInputRaw, KarviProjectResponse, KarviSingleDispatchResponse, KarviBudgetExceededError } from './schemas/karvi-dispatch';
+import type { DispatchProjectInputRaw, KarviProjectResponse, KarviSingleDispatchResponse, KarviBudgetExceededError, KarviBoard, KarviStatus, KarviTaskProgress } from './schemas/karvi-dispatch';
 
 export type { KarviEventNormalized } from './schemas/karvi-event';
-export type { DispatchProjectInputRaw, KarviProjectResponse, KarviSingleDispatchResponse } from './schemas/karvi-dispatch';
+export type { DispatchProjectInputRaw, KarviProjectResponse, KarviSingleDispatchResponse, KarviBoard, KarviStatus, KarviTaskProgress } from './schemas/karvi-dispatch';
 
 export interface TaskStatus {
   id: string;
@@ -94,7 +94,9 @@ export class KarviBridge {
 
   async getTaskStatus(taskId: string): Promise<TaskStatus | null> {
     try {
-      const res = await fetch(`${this.karviUrl}/api/board`);
+      const res = await fetch(`${this.karviUrl}/api/board`, {
+        signal: AbortSignal.timeout(5000),
+      });
       if (!res.ok) return null;
       const board = await res.json() as { taskPlan?: { tasks?: TaskStatus[] } };
       return board.taskPlan?.tasks?.find((t) => t.id === taskId) ?? null;
@@ -218,6 +220,67 @@ export class KarviBridge {
         raw,
       };
     });
+  }
+
+  // --- Bridge methods for #39, #40, #41 ---
+
+  async cancelTask(taskId: string): Promise<boolean> {
+    try {
+      const res = await fetch(
+        `${this.karviUrl}/api/tasks/${encodeURIComponent(taskId)}/cancel`,
+        { method: 'POST', signal: AbortSignal.timeout(10_000) },
+      );
+      if (res.ok) {
+        appendAudit(this.db, 'karvi', taskId, 'cancel_task', {}, 'system');
+        return true;
+      }
+      appendAudit(this.db, 'karvi', taskId, 'cancel_task_failed', { status: res.status }, 'system');
+      return false;
+    } catch {
+      appendAudit(this.db, 'karvi', taskId, 'cancel_task_unreachable', {}, 'system');
+      return false;
+    }
+  }
+
+  async getBoard(): Promise<KarviBoard | null> {
+    try {
+      const res = await fetch(`${this.karviUrl}/api/board`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) return null;
+      return (await res.json()) as KarviBoard;
+    } catch {
+      return null;
+    }
+  }
+
+  async getStatus(fields?: string[]): Promise<KarviStatus | null> {
+    try {
+      let url = `${this.karviUrl}/api/status`;
+      if (fields && fields.length > 0) {
+        url += `?fields=${encodeURIComponent(fields.join(','))}`;
+      }
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) return null;
+      return (await res.json()) as KarviStatus;
+    } catch {
+      return null;
+    }
+  }
+
+  async getTaskProgress(taskId: string): Promise<KarviTaskProgress | null> {
+    try {
+      const res = await fetch(
+        `${this.karviUrl}/api/tasks/${encodeURIComponent(taskId)}/progress`,
+        { signal: AbortSignal.timeout(5000) },
+      );
+      if (!res.ok) return null;
+      return (await res.json()) as KarviTaskProgress;
+    } catch {
+      return null;
+    }
   }
 
   startMonitor(intervalMs = 30_000): void {

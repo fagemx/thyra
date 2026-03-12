@@ -75,3 +75,43 @@ export interface KarviBudgetExceededError {
     steps: number;
   };
 }
+
+// === Karvi Read API Response Types ===
+
+export interface KarviBoard {
+  taskPlan?: { tasks: Array<Record<string, unknown>>; [key: string]: unknown };
+  controls?: Record<string, unknown>;
+  conversations?: unknown[];
+  signals?: unknown[];
+  [key: string]: unknown;
+}
+
+export interface KarviStatus {
+  status: string;
+  tasks?: {
+    total: number;
+    done: number;
+    in_progress: number;
+    pending: number;
+    blocked: number;
+    failed: number;
+  };
+  uptime?: number;
+  [key: string]: unknown;
+}
+
+export interface KarviTaskProgress {
+  taskId: string;
+  status: string;
+  currentStep?: string;
+  steps?: Array<{
+    id: string;
+    type: string;
+    status: string;
+    duration?: number;
+    [key: string]: unknown;
+  }>;
+  duration?: number;
+  startedAt?: string;
+  [key: string]: unknown;
+}
