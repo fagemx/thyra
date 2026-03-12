@@ -166,6 +166,23 @@ export function initSchema(db: Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_agreement_territory ON agreements(territory_id, status);
+
+    CREATE TABLE IF NOT EXISTS skill_shares (
+      id TEXT PRIMARY KEY,
+      skill_id TEXT NOT NULL REFERENCES skills(id),
+      from_village_id TEXT NOT NULL REFERENCES villages(id),
+      to_village_id TEXT NOT NULL REFERENCES villages(id),
+      territory_id TEXT NOT NULL REFERENCES territories(id),
+      agreement_id TEXT NOT NULL REFERENCES agreements(id),
+      status TEXT NOT NULL DEFAULT 'active'
+        CHECK(status IN ('active','revoked')),
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_skill_shares_to_village
+      ON skill_shares(to_village_id, status);
+    CREATE INDEX IF NOT EXISTS idx_skill_shares_territory
+      ON skill_shares(territory_id, status);
   `);
 }
 

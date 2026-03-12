@@ -3,7 +3,7 @@ import { Database } from 'bun:sqlite';
 import { createDb, initSchema } from './db';
 import { VillageManager } from './village-manager';
 import { ConstitutionStore } from './constitution-store';
-import { SkillRegistry } from './skill-registry';
+import { SkillRegistry, validateSkillBindings } from './skill-registry';
 import { TerritoryCoordinator } from './territory';
 
 describe('TerritoryCoordinator', () => {
@@ -265,5 +265,96 @@ describe('TerritoryCoordinator', () => {
       from_village_id: villageA,
       to_village_id: villageB,
     }, 'h')).toThrow('verified');
+  });
+
+  // === Skill Sharing — DB integration tests ===
+
+  function setupSharingFixture() {
+    const t = coordinator.create({ name: 'test', village_ids: [villageA, villageB] }, 'h');
+    const a = coordinator.createAgreement(t.id, {
+      type: 'resource_sharing',
+      parties: [villageA, villageB],
+    }, 'h');
+    coordinator.approveAgreement(a.id, villageA, 'h');
+    coordinator.approveAgreement(a.id, villageB, 'h');
+
+    const skill = skillRegistry.create({
+      name: 'shared-skill',
+      village_id: villageA,
+      definition: { description: 'A shared skill', prompt_template: 'do it', input_schema: {}, output_schema: {} },
+    }, 'h');
+    skillRegistry.verify(skill.id, 'h');
+
+    return { territory: t, agreement: a, skill };
+  }
+
+  it('shareSkill: shared skill appears in getAvailable for target village', () => {
+    const { skill } = setupSharingFixture();
+
+    // Before sharing, skill should NOT appear for village B
+    const beforeShare = skillRegistry.getAvailable(villageB);
+    expect(beforeShare.find((s) => s.id === skill.id)).toBeUndefined();
+
+    coordinator.shareSkill({
+      skill_id: skill.id,
+      from_village_id: villageA,
+      to_village_id: villageB,
+    }, 'h');
+
+    // After sharing, skill SHOULD appear for village B
+    const afterShare = skillRegistry.getAvailable(villageB);
+    expect(afterShare.find((s) => s.id === skill.id)).toBeDefined();
+  });
+
+  it('shareSkill: idempotent — sharing twice does not duplicate', () => {
+    const { skill } = setupSharingFixture();
+
+    coordinator.shareSkill({ skill_id: skill.id, from_village_id: villageA, to_village_id: villageB }, 'h');
+    coordinator.shareSkill({ skill_id: skill.id, from_village_id: villageA, to_village_id: villageB }, 'h');
+
+    // Should appear exactly once
+    const available = skillRegistry.getAvailable(villageB);
+    const matches = available.filter((s) => s.id === skill.id);
+    expect(matches).toHaveLength(1);
+  });
+
+  it('shareSkill: dissolve territory revokes skill shares', () => {
+    const { territory, skill } = setupSharingFixture();
+
+    coordinator.shareSkill({ skill_id: skill.id, from_village_id: villageA, to_village_id: villageB }, 'h');
+    expect(skillRegistry.getAvailable(villageB).find((s) => s.id === skill.id)).toBeDefined();
+
+    coordinator.dissolve(territory.id, 'h');
+
+    // After dissolve, shared skill should no longer appear
+    expect(skillRegistry.getAvailable(villageB).find((s) => s.id === skill.id)).toBeUndefined();
+  });
+
+  it('shareSkill: shared skill can be bound by target village chief (validateSkillBindings)', () => {
+    const { skill } = setupSharingFixture();
+
+    coordinator.shareSkill({ skill_id: skill.id, from_village_id: villageA, to_village_id: villageB }, 'h');
+
+    const result = validateSkillBindings(
+      [{ skill_id: skill.id, skill_version: 1 }],
+      villageB,
+      skillRegistry,
+      db,
+    );
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('shareSkill: revoked share no longer appears in getAvailable', () => {
+    const { territory, skill } = setupSharingFixture();
+
+    coordinator.shareSkill({ skill_id: skill.id, from_village_id: villageA, to_village_id: villageB }, 'h');
+    expect(skillRegistry.getAvailable(villageB).find((s) => s.id === skill.id)).toBeDefined();
+
+    // Manually revoke the share
+    db.prepare("UPDATE skill_shares SET status = 'revoked' WHERE territory_id = ? AND status = 'active'")
+      .run(territory.id);
+
+    expect(skillRegistry.getAvailable(villageB).find((s) => s.id === skill.id)).toBeUndefined();
   });
 });

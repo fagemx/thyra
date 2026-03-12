@@ -168,7 +168,14 @@ export class ChiefEngine {
         throw new Error(`SKILL_NOT_VERIFIED: "${skill.name}" is ${skill.status}, must be verified (THY-14)`);
       }
       if (skill.village_id && skill.village_id !== villageId) {
-        throw new Error(`Skill "${skill.name}" belongs to another village`);
+        // Check if skill is shared to this village via skill_shares
+        const shareRow = this.db.prepare(`
+          SELECT id FROM skill_shares
+          WHERE skill_id = ? AND to_village_id = ? AND status = 'active'
+        `).get(b.skill_id, villageId);
+        if (!shareRow) {
+          throw new Error(`Skill "${skill.name}" belongs to another village`);
+        }
       }
     }
   }
