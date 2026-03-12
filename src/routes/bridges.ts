@@ -3,6 +3,7 @@ import type { KarviBridge } from '../karvi-bridge';
 import type { EddaBridge } from '../edda-bridge';
 import { KarviWebhookPayloadSchema, normalizeKarviEvent } from '../schemas/karvi-event';
 import { EddaQueryInput, EddaDecideInput } from '../schemas/edda-bridge';
+import { EddaNoteInput } from '../schemas/edda-note';
 
 export function bridgeRoutes(karvi: KarviBridge, edda: EddaBridge): Hono {
   const app = new Hono();
@@ -151,16 +152,11 @@ export function bridgeRoutes(karvi: KarviBridge, edda: EddaBridge): Hono {
   });
 
   app.post('/api/bridges/edda/note', async (c) => {
-    const body = await c.req.json() as Record<string, unknown>;
-    const text = body.text as string | undefined;
-    if (!text) {
-      return c.json({ ok: false, error: { code: 'VALIDATION', message: 'text required' } }, 400);
+    const parsed = EddaNoteInput.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: parsed.error.message } }, 400);
     }
-    const result = await edda.recordNote({
-      text,
-      role: body.role as string | undefined,
-      tags: body.tags as string[] | undefined,
-    });
+    const result = await edda.recordNote(parsed.data);
     if (!result) {
       return c.json({ ok: false, error: { code: 'EDDA_UNAVAILABLE', message: 'Edda unreachable' } }, 502);
     }
