@@ -102,6 +102,76 @@ describe('SkillRegistry', () => {
     registry.create({ name: 'dup', village_id: villageId, definition: SKILL_DEF }, 'u');
     expect(() => registry.create({ name: 'dup', village_id: villageId, definition: SKILL_DEF }, 'u')).toThrow();
   });
+
+  describe('resolveForIntent', () => {
+    it('returns verified skill matching name and village', () => {
+      const s = registry.create({ name: 'code-review', village_id: villageId, definition: SKILL_DEF }, 'u');
+      registry.verify(s.id, 'u');
+      const result = registry.resolveForIntent('code-review', villageId);
+      expect(result).not.toBeNull();
+      expect(result!.name).toBe('code-review');
+      expect(result!.status).toBe('verified');
+    });
+
+    it('returns global skill (village_id IS NULL)', () => {
+      const s = registry.create({ name: 'global-tool', definition: SKILL_DEF }, 'u');
+      registry.verify(s.id, 'u');
+      const result = registry.resolveForIntent('global-tool', villageId);
+      expect(result).not.toBeNull();
+      expect(result!.village_id).toBeNull();
+    });
+
+    it('returns latest version when multiple verified exist', () => {
+      const v1 = registry.create({ name: 'multi-ver', village_id: villageId, definition: SKILL_DEF }, 'u');
+      registry.verify(v1.id, 'u');
+      const v2 = registry.update(v1.id, { definition: { description: 'v2' } }, 'u');
+      registry.verify(v2.id, 'u');
+      const result = registry.resolveForIntent('multi-ver', villageId);
+      expect(result).not.toBeNull();
+      expect(result!.version).toBe(2);
+    });
+
+    it('returns null for non-existent skill name', () => {
+      expect(registry.resolveForIntent('nonexistent', villageId)).toBeNull();
+    });
+
+    it('returns null for draft skills', () => {
+      registry.create({ name: 'draft-only', village_id: villageId, definition: SKILL_DEF }, 'u');
+      expect(registry.resolveForIntent('draft-only', villageId)).toBeNull();
+    });
+
+    it('returns null for deprecated skills', () => {
+      const s = registry.create({ name: 'old-skill', village_id: villageId, definition: SKILL_DEF }, 'u');
+      registry.verify(s.id, 'u');
+      registry.deprecate(s.id, 'u');
+      expect(registry.resolveForIntent('old-skill', villageId)).toBeNull();
+    });
+
+    it('does not return skill from another village', () => {
+      const other = villageMgr.create({ name: 'other', target_repo: 'r2' }, 'u');
+      const s = registry.create({ name: 'foreign-skill', village_id: other.id, definition: SKILL_DEF }, 'u');
+      registry.verify(s.id, 'u');
+      expect(registry.resolveForIntent('foreign-skill', villageId)).toBeNull();
+    });
+
+    it('returns shared skill via skill_shares', () => {
+      const otherVillage = villageMgr.create({ name: 'provider', target_repo: 'r2' }, 'u');
+      const s = registry.create({ name: 'shared-skill', village_id: otherVillage.id, definition: SKILL_DEF }, 'u');
+      registry.verify(s.id, 'u');
+
+      const now = new Date().toISOString();
+      db.prepare(`INSERT INTO territories (id, name, village_ids, status, version, created_at, updated_at)
+        VALUES (?, ?, ?, 'active', 1, ?, ?)`).run('t-1', 'shared-territory', JSON.stringify([villageId, otherVillage.id]), now, now);
+      db.prepare(`INSERT INTO agreements (id, territory_id, type, parties, terms, approved_by, status, version, created_at, updated_at)
+        VALUES (?, ?, 'resource_sharing', ?, '{}', '{}', 'active', 1, ?, ?)`).run('a-1', 't-1', JSON.stringify([villageId, otherVillage.id]), now, now);
+      db.prepare(`INSERT INTO skill_shares (id, skill_id, from_village_id, to_village_id, territory_id, agreement_id, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'active', ?)`).run('ss-1', s.id, otherVillage.id, villageId, 't-1', 'a-1', now);
+
+      const result = registry.resolveForIntent('shared-skill', villageId);
+      expect(result).not.toBeNull();
+      expect(result!.name).toBe('shared-skill');
+    });
+  });
 });
 
 describe('validateSkillBindings', () => {

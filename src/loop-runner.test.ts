@@ -405,4 +405,60 @@ describe('LoopRunner', () => {
       }
     });
   });
+
+  describe('intent field', () => {
+    const SAMPLE_INTENT = {
+      goal_kind: 'content_pipeline',
+      stage_hint: 'research',
+      origin_reason: 'Daily scheduled task',
+      last_decision_summary: 'Initial cycle',
+    };
+
+    it('startCycle with intent → persisted and retrievable', () => {
+      const cycle = loopRunner.startCycle(villageId, {
+        chief_id: chiefId,
+        intent: SAMPLE_INTENT,
+      });
+      expect(cycle.intent).toEqual(SAMPLE_INTENT);
+
+      const fetched = loopRunner.get(cycle.id);
+      expect(fetched?.intent).toEqual(SAMPLE_INTENT);
+    });
+
+    it('startCycle without intent → intent is null', () => {
+      const cycle = loopRunner.startCycle(villageId, { chief_id: chiefId });
+      expect(cycle.intent).toBeNull();
+
+      const fetched = loopRunner.get(cycle.id);
+      expect(fetched?.intent).toBeNull();
+    });
+
+    it('intent round-trip preserves all fields', () => {
+      const intent = {
+        goal_kind: 'strategy_review',
+        stage_hint: 'evaluate',
+        origin_reason: 'Quarterly OKR review',
+        last_decision_summary: 'Completed data collection phase',
+      };
+      const cycle = loopRunner.startCycle(villageId, {
+        chief_id: chiefId,
+        intent,
+      });
+      const fetched = loopRunner.get(cycle.id);
+      expect(fetched?.intent?.goal_kind).toBe('strategy_review');
+      expect(fetched?.intent?.stage_hint).toBe('evaluate');
+      expect(fetched?.intent?.origin_reason).toBe('Quarterly OKR review');
+      expect(fetched?.intent?.last_decision_summary).toBe('Completed data collection phase');
+    });
+
+    it('listCycles includes intent field', () => {
+      loopRunner.startCycle(villageId, {
+        chief_id: chiefId,
+        intent: SAMPLE_INTENT,
+      });
+      const cycles = loopRunner.listCycles(villageId);
+      expect(cycles).toHaveLength(1);
+      expect(cycles[0].intent).toEqual(SAMPLE_INTENT);
+    });
+  });
 });

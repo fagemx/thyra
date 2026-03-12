@@ -7,7 +7,7 @@ import type { LawEngine } from './law-engine';
 import type { RiskAssessor, Action, AssessmentResult } from './risk-assessor';
 import type { EddaBridge, EddaDecisionHit } from './edda-bridge';
 import { StartCycleInput as StartCycleSchema } from './schemas/loop';
-import type { StartCycleInputRaw, LoopAction } from './schemas/loop';
+import type { StartCycleInputRaw, LoopAction, CycleIntent } from './schemas/loop';
 
 export interface LoopCycle {
   id: string;
@@ -25,6 +25,7 @@ export interface LoopCycle {
   laws_proposed: string[];
   laws_enacted: string[];
   abort_reason: string | null;
+  intent: CycleIntent | null;
   created_at: string;
   updated_at: string;
 }
@@ -79,6 +80,7 @@ export class LoopRunner {
       laws_proposed: [],
       laws_enacted: [],
       abort_reason: null,
+      intent: input.intent ?? null,
       created_at: now,
       updated_at: now,
     };
@@ -86,12 +88,14 @@ export class LoopRunner {
     this.db.prepare(`
       INSERT INTO loop_cycles (id, village_id, chief_id, trigger, status, version,
         budget_remaining, cost_incurred, iterations, max_iterations, timeout_ms,
-        actions, laws_proposed, laws_enacted, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        actions, laws_proposed, laws_enacted, intent, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       cycle.id, villageId, input.chief_id, cycle.trigger, cycle.status, cycle.version,
       cycle.budget_remaining, cycle.cost_incurred, cycle.iterations, cycle.max_iterations,
-      cycle.timeout_ms, '[]', '[]', '[]', now, now,
+      cycle.timeout_ms, '[]', '[]', '[]',
+      cycle.intent ? JSON.stringify(cycle.intent) : null,
+      now, now,
     );
 
     appendAudit(this.db, 'loop', cycle.id, 'start', { trigger: cycle.trigger, chief_id: input.chief_id }, input.chief_id);
@@ -408,6 +412,7 @@ export class LoopRunner {
       laws_proposed: JSON.parse((row.laws_proposed as string) || '[]'),
       laws_enacted: JSON.parse((row.laws_enacted as string) || '[]'),
       abort_reason: (row.abort_reason as string) || null,
+      intent: row.intent ? JSON.parse(row.intent as string) : null,
       created_at: row.created_at as string,
       updated_at: row.updated_at as string,
     };

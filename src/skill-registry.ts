@@ -145,6 +145,26 @@ export class SkillRegistry {
     return { ...skill, status: 'deprecated', updated_at: now };
   }
 
+  /**
+   * 根據 taskKey（skill name）解析最適合的已驗證 Skill。
+   * 查詢範圍：village-specific + global（village_id IS NULL）+ skill_shares。
+   * 回傳最新版本，或 null。
+   */
+  resolveForIntent(taskKey: string, villageId: string): Skill | null {
+    const row = this.db.prepare(`
+      SELECT * FROM skills
+      WHERE name = ? AND status = 'verified'
+        AND (village_id = ? OR village_id IS NULL)
+      UNION
+      SELECT s.* FROM skills s
+        INNER JOIN skill_shares ss ON ss.skill_id = s.id
+      WHERE s.name = ? AND s.status = 'verified'
+        AND ss.to_village_id = ? AND ss.status = 'active'
+      ORDER BY version DESC LIMIT 1
+    `).get(taskKey, villageId, taskKey, villageId) as Record<string, unknown> | null;
+    return row ? this.deserialize(row) : null;
+  }
+
   getAvailable(villageId: string): Skill[] {
     const rows = this.db.prepare(`
       SELECT * FROM skills

@@ -184,6 +184,13 @@ export function initSchema(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_skill_shares_territory
       ON skill_shares(territory_id, status);
   `);
+
+  // ALTER TABLE 新增 intent 欄位（冪等：column 已存在就忽略）
+  try {
+    db.exec('ALTER TABLE loop_cycles ADD COLUMN intent TEXT DEFAULT NULL');
+  } catch (_) {
+    // "duplicate column name: intent" — 安全忽略
+  }
 }
 
 /**
