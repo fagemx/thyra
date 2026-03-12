@@ -2,6 +2,7 @@ import type { Database } from 'bun:sqlite';
 import { randomUUID } from 'crypto';
 import { appendAudit } from './db';
 import type { ConstitutionStore, Constitution, ConstitutionRule } from './constitution-store';
+import { detectRuleViolation } from './constitution-store';
 import type { ChiefEngine } from './chief-engine';
 import { ProposeLawInput as ProposeLawSchema, EvaluateLawInput as EvaluateLawSchema } from './schemas/law';
 import type { ProposeLawInputRaw, ProposeLawInput, EvaluateLawInput } from './schemas/law';
@@ -44,7 +45,7 @@ export class LawEngine {
     }
 
     // 3. Constitution compliance check (THY-02)
-    const compliance = this.checkCompliance(constitution, input);
+    const compliance = this.checkCompliance(constitution, input, chiefId);
     if (compliance.hardViolations.length > 0) {
       const law = this.insertLaw(villageId, chiefId, input, 'rejected', 'high');
       appendAudit(this.db, 'law', law.id, 'rejected', { violations: compliance.hardViolations.map((r) => r.description) }, chiefId);
@@ -158,13 +159,26 @@ export class LawEngine {
     return rows.map((r) => this.deserialize(r));
   }
 
-  private checkCompliance(constitution: Constitution, input: ProposeLawInput) {
+  private checkCompliance(constitution: Constitution, input: ProposeLawInput, chiefId: string) {
     const hardViolations: ConstitutionRule[] = [];
     const softViolations: ConstitutionRule[] = [];
     // Phase 0: keyword matching against constitution rules
+    const targetText = [
+      input.content.description,
+      JSON.stringify(input.content.strategy),
+      input.category,
+    ].join(' ');
+
     for (const rule of constitution.rules) {
-      // Check if law content contradicts rule description
-      // This is a simplified check — Phase 1 can use LLM for semantic matching
+      const inScope = rule.scope.includes('*') || rule.scope.includes(chiefId);
+      if (!inScope) continue;
+      if (detectRuleViolation(rule.description, targetText)) {
+        if (rule.enforcement === 'hard') {
+          hardViolations.push(rule);
+        } else {
+          softViolations.push(rule);
+        }
+      }
     }
     return { hardViolations, softViolations };
   }

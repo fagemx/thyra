@@ -190,4 +190,162 @@ describe('LawEngine', () => {
   it('get: non-existent → null', () => {
     expect(lawEngine.get('xxx')).toBeNull();
   });
+
+  // --- checkCompliance rule enforcement tests (Issue #22) ---
+
+  describe('checkCompliance rule enforcement', () => {
+    let complianceVillageId: string;
+    let complianceChiefId: string;
+    let complianceLawEngine: LawEngine;
+    let complianceDb: Database;
+
+    function setupWithRules(rules: Array<{ description: string; enforcement: 'hard' | 'soft'; scope: string[] }>) {
+      complianceDb = createDb(':memory:');
+      initSchema(complianceDb);
+      const vm = new VillageManager(complianceDb);
+      complianceVillageId = vm.create({ name: 'compliance-test', target_repo: 'r' }, 'u').id;
+
+      const cs = new ConstitutionStore(complianceDb);
+      cs.create(complianceVillageId, {
+        rules,
+        allowed_permissions: ['dispatch_task', 'propose_law', 'enact_law_low'],
+        budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+      }, 'human');
+
+      const sr = new SkillRegistry(complianceDb);
+      const ce = new ChiefEngine(complianceDb, cs, sr);
+      complianceLawEngine = new LawEngine(complianceDb, cs, ce);
+
+      complianceChiefId = ce.create(complianceVillageId, {
+        name: 'TestChief',
+        role: 'lawmaker',
+        permissions: ['propose_law', 'enact_law_low'],
+      }, 'h').id;
+    }
+
+    it('hard rule violation → law rejected', () => {
+      setupWithRules([
+        { description: 'must review all PRs', enforcement: 'hard', scope: ['*'] },
+      ]);
+      const law = complianceLawEngine.propose(complianceVillageId, complianceChiefId, {
+        category: 'workflow',
+        content: { description: 'skip review for hotfixes', strategy: {} },
+        evidence: { source: 'test', reasoning: 'speed' },
+      });
+      expect(law.status).toBe('rejected');
+      expect(law.risk_level).toBe('high');
+    });
+
+    it('soft rule violation → risk bumped to medium', () => {
+      setupWithRules([
+        { description: 'prefer pair programming', enforcement: 'soft', scope: ['*'] },
+      ]);
+      const law = complianceLawEngine.propose(complianceVillageId, complianceChiefId, {
+        category: 'workflow',
+        content: { description: 'skip pair programming on small fixes', strategy: {} },
+        evidence: { source: 'test', reasoning: 'efficiency' },
+      });
+      // Soft violation bumps risk from low to medium → not auto-approved
+      expect(law.status).toBe('proposed');
+      expect(law.risk_level).toBe('medium');
+    });
+
+    it('non-violating proposal → normal flow', () => {
+      setupWithRules([
+        { description: 'must review', enforcement: 'hard', scope: ['*'] },
+      ]);
+      const law = complianceLawEngine.propose(complianceVillageId, complianceChiefId, {
+        category: 'linting',
+        content: { description: 'add linting step', strategy: { tool: 'eslint' } },
+        evidence: { source: 'test', reasoning: 'quality' },
+      });
+      // No violation, low risk → auto-approved
+      expect(law.status).toBe('active');
+      expect(law.approved_by).toBe('auto');
+    });
+
+    it('scope filtering: rule scoped to chief-X does not affect chief-Y', () => {
+      complianceDb = createDb(':memory:');
+      initSchema(complianceDb);
+      const vm = new VillageManager(complianceDb);
+      complianceVillageId = vm.create({ name: 'scope-test', target_repo: 'r' }, 'u').id;
+
+      const cs = new ConstitutionStore(complianceDb);
+      cs.create(complianceVillageId, {
+        rules: [
+          { description: 'must not auto-deploy', enforcement: 'hard', scope: ['chief-X'] },
+        ],
+        allowed_permissions: ['dispatch_task', 'propose_law', 'enact_law_low'],
+        budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+      }, 'human');
+
+      const sr = new SkillRegistry(complianceDb);
+      const ce = new ChiefEngine(complianceDb, cs, sr);
+      complianceLawEngine = new LawEngine(complianceDb, cs, ce);
+
+      // Chief-Y (not chief-X)
+      const chiefY = ce.create(complianceVillageId, {
+        name: 'ChiefY',
+        role: 'lawmaker',
+        permissions: ['propose_law', 'enact_law_low'],
+      }, 'h').id;
+
+      const law = complianceLawEngine.propose(complianceVillageId, chiefY, {
+        category: 'deploy',
+        content: { description: 'auto-deploy to staging', strategy: {} },
+        evidence: { source: 'test', reasoning: 'speed' },
+      });
+      // Rule scoped to chief-X should NOT reject chief-Y
+      // (staging keyword triggers medium risk via assessRisk, not rejected by compliance)
+      expect(law.status).not.toBe('rejected');
+    });
+
+    it('hard violation writes audit trail', () => {
+      setupWithRules([
+        { description: 'must review all changes', enforcement: 'hard', scope: ['*'] },
+      ]);
+      const law = complianceLawEngine.propose(complianceVillageId, complianceChiefId, {
+        category: 'workflow',
+        content: { description: 'skip review on docs', strategy: {} },
+        evidence: { source: 'test', reasoning: 'speed' },
+      });
+      expect(law.status).toBe('rejected');
+
+      // Verify audit log entry
+      const audits = complianceDb.prepare(
+        "SELECT * FROM audit_log WHERE entity_type = 'law' AND entity_id = ? AND action = 'rejected'"
+      ).all(law.id) as Array<Record<string, unknown>>;
+      expect(audits).toHaveLength(1);
+      const payload = JSON.parse(audits[0].payload as string);
+      expect(payload.violations).toBeDefined();
+      expect(payload.violations.length).toBeGreaterThan(0);
+    });
+
+    it('multiple rules — one hard violation is enough to reject', () => {
+      setupWithRules([
+        { description: 'prefer documentation', enforcement: 'soft', scope: ['*'] },
+        { description: 'must review all PRs', enforcement: 'hard', scope: ['*'] },
+        { description: 'prefer pair programming', enforcement: 'soft', scope: ['*'] },
+      ]);
+      const law = complianceLawEngine.propose(complianceVillageId, complianceChiefId, {
+        category: 'workflow',
+        content: { description: 'skip review for trivial changes', strategy: {} },
+        evidence: { source: 'test', reasoning: 'speed' },
+      });
+      expect(law.status).toBe('rejected');
+      expect(law.risk_level).toBe('high');
+    });
+
+    it('negative rule: "must not X" blocks law that enables X', () => {
+      setupWithRules([
+        { description: 'must not auto-deploy', enforcement: 'hard', scope: ['*'] },
+      ]);
+      const law = complianceLawEngine.propose(complianceVillageId, complianceChiefId, {
+        category: 'ci',
+        content: { description: 'enable auto-deploy for main branch', strategy: {} },
+        evidence: { source: 'test', reasoning: 'convenience' },
+      });
+      expect(law.status).toBe('rejected');
+    });
+  });
 });
