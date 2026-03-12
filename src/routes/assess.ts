@@ -1,12 +1,17 @@
 import { Hono } from 'hono';
 import type { RiskAssessor } from '../risk-assessor';
 import type { ConstitutionStore } from '../constitution-store';
+import { AssessActionInput } from '../schemas/assess';
 
 export function assessRoutes(assessor: RiskAssessor, constitutionStore: ConstitutionStore): Hono {
   const app = new Hono();
 
   app.post('/api/assess', async (c) => {
-    const action = await c.req.json();
+    const parsed = AssessActionInput.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: parsed.error.message } }, 400);
+    }
+    const action = parsed.data;
     const constitution = constitutionStore.getActive(action.village_id);
     const result = assessor.assess(action, {
       constitution,
