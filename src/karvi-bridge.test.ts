@@ -8,8 +8,8 @@ import type { KarviWebhookPayload } from './schemas/karvi-event';
 
 // Mock Karvi server using Bun.serve
 let mockServer: ReturnType<typeof Bun.serve> | null = null;
-let lastRequest: { method: string; url: string; body?: unknown } | null = null;
-let allRequests: { method: string; url: string; body?: unknown }[] = [];
+let lastRequest: { method: string; url: string; search?: string; body?: unknown } | null = null;
+let allRequests: { method: string; url: string; search?: string; body?: unknown }[] = [];
 let mockResponses: Map<string, { status: number; body: unknown }> = new Map();
 
 function startMockKarvi(port: number) {
@@ -21,7 +21,7 @@ function startMockKarvi(port: number) {
       if (req.method === 'POST' && req.body) {
         body = await req.json();
       }
-      lastRequest = { method: req.method, url: url.pathname, body };
+      lastRequest = { method: req.method, url: url.pathname, search: url.search, body };
       allRequests.push(lastRequest);
 
       const key = `${req.method} ${url.pathname}`;
@@ -571,6 +571,136 @@ describe('KarviBridge', () => {
       }
 
       expect(bridge.getRecentEvents(2)).toHaveLength(2);
+    });
+  });
+
+  describe('cancelTask', () => {
+    it('returns true on successful cancel', async () => {
+      mockResponses.set('POST /api/tasks/THYRA-v1-123/cancel', {
+        status: 200,
+        body: { ok: true, taskId: 'THYRA-v1-123', cancelled: true },
+      });
+      startMockKarvi(MOCK_PORT);
+
+      const result = await bridge.cancelTask('THYRA-v1-123');
+      expect(result).toBe(true);
+      expect(lastRequest?.method).toBe('POST');
+      expect(lastRequest?.url).toBe('/api/tasks/THYRA-v1-123/cancel');
+    });
+
+    it('records audit log on success', async () => {
+      mockResponses.set('POST /api/tasks/THYRA-v1-123/cancel', {
+        status: 200, body: { ok: true },
+      });
+      startMockKarvi(MOCK_PORT);
+
+      await bridge.cancelTask('THYRA-v1-123');
+      const logs = db.prepare(
+        "SELECT * FROM audit_log WHERE entity_type = 'karvi' AND action = 'cancel_task'",
+      ).all();
+      expect(logs).toHaveLength(1);
+    });
+
+    it('returns false on error response', async () => {
+      mockResponses.set('POST /api/tasks/THYRA-v1-123/cancel', {
+        status: 404, body: { ok: false, error: 'not found' },
+      });
+      startMockKarvi(MOCK_PORT);
+
+      const result = await bridge.cancelTask('THYRA-v1-123');
+      expect(result).toBe(false);
+    });
+
+    it('returns false when Karvi is offline (graceful degradation)', async () => {
+      const offlineBridge = new KarviBridge(db, 'http://localhost:19499');
+      const result = await offlineBridge.cancelTask('THYRA-v1-123');
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('getBoard', () => {
+    it('returns board data on success', async () => {
+      const boardData = {
+        taskPlan: { tasks: [{ id: 'T1', title: 'test', status: 'done' }] },
+        controls: { maxConcurrency: 3 },
+      };
+      mockResponses.set('GET /api/board', { status: 200, body: boardData });
+      startMockKarvi(MOCK_PORT);
+
+      const board = await bridge.getBoard();
+      expect(board).not.toBeNull();
+      expect(board?.taskPlan?.tasks).toHaveLength(1);
+    });
+
+    it('returns null when Karvi is offline', async () => {
+      const board = await bridge.getBoard();
+      expect(board).toBeNull();
+    });
+  });
+
+  describe('getStatus', () => {
+    it('returns status data on success', async () => {
+      const statusData = {
+        status: 'running',
+        tasks: { total: 5, done: 2, in_progress: 1, pending: 1, blocked: 0, failed: 1 },
+        uptime: 3600,
+      };
+      mockResponses.set('GET /api/status', { status: 200, body: statusData });
+      startMockKarvi(MOCK_PORT);
+
+      const status = await bridge.getStatus();
+      expect(status?.status).toBe('running');
+      expect(status?.tasks?.total).toBe(5);
+    });
+
+    it('passes fields as query parameter', async () => {
+      mockResponses.set('GET /api/status', { status: 200, body: { status: 'ok' } });
+      startMockKarvi(MOCK_PORT);
+
+      await bridge.getStatus(['core', 'steps']);
+      expect(lastRequest?.search).toContain('fields=');
+    });
+
+    it('returns null when Karvi is offline', async () => {
+      const status = await bridge.getStatus();
+      expect(status).toBeNull();
+    });
+  });
+
+  describe('getTaskProgress', () => {
+    it('returns progress data on success', async () => {
+      const progressData = {
+        taskId: 'THYRA-v1-123',
+        status: 'in_progress',
+        steps: [
+          { id: 'step-1', type: 'code', status: 'done', duration: 120 },
+          { id: 'step-2', type: 'test', status: 'in_progress' },
+        ],
+        duration: 180,
+      };
+      mockResponses.set('GET /api/tasks/THYRA-v1-123/progress', {
+        status: 200, body: progressData,
+      });
+      startMockKarvi(MOCK_PORT);
+
+      const progress = await bridge.getTaskProgress('THYRA-v1-123');
+      expect(progress?.taskId).toBe('THYRA-v1-123');
+      expect(progress?.steps).toHaveLength(2);
+    });
+
+    it('returns null on 404', async () => {
+      mockResponses.set('GET /api/tasks/nonexistent/progress', {
+        status: 404, body: { ok: false },
+      });
+      startMockKarvi(MOCK_PORT);
+
+      const progress = await bridge.getTaskProgress('nonexistent');
+      expect(progress).toBeNull();
+    });
+
+    it('returns null when Karvi is offline', async () => {
+      const progress = await bridge.getTaskProgress('THYRA-v1-123');
+      expect(progress).toBeNull();
     });
   });
 });
