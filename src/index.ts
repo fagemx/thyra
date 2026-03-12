@@ -67,6 +67,7 @@ karviBridge.registerWebhookUrl(THYRA_WEBHOOK_URL).then((ok) => {
 
 // 啟動 health monitor（含自動 re-registration）
 karviBridge.startMonitor();
+eddaBridge.startMonitor();
 
 console.log(`[thyra] starting on :${PORT}`);
 

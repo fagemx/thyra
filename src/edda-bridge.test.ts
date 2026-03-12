@@ -365,18 +365,37 @@ describe('EddaBridge', () => {
   });
 
   describe('queryEventLog', () => {
-    it('sends GET /api/log and returns EddaLogEntry[]', async () => {
-      const entries: EddaLogEntry[] = [
-        { event_id: 'evt-log-1', type: 'decision', summary: 'chose sqlite', ts: '2024-01-01T00:00:00Z' },
-        { event_id: 'evt-log-2', type: 'note', summary: 'session end', ts: '2024-01-02T00:00:00Z' },
-      ];
-      mockResponses.set('GET /api/log', { status: 200, body: entries });
+    it('sends GET /api/log and handles Edda real format { events: [...] }', async () => {
+      // Edda 真實格式：{ events: [...] }，欄位名 event_type / detail
+      const eddaResponse = {
+        events: [
+          { event_id: 'evt-log-1', event_type: 'decision', detail: 'chose sqlite', ts: '2024-01-01T00:00:00Z', branch: 'main' },
+          { event_id: 'evt-log-2', event_type: 'note', detail: 'session end', ts: '2024-01-02T00:00:00Z', branch: 'main' },
+        ],
+      };
+      mockResponses.set('GET /api/log', { status: 200, body: eddaResponse });
       startMockEdda(MOCK_PORT);
 
       const result = await bridge.queryEventLog();
       expect(result).toHaveLength(2);
       expect(result[0].event_id).toBe('evt-log-1');
+      expect(result[0].type).toBe('decision');
+      expect(result[0].summary).toBe('chose sqlite');
       expect(result[1].type).toBe('note');
+      expect(result[1].summary).toBe('session end');
+    });
+
+    it('also handles direct array format (backward compat)', async () => {
+      const entries: EddaLogEntry[] = [
+        { event_id: 'evt-log-3', type: 'decision', summary: 'chose postgres', ts: '2024-01-03T00:00:00Z' },
+      ];
+      mockResponses.set('GET /api/log', { status: 200, body: entries });
+      startMockEdda(MOCK_PORT);
+
+      const result = await bridge.queryEventLog();
+      expect(result).toHaveLength(1);
+      expect(result[0].type).toBe('decision');
+      expect(result[0].summary).toBe('chose postgres');
     });
 
     it('forwards filter params as query string', async () => {

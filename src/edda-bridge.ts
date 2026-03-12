@@ -241,7 +241,18 @@ export class EddaBridge {
       });
 
       if (!res.ok) return [];
-      return await res.json() as EddaLogEntry[];
+      const data = await res.json() as Record<string, unknown>;
+      const raw: Record<string, unknown>[] = Array.isArray(data)
+        ? (data as Record<string, unknown>[])
+        : ((data.events as Record<string, unknown>[]) ?? []);
+      return raw.map((e) => ({
+        event_id: e.event_id as string,
+        type: (e.event_type ?? e.type) as string,
+        summary: (e.detail ?? e.summary) as string,
+        ts: e.ts as string,
+        branch: e.branch as string | undefined,
+        tags: e.tags as string[] | undefined,
+      }));
     } catch {
       return [];
     }
