@@ -180,16 +180,56 @@ export function checkBudget(
   return amount <= constitution.budget_limits[key];
 }
 
-/** Check constitution rules for a given chief (framework for T4/T5) */
+/**
+ * Negation-aware keyword matching: detects if actionText violates a rule description.
+ * Rules containing "must not X" / "never X" trigger when actionText contains X.
+ * Rules containing "must X" trigger when actionText does NOT contain X.
+ */
+export function detectRuleViolation(ruleDescription: string, actionText: string): boolean {
+  const ruleLower = ruleDescription.toLowerCase();
+  const actionLower = actionText.toLowerCase();
+
+  // Extract keywords (3+ char words, skip stop words)
+  const stopWords = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'from']);
+  const extractKeywords = (text: string) =>
+    text.split(/\s+/).filter((w) => w.length >= 3 && !stopWords.has(w));
+
+  // Negation patterns: "must not", "never", "do not", "cannot", "not X"
+  const negationPattern = /(?:must\s+not|never|do\s+not|cannot|should\s+not|^not)\s+(.+)/i;
+  const negMatch = negationPattern.exec(ruleLower);
+  if (negMatch) {
+    // Rule says "must not X" → violated if action contains X keywords
+    const forbidden = extractKeywords(negMatch[1]);
+    return forbidden.some((kw) => actionLower.includes(kw));
+  }
+
+  // Positive pattern: "must X" → violated if action does NOT contain X
+  const positivePattern = /(?:must|always|require)\s+(.+)/i;
+  const posMatch = positivePattern.exec(ruleLower);
+  if (posMatch) {
+    const required = extractKeywords(posMatch[1]);
+    // Only flag violation if action clearly contradicts (contains "skip"/"without" + keyword)
+    return required.some((kw) =>
+      (actionLower.includes('skip') || actionLower.includes('without')) && actionLower.includes(kw),
+    );
+  }
+
+  return false;
+}
+
+/** Check constitution rules for a given chief */
 export function checkRules(
   constitution: Constitution,
   chiefId: string,
+  actionText?: string,
 ): { allowed: boolean; violated: ConstitutionRule[] } {
   const violated: ConstitutionRule[] = [];
   for (const rule of constitution.rules) {
     const inScope = rule.scope.includes('*') || rule.scope.includes(chiefId);
     if (!inScope) continue;
-    // Match logic placeholder — actual matching implemented in T4 Law Engine
+    if (actionText && detectRuleViolation(rule.description, actionText)) {
+      violated.push(rule);
+    }
   }
   return { allowed: violated.length === 0, violated };
 }

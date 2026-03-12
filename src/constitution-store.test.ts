@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Database } from 'bun:sqlite';
 import { createDb, initSchema } from './db';
 import { VillageManager } from './village-manager';
-import { ConstitutionStore, checkPermission, checkBudget } from './constitution-store';
+import { ConstitutionStore, checkPermission, checkBudget, checkRules } from './constitution-store';
 import type { KarviBridge } from './karvi-bridge';
 
 const RULES = [{ description: 'must review', enforcement: 'hard' as const, scope: ['*'] }];
@@ -212,5 +212,71 @@ describe('checkBudget', () => {
       budget_limits: { max_cost_per_action: 5, max_cost_per_day: 50, max_cost_per_loop: 25 },
     }, 'h');
     expect(checkBudget(c, 10, 'per_action')).toBe(false);
+  });
+});
+
+describe('checkRules', () => {
+  let db: Database;
+  let store: ConstitutionStore;
+  let villageId: string;
+
+  beforeEach(() => {
+    db = createDb(':memory:');
+    initSchema(db);
+    store = new ConstitutionStore(db);
+    villageId = new VillageManager(db).create({ name: 'rules-test', target_repo: 'r' }, 'u').id;
+  });
+
+  it('returns violated rules when actionText matches negation rule', () => {
+    const c = store.create(villageId, {
+      rules: [
+        { id: 'R1', description: 'must not skip review', enforcement: 'hard', scope: ['*'] },
+      ],
+      allowed_permissions: ['dispatch_task'],
+      budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+    }, 'h');
+    const result = checkRules(c, 'chief-1', 'skip review for hotfix');
+    expect(result.allowed).toBe(false);
+    expect(result.violated).toHaveLength(1);
+    expect(result.violated[0].id).toBe('R1');
+  });
+
+  it('returns allowed when no violation detected', () => {
+    const c = store.create(villageId, {
+      rules: [
+        { id: 'R1', description: 'must review all PRs', enforcement: 'hard', scope: ['*'] },
+      ],
+      allowed_permissions: ['dispatch_task'],
+      budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+    }, 'h');
+    const result = checkRules(c, 'chief-1', 'add linting step');
+    expect(result.allowed).toBe(true);
+    expect(result.violated).toHaveLength(0);
+  });
+
+  it('skips out-of-scope rules', () => {
+    const c = store.create(villageId, {
+      rules: [
+        { id: 'R1', description: 'never auto-deploy', enforcement: 'hard', scope: ['chief-2'] },
+      ],
+      allowed_permissions: ['dispatch_task'],
+      budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+    }, 'h');
+    const result = checkRules(c, 'chief-1', 'auto-deploy to production');
+    expect(result.allowed).toBe(true);
+    expect(result.violated).toHaveLength(0);
+  });
+
+  it('without actionText returns allowed (backward compatible)', () => {
+    const c = store.create(villageId, {
+      rules: [
+        { id: 'R1', description: 'never auto-deploy', enforcement: 'hard', scope: ['*'] },
+      ],
+      allowed_permissions: ['dispatch_task'],
+      budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+    }, 'h');
+    const result = checkRules(c, 'chief-1');
+    expect(result.allowed).toBe(true);
+    expect(result.violated).toHaveLength(0);
   });
 });
