@@ -461,4 +461,36 @@ describe('LoopRunner', () => {
       expect(cycles[0].intent).toEqual(SAMPLE_INTENT);
     });
   });
+
+  describe('runLoop error handling (issue #31)', () => {
+    it('runLoop error transitions cycle to aborted with error reason', async () => {
+      const cycle = loopRunner.startCycle(villageId, { chief_id: chiefId });
+
+      // Override observe to throw, simulating a DB error mid-loop
+      loopRunner.observe = () => { throw new Error('DB read failed'); };
+
+      // Wait for async runLoop to process
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const updated = loopRunner.get(cycle.id);
+      expect(updated?.status).toBe('aborted');
+      expect(updated?.abort_reason).toContain('Loop error');
+      expect(updated?.abort_reason).toContain('DB read failed');
+    });
+
+    it('no unhandled promise rejection when runLoop throws', async () => {
+      // Override observe to throw
+      loopRunner.observe = () => { throw new Error('Unexpected failure'); };
+
+      // startCycle should not throw even though runLoop will fail
+      const cycle = loopRunner.startCycle(villageId, { chief_id: chiefId });
+      expect(cycle.status).toBe('running');
+
+      // Wait for async completion — no unhandled rejection should occur
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const updated = loopRunner.get(cycle.id);
+      expect(updated?.status).toBe('aborted');
+    });
+  });
 });
