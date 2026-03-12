@@ -132,10 +132,10 @@ export interface CycleState {
  *
  * 職責：
  * 1. buildContext(): 從各模組收集決策所需上下文
- * 2. decide(): 根據上下文產生決策結果
+ * 2. decide(): 根據上下文產生決策結果（rule-based pipeline）
  *
- * Phase 0: decide() 永遠 return action: null（與 LoopRunner 現有行為等價）
- * Phase 1: 將接入 LLM-based 決策
+ * Phase 1: rule-based 四層決策
+ *   generateCandidates() → selectBest() → checkLawProposals()
  */
 export class DecisionEngine {
   constructor(
@@ -253,12 +253,11 @@ export class DecisionEngine {
   }
 
   /**
-   * Phase 0: 規則式決策 — 永遠 return action: null。
-   * 與 LoopRunner 現有的 decide() 行為等價。
-   *
-   * Phase 1 會替換成 rule-based 四層決策。
+   * Phase 1: rule-based 決策引擎。
+   * 三步 pipeline: generateCandidates → selectBest → checkLawProposals
    */
   decide(context: DecideContext): DecideResult {
+    // 組裝推理因素（SI-2: 所有決策必須有可追溯的理由鏈）
     const factors: string[] = [];
     const lawConsiderations: string[] = [];
     const precedentNotes: string[] = [];
@@ -291,8 +290,10 @@ export class DecisionEngine {
     const budgetUsedPct = Math.round((1 - context.budget_ratio) * 100);
     factors.push(`Daily budget ${budgetUsedPct}% used (${context.budget.spent_today}/${context.budget.per_day_limit})`);
 
-    // Chief 約束
+    // Chief personality + 約束
     let personalityEffect = `Chief ${context.chief.name} (${context.chief.role})`;
+    const riskTolerance = context.chief.personality?.risk_tolerance ?? 'moderate';
+    personalityEffect += ` [${riskTolerance}]`;
     const constraintDescs: string[] = [];
     for (const constraint of context.chief.constraints) {
       constraintDescs.push(`${constraint.type}: ${constraint.description}`);
@@ -301,22 +302,354 @@ export class DecisionEngine {
       personalityEffect += ` — constraints: ${constraintDescs.join('; ')}`;
     }
 
-    // Phase 0: 永遠不採取行動
+    // --- Pipeline ---
+    const candidates = this.generateCandidates(context);
+    const action = this.selectBest(candidates, context);
+    const lawProposals = this.checkLawProposals(context);
+
+    // 計算 confidence
+    let confidence = action?.confidence ?? 1.0;
+
+    // 人格影響 confidence
+    if (action) {
+      const adjustment = this.applyPersonalityConfidence(action, context, riskTolerance);
+      confidence = Math.max(0, Math.min(1, confidence + adjustment));
+      if (adjustment !== 0) {
+        personalityEffect += ` — ${riskTolerance} adjustment: ${adjustment > 0 ? '+' : ''}${adjustment.toFixed(2)}`;
+      }
+    }
+
+    // 組裝 updated_intent
+    let updatedIntent: CycleIntent | null = null;
+    if (action && action.kind === 'dispatch_task' && action.task_key) {
+      updatedIntent = {
+        goal_kind: context.intent?.goal_kind ?? 'content_pipeline',
+        stage_hint: action.task_key,
+        origin_reason: context.intent?.origin_reason ?? 'pipeline started by decision engine',
+        last_decision_summary: action.reason,
+      };
+    }
+
+    // 決策摘要
+    let summary: string;
+    if (!action) {
+      summary = 'No action needed. Cycle completed — no active laws or intent to execute.';
+    } else if (action.kind === 'complete_cycle') {
+      summary = `Cycle completed: ${action.reason}`;
+    } else if (action.kind === 'wait') {
+      summary = `Waiting: ${action.reason}`;
+    } else {
+      summary = `Action: ${action.kind}${action.task_key ? `(${action.task_key})` : ''} — ${action.reason}`;
+    }
+
+    const finalAction = action ? { ...action, confidence } : null;
+
     const reasoning: DecisionReasoning = {
-      summary: 'Phase 0: no autonomous action taken. Context assembled for future decision-making.',
+      summary,
       factors,
       precedent_notes: precedentNotes,
       law_considerations: lawConsiderations,
       personality_effect: personalityEffect,
-      confidence: 1.0,
+      confidence,
     };
 
     return {
-      action: null,
-      law_proposals: [],
+      action: finalAction,
+      law_proposals: lawProposals,
       reasoning,
-      updated_intent: null,
+      updated_intent: updatedIntent,
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Pipeline Layer 2: generateCandidates — 6 條流水線規則
+  // ---------------------------------------------------------------------------
+
+  /**
+   * 根據上下文產生候選 ActionIntent 列表。
+   * 規則依優先順序評估（terminal rules 命中後直接回傳）。
+   */
+  private generateCandidates(ctx: DecideContext): ActionIntent[] {
+    const eddaRefs = ctx.edda_precedents
+      .filter(p => p.is_active)
+      .map(p => p.event_id);
+
+    // 規則 4: pending_approval > 0 → wait（不產生新 action，等人審）
+    if (ctx.pending_approvals > 0) {
+      return [{
+        kind: 'wait',
+        estimated_cost: 0,
+        rollback_plan: 'none',
+        reason: `${ctx.pending_approvals} action(s) pending human approval`,
+        evidence_refs: eddaRefs,
+        confidence: 1.0,
+      }];
+    }
+
+    // 規則 5: budget_ratio < 0.1 → complete_cycle（預算不足）
+    if (ctx.budget_ratio < 0.1) {
+      return [{
+        kind: 'complete_cycle',
+        estimated_cost: 0,
+        rollback_plan: 'none',
+        reason: `Budget exhausted (${Math.round(ctx.budget_ratio * 100)}% remaining)`,
+        evidence_refs: eddaRefs,
+        confidence: 1.0,
+      }];
+    }
+
+    // 規則 6: blocked_count >= 3 → complete_cycle（連續被擋）
+    if (ctx.blocked_count >= 3) {
+      return [{
+        kind: 'complete_cycle',
+        estimated_cost: 0,
+        rollback_plan: 'none',
+        reason: `Stuck: ${ctx.blocked_count} actions blocked`,
+        evidence_refs: eddaRefs,
+        confidence: 1.0,
+      }];
+    }
+
+    // 規則 2: 有 intent → 根據 stage_hint 推進流水線
+    if (ctx.intent) {
+      return this.advancePipeline(ctx, eddaRefs);
+    }
+
+    // 規則 3: 沒有 intent 但有 active laws → 開始新流水線
+    if (ctx.active_laws.length > 0) {
+      return this.startPipeline(ctx, eddaRefs);
+    }
+
+    // 規則 1: 沒有 intent 且沒有 active laws → 空列表（action: null）
+    return [];
+  }
+
+  /**
+   * 規則 2: 根據 stage_hint 推進流水線到下一步。
+   */
+  private advancePipeline(ctx: DecideContext, eddaRefs: string[]): ActionIntent[] {
+    const stage = ctx.intent!.stage_hint;
+    const lastExecuted = ctx.last_action?.status === 'executed';
+
+    // 流水線階段映射
+    const stageMap: Record<string, string> = {
+      'research': 'draft',
+      'draft': 'review',
+      'review': 'publish',
+    };
+
+    // 如果上一步已執行，推進到下一階段
+    if (lastExecuted && stage in stageMap) {
+      const nextStage = stageMap[stage];
+      return this.buildDispatchCandidate(nextStage, ctx, eddaRefs,
+        `Advancing pipeline: ${stage} completed, moving to ${nextStage}`);
+    }
+
+    // publish 完成 → complete_cycle
+    if (lastExecuted && stage === 'publish') {
+      return [{
+        kind: 'complete_cycle',
+        estimated_cost: 0,
+        rollback_plan: 'none',
+        reason: 'Pipeline completed: publish stage done',
+        evidence_refs: eddaRefs,
+        confidence: 1.0,
+      }];
+    }
+
+    // 沒有 last_action 或沒有執行完成 → 繼續當前階段
+    return this.buildDispatchCandidate(stage, ctx, eddaRefs,
+      `Continuing pipeline at stage: ${stage}`);
+  }
+
+  /**
+   * 規則 3: 開始新流水線（從 research 開始）。
+   */
+  private startPipeline(ctx: DecideContext, eddaRefs: string[]): ActionIntent[] {
+    return this.buildDispatchCandidate('research', ctx, eddaRefs,
+      `Starting new pipeline: ${ctx.active_laws.length} active law(s) to execute`);
+  }
+
+  /**
+   * 建立 dispatch_task 候選，並用 SkillRegistry 驗證 task_key。
+   * 如果找不到 verified skill → 回傳空列表。
+   */
+  private buildDispatchCandidate(
+    taskKey: string,
+    ctx: DecideContext,
+    eddaRefs: string[],
+    reason: string,
+  ): ActionIntent[] {
+    const skill = this.skillRegistry.resolveForIntent(taskKey, ctx.village_id);
+    if (!skill) {
+      // 找不到對應的 verified skill → 跳過
+      return [];
+    }
+
+    return [{
+      kind: 'dispatch_task',
+      task_key: taskKey,
+      payload: {},
+      estimated_cost: ctx.budget.per_action_limit * 0.5, // 預估成本為限額一半
+      rollback_plan: `Revert ${taskKey} output`,
+      reason,
+      evidence_refs: eddaRefs,
+      confidence: 0.7, // base confidence
+    }];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Pipeline Layer 3: selectBest — Chief 人格權重
+  // ---------------------------------------------------------------------------
+
+  /**
+   * 從候選列表中選出最佳 ActionIntent。
+   * 套用 Chief constraints 過濾 + personality 排序。
+   */
+  private selectBest(candidates: ActionIntent[], ctx: DecideContext): ActionIntent | null {
+    if (candidates.length === 0) return null;
+
+    // 套用 Chief constraints 過濾
+    let filtered = candidates.filter(c => {
+      for (const constraint of ctx.chief.constraints) {
+        if (constraint.type === 'must_not') {
+          // must_not 匹配 → 移除候選
+          const desc = constraint.description.toLowerCase();
+          const actionDesc = `${c.kind} ${c.task_key ?? ''} ${c.reason}`.toLowerCase();
+          if (actionDesc.includes(desc.split(' ')[0])) {
+            return false;
+          }
+        }
+      }
+      return true;
+    });
+
+    if (filtered.length === 0) return null;
+
+    // 套用 prefer/avoid constraints 調整 confidence
+    filtered = filtered.map(c => {
+      let adj = 0;
+      for (const constraint of ctx.chief.constraints) {
+        const desc = constraint.description.toLowerCase();
+        const actionDesc = `${c.kind} ${c.task_key ?? ''} ${c.reason}`.toLowerCase();
+        if (constraint.type === 'prefer' && actionDesc.includes(desc.split(' ')[0])) {
+          adj += 0.1;
+        }
+        if (constraint.type === 'avoid' && actionDesc.includes(desc.split(' ')[0])) {
+          adj -= 0.1;
+        }
+      }
+      return adj !== 0 ? { ...c, confidence: Math.max(0, Math.min(1, c.confidence + adj)) } : c;
+    });
+
+    const riskTolerance = ctx.chief.personality?.risk_tolerance ?? 'moderate';
+
+    // conservative: budget_ratio < 0.3 → 傾向 complete_cycle
+    if (riskTolerance === 'conservative' && ctx.budget_ratio < 0.3) {
+      const completeCycleCandidate = filtered.find(c => c.kind === 'complete_cycle');
+      if (completeCycleCandidate) return completeCycleCandidate;
+      // 如果沒有 complete_cycle，加一個高 cost 過濾
+      filtered = filtered.filter(c => {
+        if (c.kind === 'dispatch_task') {
+          const budgetRemaining = ctx.budget.per_day_limit * ctx.budget_ratio;
+          return c.estimated_cost <= budgetRemaining * 0.5;
+        }
+        return true;
+      });
+    }
+
+    // 排序：confidence 高的優先
+    filtered.sort((a, b) => b.confidence - a.confidence);
+
+    return filtered[0] ?? null;
+  }
+
+  /**
+   * 計算人格對 confidence 的調整值。
+   */
+  private applyPersonalityConfidence(
+    action: ActionIntent,
+    ctx: DecideContext,
+    riskTolerance: string,
+  ): number {
+    let adjustment = 0;
+    const hasNegativePrecedent = ctx.edda_precedents.some(p =>
+      p.is_active && /harmful|rollback|failed/i.test(p.value),
+    );
+    const hasPositivePrecedent = ctx.edda_precedents.some(p =>
+      p.is_active && /effective|success/i.test(p.value),
+    );
+
+    if (riskTolerance === 'conservative') {
+      if (hasNegativePrecedent) adjustment -= 0.2;
+      if (ctx.budget_ratio < 0.3) adjustment -= 0.1;
+    } else if (riskTolerance === 'aggressive') {
+      if (hasPositivePrecedent) adjustment += 0.15;
+      // aggressive 傾向繼續
+      if (action.kind === 'complete_cycle' && ctx.budget_ratio > 0.2) {
+        adjustment -= 0.1; // 不那麼想停
+      }
+    }
+    // moderate: 不做額外調整
+
+    return adjustment;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Pipeline Layer 4: checkLawProposals — 觸發規則
+  // ---------------------------------------------------------------------------
+
+  /**
+   * 檢查是否需要提案 law 修改。
+   * 規則 1: 最近 3 輪同 category 都失敗 → 提案策略調整
+   * 規則 2: harmful law 還是 active → 提案 revoke
+   */
+  private checkLawProposals(ctx: DecideContext): LawProposalDraft[] {
+    const proposals: LawProposalDraft[] = [];
+    const eddaRefs = ctx.edda_precedents.filter(p => p.is_active).map(p => p.event_id);
+
+    // 規則 1: 連續失敗 → 提案策略調整
+    // 使用 blocked + rollback 作為失敗指標
+    if (ctx.blocked_count >= 3 || ctx.recent_rollbacks >= 3) {
+      // 找出最常被阻擋的 action 類型
+      const blockedTypes = (ctx.last_action?.blocked_reasons ?? []);
+      const category = blockedTypes.length > 0 ? blockedTypes[0] : 'general';
+
+      proposals.push({
+        category,
+        content: {
+          description: `Adjust strategy: ${ctx.blocked_count} blocked actions and ${ctx.recent_rollbacks} recent rollbacks indicate current approach is failing`,
+          strategy: { adjust: true, blocked_count: ctx.blocked_count, rollback_count: ctx.recent_rollbacks },
+        },
+        evidence: {
+          source: 'decision_engine',
+          reasoning: `Consecutive failures detected: ${ctx.blocked_count} blocked, ${ctx.recent_rollbacks} rollbacks in 24h`,
+          edda_refs: eddaRefs,
+        },
+        trigger: `${ctx.blocked_count} blocked actions + ${ctx.recent_rollbacks} rollbacks`,
+      });
+    }
+
+    // 規則 2: harmful law 還是 active → 提案 revoke
+    for (const law of ctx.active_laws) {
+      if (law.effectiveness?.verdict === 'harmful') {
+        proposals.push({
+          category: law.category,
+          content: {
+            description: `Revoke harmful law: ${law.content.description}`,
+            strategy: { revoke_law_id: law.id },
+          },
+          evidence: {
+            source: 'decision_engine',
+            reasoning: `Law ${law.id} has verdict "harmful" but is still active`,
+            edda_refs: eddaRefs,
+          },
+          trigger: `Law effectiveness verdict: harmful (measured at ${law.effectiveness.measured_at})`,
+        });
+      }
+    }
+
+    return proposals;
   }
 
   /** 查詢最近 24h 內的 law rollback 數量 */
