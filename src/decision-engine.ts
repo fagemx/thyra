@@ -185,16 +185,28 @@ export class DecisionEngine {
       }
     }
 
+    // 從 actions 推導統計（先計算，Edda 查詢需要 lastAction.type）
+    const actions = cycleState.actions ?? [];
+    const lastAction = actions.length > 0 ? actions[actions.length - 1] : null;
+    const completedActionTypes = actions
+      .filter(a => a.status === 'executed')
+      .map(a => a.type);
+    const pendingApprovals = actions.filter(a => a.status === 'pending_approval').length;
+    const blockedCount = actions.filter(a => a.status === 'blocked').length;
+
     // 查詢 Edda 歷史決策（optional，graceful degradation）
+    // 使用 villageId + lastAction type 做更精確的查詢
     let eddaPrecedents: EddaDecisionHit[] = [];
     let eddaAvailable = false;
     if (this.eddaBridge) {
       try {
         const result = await this.eddaBridge.queryDecisions({
           domain: villageId,
+          keyword: lastAction?.type,  // 查詢同類型 action 的歷史
           limit: 10,
         });
-        eddaPrecedents = result.decisions;
+        // 過濾 superseded 決策 — 只保留 is_active=true 的最新決策
+        eddaPrecedents = result.decisions.filter(d => d.is_active);
         eddaAvailable = true;
       } catch {
         // Edda offline → 空結果，不 crash
@@ -216,15 +228,6 @@ export class DecisionEngine {
     const budgetTotal = budget.per_day_limit;
     const budgetRemaining = Math.max(0, budgetTotal - spentToday);
     const budgetRatio = budgetTotal > 0 ? budgetRemaining / budgetTotal : 0;
-
-    // 從 actions 推導統計
-    const actions = cycleState.actions ?? [];
-    const lastAction = actions.length > 0 ? actions[actions.length - 1] : null;
-    const completedActionTypes = actions
-      .filter(a => a.status === 'executed')
-      .map(a => a.type);
-    const pendingApprovals = actions.filter(a => a.status === 'pending_approval').length;
-    const blockedCount = actions.filter(a => a.status === 'blocked').length;
 
     // 查詢最近 24h 的 law rollback 數量
     const recentRollbacks = this.countRecentRollbacks(villageId);
@@ -278,9 +281,26 @@ export class DecisionEngine {
       factors.push(`${context.observations.length} observation(s) collected`);
     }
 
-    // 歷史決策
+    // 歷史決策 — 分類為正面/負面，加入摘要
     if (context.edda_precedents.length > 0) {
+      const activePrecedents = context.edda_precedents.filter(p => p.is_active);
+      const positivePrecedents = activePrecedents.filter(p =>
+        /effective|success/i.test(p.value),
+      );
+      const negativePrecedents = activePrecedents.filter(p =>
+        /harmful|rollback|failed/i.test(p.value),
+      );
+
       factors.push(`${context.edda_precedents.length} precedent(s) from Edda`);
+
+      // 正面/負面摘要
+      if (positivePrecedents.length > 0) {
+        precedentNotes.push(`${positivePrecedents.length} positive precedent(s): ${positivePrecedents.map(p => p.key).join(', ')}`);
+      }
+      if (negativePrecedents.length > 0) {
+        precedentNotes.push(`${negativePrecedents.length} negative precedent(s): ${negativePrecedents.map(p => p.key).join(', ')}`);
+      }
+
       for (const p of context.edda_precedents) {
         precedentNotes.push(`${p.key}: ${p.value}${p.is_active ? '' : ' (superseded)'}`);
       }
