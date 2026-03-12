@@ -5,9 +5,14 @@ import type { LawEngine, Law } from './law-engine';
 import type { SkillRegistry, Skill } from './skill-registry';
 import type { EddaBridge, EddaDecisionHit } from './edda-bridge';
 import type { RiskAssessor } from './risk-assessor';
+import type { LoopAction } from './schemas/loop';
+
+// Re-export CycleIntent from schemas/loop (single source of truth)
+export type { CycleIntent } from './schemas/loop';
+import type { CycleIntent } from './schemas/loop';
 
 // ---------------------------------------------------------------------------
-// 型別定義
+// 型別定義 — aligned with DECISION_ENGINE_V01.md Section 2
 // ---------------------------------------------------------------------------
 
 /** 預算狀態快照 */
@@ -19,18 +24,40 @@ export interface BudgetSnapshot {
   spent_this_loop: number;
 }
 
-/** 結構化上下文 — buildContext() 的輸出 */
+/** 結構化上下文 — buildContext() 的輸出（v0.1 Section 2.1） */
 export interface DecideContext {
+  // 基本識別
+  cycle_id: string;
   village_id: string;
+  iteration: number;
+  max_iterations: number;
+
+  // 預算（結構化）
+  budget: BudgetSnapshot;
+  budget_ratio: number;              // remaining / total, 0-1
+
+  // 從 actions[] 推導
+  last_action: LoopAction | null;
+  completed_action_types: string[];
+  pending_approvals: number;
+  blocked_count: number;
+
+  // 從 audit_log 查詢
+  recent_rollbacks: number;          // 最近 24h 內 law rollback 數量
+
+  // 從 Edda 查詢（graceful degradation）
+  edda_precedents: EddaDecisionHit[];
+  edda_available: boolean;
+
+  // 直接傳入 / 查詢
   chief: Chief;
+  chief_skills: Skill[];
   constitution: Constitution;
   active_laws: Law[];
-  chief_skills: Skill[];
   observations: Record<string, unknown>[];
-  precedents: EddaDecisionHit[];
-  budget: BudgetSnapshot;
-  cycle_iteration: number;
-  max_iterations: number;
+
+  // 意圖狀態（從 loop_cycles.intent 讀取）
+  intent: CycleIntent | null;
 }
 
 /** 推理因素 */
@@ -40,62 +67,60 @@ export interface ReasoningFactor {
   weight: 'high' | 'medium' | 'low';
 }
 
-/** 推理鏈 (SI-2: 所有決策必須有可追溯的理由鏈) */
+/** 推理鏈 — v0.1 Section 2.4 (SI-2: 所有決策必須有可追溯的理由鏈) */
 export interface DecisionReasoning {
-  factors: ReasoningFactor[];
-  conclusion: string;
+  summary: string;
+  factors: string[];
+  precedent_notes: string[];
+  law_considerations: string[];
+  personality_effect: string;
   confidence: number; // 0–1
 }
 
-/** 法律提案草案 — DecisionEngine 建議，LoopRunner 執行 */
+/** 法律提案草案 — v0.1 Section 2.3 */
 export interface LawProposalDraft {
   category: string;
   content: { description: string; strategy: Record<string, unknown> };
-  evidence: { source: string; reasoning: string; edda_refs?: string[] };
-  risk_level: 'low' | 'medium' | 'high';
+  evidence: { source: string; reasoning: string; edda_refs: string[] };
+  trigger: string;
 }
 
-/** 行動意圖 — 比 LoopRunner.Decision 更豐富的決策輸出 */
+/** 行動意圖 — v0.1 Section 2.2 */
 export interface ActionIntent {
-  type: string;
-  description: string;
+  kind: 'dispatch_task' | 'propose_law' | 'request_approval' | 'wait' | 'complete_cycle';
+  task_key?: string;                    // 對應 SkillRegistry 的 skill name
+  payload?: Record<string, unknown>;
   estimated_cost: number;
-  reason: string;
   rollback_plan: string;
-  law_proposal: LawProposalDraft | null;
-  metadata: Record<string, unknown>;
-}
-
-/** 循環意圖 — 建議 LoopRunner 繼續或停止 */
-export interface CycleIntent {
-  should_continue: boolean;
   reason: string;
+  evidence_refs: string[];              // edda event_id 列表
+  confidence: number;                   // 0-1
 }
 
-/** 循環結果 — 供未來 LoopRunner 使用 */
+/** 循環結果摘要 — v0.1 Section 2.1 */
 export interface LoopOutcome {
   cycle_id: string;
-  village_id: string;
-  total_actions: number;
-  total_cost: number;
-  laws_proposed: string[];
-  laws_enacted: string[];
-  final_status: 'completed' | 'timeout' | 'aborted';
-  reasoning_summary: string;
+  status: 'completed' | 'timeout' | 'aborted';
+  actions_executed: number;
+  cost_incurred: number;
 }
 
-/** 決策結果 — decide() 的回傳值 */
+/** 決策結果 — v0.1 Section 2.5 */
 export interface DecideResult {
   action: ActionIntent | null;
+  law_proposals: LawProposalDraft[];
   reasoning: DecisionReasoning;
-  cycle_intent: CycleIntent;
+  updated_intent: CycleIntent | null;
 }
 
 /** buildContext 的循環狀態參數 */
 export interface CycleState {
+  cycle_id: string;
   iteration: number;
   max_iterations: number;
   loop_id?: string;
+  actions?: LoopAction[];
+  intent?: CycleIntent | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -124,7 +149,7 @@ export class DecisionEngine {
   ) {}
 
   /**
-   * 組裝結構化決策上下文。
+   * 組裝結構化決策上下文（v0.1 Section 4.1）。
    * 從 ConstitutionStore、ChiefEngine、LawEngine、SkillRegistry、EddaBridge 收集資訊。
    */
   async buildContext(
@@ -161,42 +186,69 @@ export class DecisionEngine {
     }
 
     // 查詢 Edda 歷史決策（optional，graceful degradation）
-    let precedents: EddaDecisionHit[] = [];
+    let eddaPrecedents: EddaDecisionHit[] = [];
+    let eddaAvailable = false;
     if (this.eddaBridge) {
       try {
         const result = await this.eddaBridge.queryDecisions({
           domain: villageId,
           limit: 10,
         });
-        precedents = result.decisions;
+        eddaPrecedents = result.decisions;
+        eddaAvailable = true;
       } catch {
         // Edda offline → 空結果，不 crash
-        precedents = [];
       }
     }
 
     // 組裝預算快照
+    const spentToday = this.riskAssessor.getSpentToday(villageId);
+    const spentThisLoop = cycleState.loop_id
+      ? this.riskAssessor.getSpentInLoop(villageId, cycleState.loop_id)
+      : 0;
     const budget: BudgetSnapshot = {
       per_action_limit: constitution.budget_limits.max_cost_per_action,
       per_day_limit: constitution.budget_limits.max_cost_per_day,
       per_loop_limit: constitution.budget_limits.max_cost_per_loop,
-      spent_today: this.riskAssessor.getSpentToday(villageId),
-      spent_this_loop: cycleState.loop_id
-        ? this.riskAssessor.getSpentInLoop(villageId, cycleState.loop_id)
-        : 0,
+      spent_today: spentToday,
+      spent_this_loop: spentThisLoop,
     };
+    const budgetTotal = budget.per_day_limit;
+    const budgetRemaining = Math.max(0, budgetTotal - spentToday);
+    const budgetRatio = budgetTotal > 0 ? budgetRemaining / budgetTotal : 0;
+
+    // 從 actions 推導統計
+    const actions = cycleState.actions ?? [];
+    const lastAction = actions.length > 0 ? actions[actions.length - 1] : null;
+    const completedActionTypes = actions
+      .filter(a => a.status === 'executed')
+      .map(a => a.type);
+    const pendingApprovals = actions.filter(a => a.status === 'pending_approval').length;
+    const blockedCount = actions.filter(a => a.status === 'blocked').length;
+
+    // 查詢最近 24h 的 law rollback 數量
+    const recentRollbacks = this.countRecentRollbacks(villageId);
 
     return {
+      cycle_id: cycleState.cycle_id,
       village_id: villageId,
+      iteration: cycleState.iteration,
+      max_iterations: cycleState.max_iterations,
+      budget,
+      budget_ratio: budgetRatio,
+      last_action: lastAction,
+      completed_action_types: completedActionTypes,
+      pending_approvals: pendingApprovals,
+      blocked_count: blockedCount,
+      recent_rollbacks: recentRollbacks,
+      edda_precedents: eddaPrecedents,
+      edda_available: eddaAvailable,
       chief,
+      chief_skills: chiefSkills,
       constitution,
       active_laws: activeLaws,
-      chief_skills: chiefSkills,
       observations,
-      precedents,
-      budget,
-      cycle_iteration: cycleState.iteration,
-      max_iterations: cycleState.max_iterations,
+      intent: cycleState.intent ?? null,
     };
   }
 
@@ -204,105 +256,82 @@ export class DecisionEngine {
    * Phase 0: 規則式決策 — 永遠 return action: null。
    * 與 LoopRunner 現有的 decide() 行為等價。
    *
-   * Phase 1 會替換成 LLM-based 決策。
+   * Phase 1 會替換成 rule-based 四層決策。
    */
   decide(context: DecideContext): DecideResult {
-    const factors: ReasoningFactor[] = [];
-
-    // 收集推理因素
+    const factors: string[] = [];
+    const lawConsiderations: string[] = [];
+    const precedentNotes: string[] = [];
 
     // 憲法約束
-    factors.push({
-      source: 'constitution',
-      description: `Active constitution v${context.constitution.version} with ${context.constitution.rules.length} rules`,
-      weight: 'high',
-    });
+    factors.push(`Active constitution v${context.constitution.version} with ${context.constitution.rules.length} rules`);
 
     // 活躍法律
     if (context.active_laws.length > 0) {
-      factors.push({
-        source: 'law',
-        description: `${context.active_laws.length} active law(s) in effect`,
-        weight: 'medium',
-      });
+      factors.push(`${context.active_laws.length} active law(s) in effect`);
+      for (const law of context.active_laws) {
+        lawConsiderations.push(`${law.category}: ${law.content.description}`);
+      }
     }
 
     // 觀測資料
     if (context.observations.length > 0) {
-      factors.push({
-        source: 'observation',
-        description: `${context.observations.length} observation(s) collected`,
-        weight: 'medium',
-      });
+      factors.push(`${context.observations.length} observation(s) collected`);
     }
 
     // 歷史決策
-    if (context.precedents.length > 0) {
-      factors.push({
-        source: 'precedent',
-        description: `${context.precedents.length} precedent(s) from Edda`,
-        weight: 'low',
-      });
+    if (context.edda_precedents.length > 0) {
+      factors.push(`${context.edda_precedents.length} precedent(s) from Edda`);
+      for (const p of context.edda_precedents) {
+        precedentNotes.push(`${p.key}: ${p.value}${p.is_active ? '' : ' (superseded)'}`);
+      }
     }
 
     // 預算狀態
-    const budgetUsedPct = context.budget.per_day_limit > 0
-      ? context.budget.spent_today / context.budget.per_day_limit
-      : 0;
-    factors.push({
-      source: 'budget',
-      description: `Daily budget ${Math.round(budgetUsedPct * 100)}% used (${context.budget.spent_today}/${context.budget.per_day_limit})`,
-      weight: budgetUsedPct > 0.8 ? 'high' : 'low',
-    });
+    const budgetUsedPct = Math.round((1 - context.budget_ratio) * 100);
+    factors.push(`Daily budget ${budgetUsedPct}% used (${context.budget.spent_today}/${context.budget.per_day_limit})`);
 
     // Chief 約束
+    let personalityEffect = `Chief ${context.chief.name} (${context.chief.role})`;
+    const constraintDescs: string[] = [];
     for (const constraint of context.chief.constraints) {
-      factors.push({
-        source: 'chief_constraint',
-        description: `${constraint.type}: ${constraint.description}`,
-        weight: constraint.type === 'must' || constraint.type === 'must_not' ? 'high' : 'low',
-      });
+      constraintDescs.push(`${constraint.type}: ${constraint.description}`);
+    }
+    if (constraintDescs.length > 0) {
+      personalityEffect += ` — constraints: ${constraintDescs.join('; ')}`;
     }
 
     // Phase 0: 永遠不採取行動
     const reasoning: DecisionReasoning = {
+      summary: 'Phase 0: no autonomous action taken. Context assembled for future decision-making.',
       factors,
-      conclusion: 'Phase 0: no autonomous action taken. Context assembled for future decision-making.',
+      precedent_notes: precedentNotes,
+      law_considerations: lawConsiderations,
+      personality_effect: personalityEffect,
       confidence: 1.0,
-    };
-
-    const cycleIntent: CycleIntent = {
-      should_continue: false,
-      reason: 'Phase 0 decision engine does not generate actions',
     };
 
     return {
       action: null,
+      law_proposals: [],
       reasoning,
-      cycle_intent: cycleIntent,
+      updated_intent: null,
     };
   }
 
-  /**
-   * 格式化 LoopOutcome 摘要
-   */
+  /** 查詢最近 24h 內的 law rollback 數量 */
+  private countRecentRollbacks(villageId: string): number {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const row = this.db.prepare(`
+      SELECT COUNT(*) as cnt FROM audit_log
+      WHERE entity_type = 'law' AND action = 'rollback'
+        AND payload LIKE ? AND created_at > ?
+    `).get(`%${villageId}%`, since) as { cnt: number } | null;
+    return row?.cnt ?? 0;
+  }
+
+  /** 格式化 LoopOutcome 摘要 */
   static summarizeOutcome(outcome: LoopOutcome): string {
-    const lines: string[] = [
-      `Cycle ${outcome.cycle_id} [${outcome.final_status}]`,
-      `Village: ${outcome.village_id}`,
-      `Actions: ${outcome.total_actions}, Cost: ${outcome.total_cost}`,
-    ];
-
-    if (outcome.laws_proposed.length > 0) {
-      lines.push(`Laws proposed: ${outcome.laws_proposed.join(', ')}`);
-    }
-    if (outcome.laws_enacted.length > 0) {
-      lines.push(`Laws enacted: ${outcome.laws_enacted.join(', ')}`);
-    }
-    if (outcome.reasoning_summary) {
-      lines.push(`Summary: ${outcome.reasoning_summary}`);
-    }
-
-    return lines.join('\n');
+    return `Cycle ${outcome.cycle_id} [${outcome.status}] — Actions: ${outcome.actions_executed}, Cost: ${outcome.cost_incurred}`;
   }
 }
