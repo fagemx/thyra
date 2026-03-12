@@ -807,5 +807,273 @@ describe('DecisionEngine', () => {
       expect(result.updated_intent!.stage_hint).toBe('draft');
       expect(result.updated_intent!.goal_kind).toBe('content_pipeline');
     });
+
+    // -----------------------------------------------------------------------
+    // Edda precedent influence tests (#71)
+    // -----------------------------------------------------------------------
+
+    describe('Edda precedent influence', () => {
+      // Test: buildContext queries Edda with keyword from lastAction.type
+      it('buildContext passes lastAction.type as keyword to Edda query', async () => {
+        let capturedOpts: Record<string, unknown> | null = null;
+        const mockEddaBridge = {
+          queryDecisions: async (opts: Record<string, unknown>) => {
+            capturedOpts = opts;
+            return { query: '', input_type: 'keyword', decisions: [], timeline: [], related_commits: [], related_notes: [] };
+          },
+        } as unknown as import('./edda-bridge').EddaBridge;
+
+        const engineWithEdda = new DecisionEngine(
+          db, constitutionStore, chiefEngine, lawEngine,
+          skillRegistry, riskAssessor, mockEddaBridge,
+        );
+
+        const actions: LoopAction[] = [
+          { type: 'research', description: 'r', estimated_cost: 5, risk_level: 'low', status: 'executed', reason: 'ok' },
+        ];
+
+        await engineWithEdda.buildContext(villageId, chiefId, [], {
+          ...baseCycleState,
+          actions,
+        });
+
+        expect(capturedOpts).not.toBeNull();
+        expect(capturedOpts!.domain).toBe(villageId);
+        expect(capturedOpts!.keyword).toBe('research');
+        expect(capturedOpts!.limit).toBe(10);
+      });
+
+      // Test: buildContext passes undefined keyword when no lastAction
+      it('buildContext passes undefined keyword when no lastAction', async () => {
+        let capturedOpts: Record<string, unknown> | null = null;
+        const mockEddaBridge = {
+          queryDecisions: async (opts: Record<string, unknown>) => {
+            capturedOpts = opts;
+            return { query: '', input_type: 'domain', decisions: [], timeline: [], related_commits: [], related_notes: [] };
+          },
+        } as unknown as import('./edda-bridge').EddaBridge;
+
+        const engineWithEdda = new DecisionEngine(
+          db, constitutionStore, chiefEngine, lawEngine,
+          skillRegistry, riskAssessor, mockEddaBridge,
+        );
+
+        await engineWithEdda.buildContext(villageId, chiefId, [], baseCycleState);
+
+        expect(capturedOpts).not.toBeNull();
+        expect(capturedOpts!.keyword).toBeUndefined();
+      });
+
+      // Test: buildContext filters out superseded (is_active=false) precedents
+      it('buildContext filters superseded precedents (is_active=false)', async () => {
+        const mockEddaBridge = {
+          queryDecisions: async () => ({
+            query: 'test',
+            input_type: 'domain',
+            decisions: [
+              { event_id: 'e1', key: 'a.b', value: 'active one', reason: 'r1', domain: 'a', branch: 'main', ts: '2025-01-01', is_active: true },
+              { event_id: 'e2', key: 'a.c', value: 'superseded one', reason: 'r2', domain: 'a', branch: 'main', ts: '2025-01-01', is_active: false },
+              { event_id: 'e3', key: 'a.d', value: 'another active', reason: 'r3', domain: 'a', branch: 'main', ts: '2025-01-01', is_active: true },
+            ],
+            timeline: [],
+            related_commits: [],
+            related_notes: [],
+          }),
+        } as unknown as import('./edda-bridge').EddaBridge;
+
+        const engineWithEdda = new DecisionEngine(
+          db, constitutionStore, chiefEngine, lawEngine,
+          skillRegistry, riskAssessor, mockEddaBridge,
+        );
+
+        const ctx = await engineWithEdda.buildContext(villageId, chiefId, [], baseCycleState);
+
+        // Only active precedents should be included
+        expect(ctx.edda_precedents).toHaveLength(2);
+        expect(ctx.edda_precedents.every(p => p.is_active)).toBe(true);
+        expect(ctx.edda_available).toBe(true);
+      });
+
+      // Test: Edda bridge throws → graceful degradation
+      it('Edda bridge throws → graceful degradation (edda_available=false)', async () => {
+        const mockEddaBridge = {
+          queryDecisions: async () => {
+            throw new Error('Connection refused');
+          },
+        } as unknown as import('./edda-bridge').EddaBridge;
+
+        const engineWithEdda = new DecisionEngine(
+          db, constitutionStore, chiefEngine, lawEngine,
+          skillRegistry, riskAssessor, mockEddaBridge,
+        );
+
+        const ctx = await engineWithEdda.buildContext(villageId, chiefId, [], baseCycleState);
+
+        expect(ctx.edda_available).toBe(false);
+        expect(ctx.edda_precedents).toEqual([]);
+      });
+
+      // Test: positive precedent adds summary notes to reasoning
+      it('positive precedent produces summary in precedent_notes', () => {
+        const ctx: DecideContext = {
+          cycle_id: 'c1', village_id: villageId, iteration: 0, max_iterations: 10,
+          budget: { per_action_limit: 10, per_day_limit: 100, per_loop_limit: 50, spent_today: 0, spent_this_loop: 0 },
+          budget_ratio: 1.0,
+          last_action: null, completed_action_types: [], pending_approvals: 0, blocked_count: 0,
+          recent_rollbacks: 0,
+          edda_precedents: [
+            { event_id: 'e1', key: 'test.strategy', value: 'effective approach', reason: 'worked', domain: 'test', branch: 'main', ts: '2025-01-01', is_active: true },
+          ],
+          edda_available: true,
+          chief: chiefEngine.get(chiefId)!,
+          chief_skills: [],
+          constitution: constitutionStore.getActive(villageId)!,
+          active_laws: [],
+          observations: [],
+          intent: null,
+        };
+
+        const result = engine.decide(ctx);
+
+        expect(result.reasoning.precedent_notes.some(n => n.includes('positive precedent'))).toBe(true);
+        expect(result.reasoning.factors.some(f => f.includes('precedent'))).toBe(true);
+      });
+
+      // Test: negative precedent produces summary in precedent_notes
+      it('negative precedent produces summary in precedent_notes', () => {
+        const ctx: DecideContext = {
+          cycle_id: 'c1', village_id: villageId, iteration: 0, max_iterations: 10,
+          budget: { per_action_limit: 10, per_day_limit: 100, per_loop_limit: 50, spent_today: 0, spent_this_loop: 0 },
+          budget_ratio: 1.0,
+          last_action: null, completed_action_types: [], pending_approvals: 0, blocked_count: 0,
+          recent_rollbacks: 0,
+          edda_precedents: [
+            { event_id: 'e1', key: 'test.deploy', value: 'failed — caused outage', reason: 'bad', domain: 'test', branch: 'main', ts: '2025-01-01', is_active: true },
+          ],
+          edda_available: true,
+          chief: chiefEngine.get(chiefId)!,
+          chief_skills: [],
+          constitution: constitutionStore.getActive(villageId)!,
+          active_laws: [],
+          observations: [],
+          intent: null,
+        };
+
+        const result = engine.decide(ctx);
+
+        expect(result.reasoning.precedent_notes.some(n => n.includes('negative precedent'))).toBe(true);
+      });
+
+      // Test: conservative chief + negative precedent → confidence < 0.5
+      // (Validates DoD requirement — the test at line 541 already covers this,
+      //  but this test directly verifies the exact threshold with minimal setup)
+      it('conservative + negative precedent → confidence < 0.5 (direct context)', () => {
+        const conservativeChiefId = createChiefWithPersonality('conservative');
+        createVerifiedSkill('research');
+
+        // Give chief law permissions to create active law
+        chiefEngine.update(conservativeChiefId, {
+          permissions: ['dispatch_task', 'propose_law', 'enact_law_low'],
+        }, 'human');
+        lawEngine.propose(villageId, conservativeChiefId, {
+          category: 'testing',
+          content: { description: 'test law', strategy: {} },
+          evidence: { source: 'test', reasoning: 'testing' },
+        });
+
+        const chief = chiefEngine.get(conservativeChiefId)!;
+        const activeLaws = lawEngine.getActiveLaws(villageId);
+
+        const ctx: DecideContext = {
+          cycle_id: 'c1', village_id: villageId, iteration: 0, max_iterations: 10,
+          budget: { per_action_limit: 10, per_day_limit: 100, per_loop_limit: 50, spent_today: 0, spent_this_loop: 0 },
+          budget_ratio: 1.0,
+          last_action: null, completed_action_types: [], pending_approvals: 0, blocked_count: 0,
+          recent_rollbacks: 0,
+          edda_precedents: [
+            { event_id: 'e-neg', key: 'test.strategy', value: 'harmful — caused failures', reason: 'bad', domain: 'test', branch: 'main', ts: '2025-01-01', is_active: true },
+          ],
+          edda_available: true,
+          chief,
+          chief_skills: [],
+          constitution: constitutionStore.getActive(villageId)!,
+          active_laws: activeLaws,
+          observations: [],
+          intent: null,
+        };
+
+        const result = engine.decide(ctx);
+        expect(result.reasoning.confidence).toBeLessThan(0.5);
+      });
+
+      // Test: aggressive chief + positive precedent → confidence > 0.8
+      it('aggressive + positive precedent → confidence > 0.8 (direct context)', () => {
+        const aggressiveChiefId = createChiefWithPersonality('aggressive');
+        createVerifiedSkill('research');
+
+        chiefEngine.update(aggressiveChiefId, {
+          permissions: ['dispatch_task', 'propose_law', 'enact_law_low'],
+        }, 'human');
+        lawEngine.propose(villageId, aggressiveChiefId, {
+          category: 'testing',
+          content: { description: 'test law', strategy: {} },
+          evidence: { source: 'test', reasoning: 'testing' },
+        });
+
+        const chief = chiefEngine.get(aggressiveChiefId)!;
+        const activeLaws = lawEngine.getActiveLaws(villageId);
+
+        const ctx: DecideContext = {
+          cycle_id: 'c1', village_id: villageId, iteration: 0, max_iterations: 10,
+          budget: { per_action_limit: 10, per_day_limit: 100, per_loop_limit: 50, spent_today: 0, spent_this_loop: 0 },
+          budget_ratio: 1.0,
+          last_action: null, completed_action_types: [], pending_approvals: 0, blocked_count: 0,
+          recent_rollbacks: 0,
+          edda_precedents: [
+            { event_id: 'e-pos', key: 'test.strategy', value: 'effective — great results', reason: 'good', domain: 'test', branch: 'main', ts: '2025-01-01', is_active: true },
+          ],
+          edda_available: true,
+          chief,
+          chief_skills: [],
+          constitution: constitutionStore.getActive(villageId)!,
+          active_laws: activeLaws,
+          observations: [],
+          intent: null,
+        };
+
+        const result = engine.decide(ctx);
+        expect(result.reasoning.confidence).toBeGreaterThan(0.8);
+      });
+
+      // Test: mixed precedents — both positive and negative noted
+      it('mixed precedents — both positive and negative summarized', () => {
+        const ctx: DecideContext = {
+          cycle_id: 'c1', village_id: villageId, iteration: 0, max_iterations: 10,
+          budget: { per_action_limit: 10, per_day_limit: 100, per_loop_limit: 50, spent_today: 0, spent_this_loop: 0 },
+          budget_ratio: 1.0,
+          last_action: null, completed_action_types: [], pending_approvals: 0, blocked_count: 0,
+          recent_rollbacks: 0,
+          edda_precedents: [
+            { event_id: 'e1', key: 'test.a', value: 'effective plan', reason: 'worked', domain: 'test', branch: 'main', ts: '2025-01-01', is_active: true },
+            { event_id: 'e2', key: 'test.b', value: 'failed approach', reason: 'bad', domain: 'test', branch: 'main', ts: '2025-01-01', is_active: true },
+          ],
+          edda_available: true,
+          chief: chiefEngine.get(chiefId)!,
+          chief_skills: [],
+          constitution: constitutionStore.getActive(villageId)!,
+          active_laws: [],
+          observations: [],
+          intent: null,
+        };
+
+        const result = engine.decide(ctx);
+
+        expect(result.reasoning.precedent_notes.some(n => n.includes('positive'))).toBe(true);
+        expect(result.reasoning.precedent_notes.some(n => n.includes('negative'))).toBe(true);
+        // Individual entries also present
+        expect(result.reasoning.precedent_notes.some(n => n.includes('test.a: effective plan'))).toBe(true);
+        expect(result.reasoning.precedent_notes.some(n => n.includes('test.b: failed approach'))).toBe(true);
+      });
+    });
   });
 });
