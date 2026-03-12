@@ -6,6 +6,8 @@ import type { ChiefEngine, Chief } from './chief-engine';
 import type { LawEngine } from './law-engine';
 import type { RiskAssessor, Action, AssessmentResult } from './risk-assessor';
 import type { EddaBridge, EddaDecisionHit } from './edda-bridge';
+import type { SkillRegistry } from './skill-registry';
+import type { DecisionEngine } from './decision-engine';
 import { StartCycleInput as StartCycleSchema } from './schemas/loop';
 import type { StartCycleInputRaw, LoopAction, CycleIntent } from './schemas/loop';
 
@@ -49,6 +51,8 @@ export class LoopRunner {
     private lawEngine: LawEngine,
     private riskAssessor: RiskAssessor,
     private eddaBridge?: EddaBridge,
+    private skillRegistry?: SkillRegistry,
+    private decisionEngine?: DecisionEngine,
   ) {}
 
   startCycle(villageId: string, rawInput: StartCycleInputRaw): LoopCycle {
@@ -112,6 +116,11 @@ export class LoopRunner {
   }
 
   async runLoop(cycle: LoopCycle, chief: Chief, constitution: Constitution, signal: AbortSignal): Promise<void> {
+    // Dispatch to V1 flow if DecisionEngine is available
+    if (this.decisionEngine) {
+      return this.runLoopV1(cycle, chief, constitution, signal);
+    }
+
     // Yield to let startCycle return before loop begins
     await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -191,6 +200,254 @@ export class LoopRunner {
       clearTimeout(timeoutId);
       this.abortControllers.delete(cycle.id);
     }
+  }
+
+  /**
+   * V1 control flow — 7-step DecisionEngine-driven loop.
+   * Used when DecisionEngine is injected via constructor.
+   *
+   * Steps: COMPREHEND → DECIDE → PROPOSE → ACT → UPDATE → RECORD → YIELD
+   */
+  private async runLoopV1(
+    cycle: LoopCycle,
+    chief: Chief,
+    constitution: Constitution,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const de = this.decisionEngine!;
+
+    // Yield to let startCycle return before loop begins
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Timeout handler (THY-08)
+    const timeoutId = setTimeout(() => {
+      this.finishCycle(cycle.id, 'timeout', 'Timeout exceeded');
+    }, cycle.timeout_ms);
+
+    try {
+      for (let i = 0; i < cycle.max_iterations; i++) {
+        // SI-1: Check abort signal
+        if (signal.aborted) {
+          this.finishCycle(cycle.id, 'aborted', 'Human stop');
+          return;
+        }
+
+        // Re-read cycle to get latest state
+        const current = this.get(cycle.id);
+        if (!current || current.status !== 'running') return;
+
+        // Budget check
+        if (current.budget_remaining <= 0) {
+          this.finishCycle(cycle.id, 'completed', 'Budget exhausted');
+          return;
+        }
+
+        // --- Step 1: COMPREHEND ---
+        const observations = this.observe(cycle.village_id);
+        const context = await de.buildContext(
+          cycle.village_id,
+          chief.id,
+          observations,
+          {
+            cycle_id: cycle.id,
+            iteration: i,
+            max_iterations: cycle.max_iterations,
+            loop_id: cycle.id,
+            actions: current.actions,
+            intent: current.intent,
+          },
+        );
+
+        // --- Step 2: DECIDE ---
+        const result = de.decide(context);
+
+        // --- Step 3: PROPOSE LAWS (governance before execution) ---
+        const proposedLawIds: string[] = [];
+        for (const proposal of result.law_proposals) {
+          try {
+            const law = this.lawEngine.propose(cycle.village_id, chief.id, {
+              category: proposal.category,
+              content: proposal.content,
+              evidence: proposal.evidence,
+            });
+            proposedLawIds.push(law.id);
+          } catch {
+            // 提案失敗不阻擋主流程（例如 chief 缺乏 propose_law 權限）
+          }
+        }
+        // 記錄 proposed laws 到 cycle
+        if (proposedLawIds.length > 0) {
+          this.recordLawProposals(cycle.id, proposedLawIds);
+        }
+
+        // --- Step 4: ACT ---
+        const actionIntent = result.action;
+
+        if (!actionIntent) {
+          // No action needed — complete cycle
+          this.finishCycle(cycle.id, 'completed', 'No more actions needed');
+          return;
+        }
+
+        if (actionIntent.kind === 'complete_cycle') {
+          this.finishCycle(cycle.id, 'completed', actionIntent.reason);
+          return;
+        }
+
+        if (actionIntent.kind === 'wait') {
+          // 記錄 wait action 並跳到下一迭代
+          const waitAction: LoopAction = {
+            type: 'wait',
+            description: actionIntent.reason,
+            estimated_cost: 0,
+            risk_level: 'low',
+            status: 'executed',
+            reason: actionIntent.reason,
+          };
+          this.recordAction(cycle.id, waitAction, 0);
+
+          // --- Step 5: UPDATE INTENT ---
+          if (result.updated_intent) {
+            this.persistIntent(cycle.id, result.updated_intent);
+          }
+
+          // --- Step 6: RECORD ---
+          appendAudit(this.db, 'loop', cycle.id, 'decision', {
+            iteration: i,
+            action_kind: 'wait',
+            reasoning: result.reasoning.summary,
+            law_proposals: proposedLawIds,
+          }, chief.id);
+
+          // Fire-and-forget Edda recording
+          if (this.eddaBridge) {
+            void this.eddaBridge.recordDecision({
+              domain: 'loop',
+              aspect: `${cycle.id}.iteration.${i}`,
+              value: 'wait',
+              reason: result.reasoning.summary,
+            }).catch(() => {});
+          }
+
+          // --- Step 7: YIELD ---
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          continue;
+        }
+
+        if (actionIntent.kind === 'dispatch_task') {
+          // Resolve skill via SkillRegistry
+          const taskKey = actionIntent.task_key ?? 'unknown';
+          let skillResolved = false;
+
+          if (this.skillRegistry) {
+            const skill = this.skillRegistry.resolveForIntent(taskKey, cycle.village_id);
+            skillResolved = !!skill;
+          }
+
+          if (!skillResolved) {
+            // 找不到 verified skill → 記錄 blocked action
+            const blockedAction: LoopAction = {
+              type: taskKey,
+              description: `dispatch_task: ${taskKey}`,
+              estimated_cost: actionIntent.estimated_cost,
+              risk_level: 'low',
+              status: 'blocked',
+              reason: actionIntent.reason,
+              blocked_reasons: [`No verified skill found for task_key: ${taskKey}`],
+            };
+            this.recordAction(cycle.id, blockedAction, actionIntent.estimated_cost);
+          } else {
+            // Build Action for risk assessment
+            const action: Action = {
+              type: taskKey,
+              description: `dispatch_task: ${taskKey}`,
+              initiated_by: chief.id,
+              village_id: cycle.village_id,
+              estimated_cost: actionIntent.estimated_cost,
+              reason: actionIntent.reason,
+              rollback_plan: actionIntent.rollback_plan,
+            };
+
+            const assessment = this.riskAssessor.assess(action, {
+              constitution,
+              recent_rollbacks: [],
+              chief_personality: chief.personality,
+              loop_id: cycle.id,
+            });
+
+            const decision: Decision = {
+              action_type: taskKey,
+              description: `dispatch_task: ${taskKey}`,
+              estimated_cost: actionIntent.estimated_cost,
+              reason: actionIntent.reason,
+              rollback_plan: actionIntent.rollback_plan,
+            };
+
+            const loopAction = this.processAssessment(decision, assessment);
+
+            // Record cost if executed
+            if (loopAction.status === 'executed') {
+              this.riskAssessor.recordSpend(cycle.village_id, cycle.id, actionIntent.estimated_cost);
+            }
+
+            this.recordAction(cycle.id, loopAction, actionIntent.estimated_cost);
+          }
+        }
+
+        // --- Step 5: UPDATE INTENT ---
+        if (result.updated_intent) {
+          this.persistIntent(cycle.id, result.updated_intent);
+        }
+
+        // --- Step 6: RECORD ---
+        appendAudit(this.db, 'loop', cycle.id, 'decision', {
+          iteration: i,
+          action_kind: actionIntent.kind,
+          task_key: actionIntent.kind === 'dispatch_task' ? actionIntent.task_key : undefined,
+          reasoning: result.reasoning.summary,
+          law_proposals: proposedLawIds,
+        }, chief.id);
+
+        // Fire-and-forget Edda recording
+        if (this.eddaBridge) {
+          void this.eddaBridge.recordDecision({
+            domain: 'loop',
+            aspect: `${cycle.id}.iteration.${i}`,
+            value: `${actionIntent.kind}${actionIntent.kind === 'dispatch_task' ? `:${actionIntent.task_key}` : ''}`,
+            reason: result.reasoning.summary,
+          }).catch(() => {});
+        }
+
+        // --- Step 7: YIELD ---
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+
+      // Max iterations reached
+      this.finishCycle(cycle.id, 'completed', 'Max iterations reached');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.finishCycle(cycle.id, 'aborted', `Loop error: ${msg}`);
+    } finally {
+      clearTimeout(timeoutId);
+      this.abortControllers.delete(cycle.id);
+    }
+  }
+
+  /** 持久化 intent 到 loop_cycles 表 */
+  private persistIntent(cycleId: string, intent: CycleIntent | null): void {
+    const now = new Date().toISOString();
+    this.db.prepare('UPDATE loop_cycles SET intent = ?, updated_at = ? WHERE id = ?')
+      .run(intent ? JSON.stringify(intent) : null, now, cycleId);
+  }
+
+  /** 記錄 law proposal IDs 到 cycle 的 laws_proposed 欄位 */
+  private recordLawProposals(cycleId: string, lawIds: string[]): void {
+    const cycle = this.get(cycleId);
+    if (!cycle) return;
+    const merged = [...cycle.laws_proposed, ...lawIds];
+    const now = new Date().toISOString();
+    this.db.prepare('UPDATE loop_cycles SET laws_proposed = ?, updated_at = ? WHERE id = ?')
+      .run(JSON.stringify(merged), now, cycleId);
   }
 
   observe(villageId: string): Record<string, unknown>[] {
