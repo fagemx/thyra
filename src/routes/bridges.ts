@@ -150,5 +150,33 @@ export function bridgeRoutes(karvi: KarviBridge, edda: EddaBridge): Hono {
     return c.json({ ok: true, data: edda.getRecentRecorded(limit) });
   });
 
+  app.post('/api/bridges/edda/note', async (c) => {
+    const body = await c.req.json() as Record<string, unknown>;
+    const text = body.text as string | undefined;
+    if (!text) {
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: 'text required' } }, 400);
+    }
+    const result = await edda.recordNote({
+      text,
+      role: body.role as string | undefined,
+      tags: body.tags as string[] | undefined,
+    });
+    if (!result) {
+      return c.json({ ok: false, error: { code: 'EDDA_UNAVAILABLE', message: 'Edda unreachable' } }, 502);
+    }
+    return c.json({ ok: true, data: result }, 201);
+  });
+
+  app.get('/api/bridges/edda/log', async (c) => {
+    const entries = await edda.queryEventLog({
+      type: c.req.query('type') || undefined,
+      keyword: c.req.query('keyword') || undefined,
+      after: c.req.query('after') || undefined,
+      before: c.req.query('before') || undefined,
+      limit: c.req.query('limit') ? Number(c.req.query('limit')) : undefined,
+    });
+    return c.json({ ok: true, data: entries });
+  });
+
   return app;
 }
