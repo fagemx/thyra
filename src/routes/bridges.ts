@@ -3,6 +3,7 @@ import type { KarviBridge } from '../karvi-bridge';
 import type { EddaBridge } from '../edda-bridge';
 import { KarviWebhookPayloadSchema, normalizeKarviEvent } from '../schemas/karvi-event';
 import { EddaQueryInput, EddaDecideInput } from '../schemas/edda-bridge';
+import { EddaNoteInput } from '../schemas/edda-note';
 
 export function bridgeRoutes(karvi: KarviBridge, edda: EddaBridge): Hono {
   const app = new Hono();
@@ -148,6 +149,29 @@ export function bridgeRoutes(karvi: KarviBridge, edda: EddaBridge): Hono {
   app.get('/api/bridges/edda/recent', (c) => {
     const limit = Number(c.req.query('limit') ?? 20);
     return c.json({ ok: true, data: edda.getRecentRecorded(limit) });
+  });
+
+  app.post('/api/bridges/edda/note', async (c) => {
+    const parsed = EddaNoteInput.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: parsed.error.message } }, 400);
+    }
+    const result = await edda.recordNote(parsed.data);
+    if (!result) {
+      return c.json({ ok: false, error: { code: 'EDDA_UNAVAILABLE', message: 'Edda unreachable' } }, 502);
+    }
+    return c.json({ ok: true, data: result }, 201);
+  });
+
+  app.get('/api/bridges/edda/log', async (c) => {
+    const entries = await edda.queryEventLog({
+      type: c.req.query('type') || undefined,
+      keyword: c.req.query('keyword') || undefined,
+      after: c.req.query('after') || undefined,
+      before: c.req.query('before') || undefined,
+      limit: c.req.query('limit') ? Number(c.req.query('limit')) : undefined,
+    });
+    return c.json({ ok: true, data: entries });
   });
 
   return app;

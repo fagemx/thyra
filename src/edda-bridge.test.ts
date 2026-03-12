@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
 import { Database } from 'bun:sqlite';
 import { createDb, initSchema } from './db';
 import { EddaBridge } from './edda-bridge';
-import type { EddaQueryResult, EddaDecideResult } from './edda-bridge';
+import type { EddaQueryResult, EddaDecideResult, EddaNoteResult, EddaLogEntry } from './edda-bridge';
 
 let mockServer: ReturnType<typeof Bun.serve> | null = null;
 let mockResponses: Map<string, { status: number; body: unknown }> = new Map();
@@ -309,6 +309,106 @@ describe('EddaBridge', () => {
     it('returns empty when no decisions recorded', () => {
       const recent = bridge.getRecentRecorded();
       expect(recent).toEqual([]);
+    });
+  });
+
+  describe('recordNote', () => {
+    it('sends POST /api/note and returns EddaNoteResult', async () => {
+      const noteResult: EddaNoteResult = { event_id: 'evt-note-1' };
+      mockResponses.set('POST /api/note', { status: 200, body: noteResult });
+      startMockEdda(MOCK_PORT);
+
+      const result = await bridge.recordNote({ text: 'session complete' });
+
+      expect(result).not.toBeNull();
+      expect(result?.event_id).toBe('evt-note-1');
+      expect(lastRequest?.method).toBe('POST');
+      expect(lastRequest?.url).toBe('/api/note');
+      const body = lastRequest?.body as Record<string, unknown>;
+      expect(body.text).toBe('session complete');
+
+      // 檢查 audit log
+      const logs = db.prepare("SELECT * FROM audit_log WHERE entity_type = 'edda' AND action = 'record_note'").all();
+      expect(logs).toHaveLength(1);
+    });
+
+    it('passes role and tags in request body', async () => {
+      const noteResult: EddaNoteResult = { event_id: 'evt-note-2' };
+      mockResponses.set('POST /api/note', { status: 200, body: noteResult });
+      startMockEdda(MOCK_PORT);
+
+      const result = await bridge.recordNote({
+        text: 'tagged note',
+        role: 'reviewer',
+        tags: ['session', 'review'],
+      });
+
+      expect(result?.event_id).toBe('evt-note-2');
+      const body = lastRequest?.body as Record<string, unknown>;
+      expect(body.role).toBe('reviewer');
+      expect(body.tags).toEqual(['session', 'review']);
+    });
+
+    it('returns null when Edda is down (graceful degradation)', async () => {
+      // No mock server → connection refused
+      const result = await bridge.recordNote({ text: 'offline note' });
+      expect(result).toBeNull();
+    });
+
+    it('returns null on non-200 response', async () => {
+      mockResponses.set('POST /api/note', { status: 500, body: { error: 'fail' } });
+      startMockEdda(MOCK_PORT);
+
+      const result = await bridge.recordNote({ text: 'error note' });
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('queryEventLog', () => {
+    it('sends GET /api/log and returns EddaLogEntry[]', async () => {
+      const entries: EddaLogEntry[] = [
+        { event_id: 'evt-log-1', type: 'decision', summary: 'chose sqlite', ts: '2024-01-01T00:00:00Z' },
+        { event_id: 'evt-log-2', type: 'note', summary: 'session end', ts: '2024-01-02T00:00:00Z' },
+      ];
+      mockResponses.set('GET /api/log', { status: 200, body: entries });
+      startMockEdda(MOCK_PORT);
+
+      const result = await bridge.queryEventLog();
+      expect(result).toHaveLength(2);
+      expect(result[0].event_id).toBe('evt-log-1');
+      expect(result[1].type).toBe('note');
+    });
+
+    it('forwards filter params as query string', async () => {
+      mockResponses.set('GET /api/log', { status: 200, body: [] });
+      startMockEdda(MOCK_PORT);
+
+      await bridge.queryEventLog({
+        type: 'decision',
+        keyword: 'sqlite',
+        after: '2024-01-01',
+        before: '2024-12-31',
+        limit: 10,
+      });
+
+      expect(lastRequest?.url).toContain('type=decision');
+      expect(lastRequest?.url).toContain('keyword=sqlite');
+      expect(lastRequest?.url).toContain('after=2024-01-01');
+      expect(lastRequest?.url).toContain('before=2024-12-31');
+      expect(lastRequest?.url).toContain('limit=10');
+    });
+
+    it('returns empty array when Edda is down (graceful degradation)', async () => {
+      const result = await bridge.queryEventLog({ type: 'decision' });
+      expect(result).toEqual([]);
+    });
+
+    it('returns empty array on non-200 response', async () => {
+      mockResponses.set('GET /api/log', { status: 500, body: { error: 'fail' } });
+      startMockEdda(MOCK_PORT);
+
+      const result = await bridge.queryEventLog();
+      expect(result).toEqual([]);
     });
   });
 });

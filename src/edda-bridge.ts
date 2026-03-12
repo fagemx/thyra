@@ -67,6 +67,37 @@ export interface RecordDecisionInput {
   reason?: string;
 }
 
+/** POST /api/note 的回應 */
+export interface EddaNoteResult {
+  event_id: string;
+}
+
+/** recordNote 的輸入 */
+export interface RecordNoteInput {
+  text: string;
+  role?: string;
+  tags?: string[];
+}
+
+/** GET /api/log 的單一項目 */
+export interface EddaLogEntry {
+  event_id: string;
+  type: string;
+  summary: string;
+  ts: string;
+  branch?: string;
+  tags?: string[];
+}
+
+/** queryEventLog 的選項 */
+export interface EventLogOpts {
+  type?: string;
+  keyword?: string;
+  after?: string;
+  before?: string;
+  limit?: number;
+}
+
 // --- Helper ---
 
 function emptyResult(query: string): EddaQueryResult {
@@ -152,6 +183,67 @@ export class EddaBridge {
       // Graceful degradation: log warning, don't crash
       appendAudit(this.db, 'edda', key, 'record_failed', { ...decision, error: 'Edda unreachable' }, 'system');
       return null;
+    }
+  }
+
+  /**
+   * 記錄筆記到 Edda。使用 POST /api/note
+   */
+  async recordNote(input: RecordNoteInput): Promise<EddaNoteResult | null> {
+    try {
+      const res = await fetch(`${this.eddaUrl}/api/note`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: input.text,
+          role: input.role,
+          tags: input.tags,
+        }),
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (res.ok) {
+        const result = await res.json() as EddaNoteResult;
+        appendAudit(this.db, 'edda', 'note', 'record_note', {
+          text: input.text.slice(0, 100),
+          role: input.role,
+          tags: input.tags,
+          event_id: result.event_id,
+        }, 'system');
+        return result;
+      }
+      return null;
+    } catch {
+      appendAudit(this.db, 'edda', 'note', 'record_note_failed', {
+        text: input.text.slice(0, 100),
+        error: 'Edda unreachable',
+      }, 'system');
+      return null;
+    }
+  }
+
+  /**
+   * 查詢 Edda 事件日誌。使用 GET /api/log
+   */
+  async queryEventLog(opts?: EventLogOpts): Promise<EddaLogEntry[]> {
+    try {
+      const params = new URLSearchParams();
+      if (opts?.type) params.set('type', opts.type);
+      if (opts?.keyword) params.set('keyword', opts.keyword);
+      if (opts?.after) params.set('after', opts.after);
+      if (opts?.before) params.set('before', opts.before);
+      if (opts?.limit) params.set('limit', String(opts.limit));
+
+      const qs = params.toString();
+      const url = `${this.eddaUrl}/api/log${qs ? `?${qs}` : ''}`;
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (!res.ok) return [];
+      return await res.json() as EddaLogEntry[];
+    } catch {
+      return [];
     }
   }
 
