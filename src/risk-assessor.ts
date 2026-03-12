@@ -138,13 +138,34 @@ export class RiskAssessor {
     const heuristics = this.computeHeuristics(action, ctx);
     reasons.push(...heuristics);
 
-    const level = this.deriveLevel(reasons);
+    // Layer 4: Budget enforcement — per_day / per_loop aggregate limits
+    const budgetCheck = this.checkBudgets(action, ctx);
+
+    if (!budgetCheck.per_day.ok) {
+      reasons.push({
+        source: 'constitution',
+        id: 'BUDGET-DAY',
+        message: '每日預算已超出限制',
+        severity: 'block',
+      });
+    }
+    if (!budgetCheck.per_loop.ok) {
+      reasons.push({
+        source: 'constitution',
+        id: 'BUDGET-LOOP',
+        message: '單次 Loop 預算已超出限制',
+        severity: 'block',
+      });
+    }
+
+    const blocked = reasons.some((r) => r.severity === 'block');
+    const level = blocked ? 'high' : this.deriveLevel(reasons);
 
     return {
       level,
-      blocked: false,
+      blocked,
       reasons,
-      budget_check: this.checkBudgets(action, ctx),
+      budget_check: budgetCheck,
     };
   }
 

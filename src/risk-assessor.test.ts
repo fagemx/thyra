@@ -149,4 +149,47 @@ describe('RiskAssessor', () => {
     );
     expect(result.budget_check.per_loop.ok).toBe(false);
   });
+
+  it('per_day overrun → blocked with BUDGET-DAY reason', () => {
+    assessor.recordSpend(villageId, null, 96);
+    const result = assessor.assess(makeAction({ estimated_cost: 5, village_id: villageId }), ctx);
+    expect(result.blocked).toBe(true);
+    expect(result.level).toBe('high');
+    expect(result.reasons.some((r) => r.id === 'BUDGET-DAY' && r.severity === 'block')).toBe(true);
+  });
+
+  it('per_loop overrun → blocked with BUDGET-LOOP reason', () => {
+    assessor.recordSpend(villageId, 'loop-1', 45);
+    const result = assessor.assess(
+      makeAction({ estimated_cost: 8, village_id: villageId }),
+      { ...ctx, loop_id: 'loop-1' },
+    );
+    expect(result.blocked).toBe(true);
+    expect(result.level).toBe('high');
+    expect(result.reasons.some((r) => r.id === 'BUDGET-LOOP' && r.severity === 'block')).toBe(true);
+  });
+
+  it('both per_day and per_loop exceeded → both reasons present', () => {
+    assessor.recordSpend(villageId, 'loop-1', 96);
+    const result = assessor.assess(
+      makeAction({ estimated_cost: 5, village_id: villageId }),
+      { ...ctx, loop_id: 'loop-1' },
+    );
+    expect(result.blocked).toBe(true);
+    expect(result.reasons.some((r) => r.id === 'BUDGET-DAY')).toBe(true);
+    expect(result.reasons.some((r) => r.id === 'BUDGET-LOOP')).toBe(true);
+  });
+
+  it('exactly at budget limit → not blocked', () => {
+    // per_day: limit=100, spent=95, cost=5 → 95+5=100 ≤ 100 → ok
+    assessor.recordSpend(villageId, 'loop-1', 45);
+    const result = assessor.assess(
+      makeAction({ estimated_cost: 5, village_id: villageId }),
+      { ...ctx, loop_id: 'loop-1' },
+    );
+    // per_loop: limit=50, spent=45, cost=5 → 45+5=50 ≤ 50 → ok
+    expect(result.budget_check.per_day.ok).toBe(true);
+    expect(result.budget_check.per_loop.ok).toBe(true);
+    expect(result.blocked).toBe(false);
+  });
 });
