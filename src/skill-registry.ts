@@ -150,8 +150,14 @@ export class SkillRegistry {
       SELECT * FROM skills
       WHERE (village_id = ? OR village_id IS NULL)
         AND status = 'verified'
+      UNION
+      SELECT s.* FROM skills s
+        INNER JOIN skill_shares ss ON ss.skill_id = s.id
+      WHERE ss.to_village_id = ?
+        AND ss.status = 'active'
+        AND s.status = 'verified'
       ORDER BY name, version DESC
-    `).all(villageId) as Record<string, unknown>[];
+    `).all(villageId, villageId) as Record<string, unknown>[];
     return rows.map((r) => this.deserialize(r));
   }
 
@@ -178,6 +184,7 @@ export function validateSkillBindings(
   bindings: SkillBinding[],
   villageId: string,
   registry: SkillRegistry,
+  db?: Database,
 ): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
   for (const b of bindings) {
@@ -190,7 +197,18 @@ export function validateSkillBindings(
       errors.push(`Skill ${skill.name} is ${skill.status}, must be verified (THY-14)`);
     }
     if (skill.village_id && skill.village_id !== villageId) {
-      errors.push(`Skill ${skill.name} belongs to another village`);
+      // Check if skill is shared to this village via skill_shares
+      let isShared = false;
+      if (db) {
+        const shareRow = db.prepare(`
+          SELECT id FROM skill_shares
+          WHERE skill_id = ? AND to_village_id = ? AND status = 'active'
+        `).get(b.skill_id, villageId);
+        isShared = !!shareRow;
+      }
+      if (!isShared) {
+        errors.push(`Skill ${skill.name} belongs to another village`);
+      }
     }
   }
   return { valid: errors.length === 0, errors };
