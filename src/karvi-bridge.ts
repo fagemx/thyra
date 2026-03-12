@@ -17,6 +17,7 @@ export interface TaskStatus {
 export class KarviBridge {
   private healthy = false;
   private monitorInterval: ReturnType<typeof setInterval> | null = null;
+  private webhookUrl: string | null = null;
 
   constructor(
     private db: Database,
@@ -151,6 +152,12 @@ export class KarviBridge {
         signal: AbortSignal.timeout(5000),
       });
       this.healthy = res.ok;
+
+      // Re-register webhook URL on successful health check
+      if (res.ok && this.webhookUrl) {
+        this.registerWebhookUrl(this.webhookUrl).catch(() => {});
+      }
+
       return { ok: res.ok, url: this.karviUrl };
     } catch {
       this.healthy = false;
@@ -225,5 +232,36 @@ export class KarviBridge {
       clearInterval(this.monitorInterval);
       this.monitorInterval = null;
     }
+  }
+
+  /**
+   * 向 Karvi 註冊 webhook URL，讓 step 事件自動 POST 回 Thyra。
+   * POST /api/controls { event_webhook_url: url }
+   * Karvi 離線時回傳 false（graceful degradation）。
+   */
+  async registerWebhookUrl(url: string): Promise<boolean> {
+    try {
+      const res = await fetch(`${this.karviUrl}/api/controls`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event_webhook_url: url }),
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (res.ok) {
+        this.webhookUrl = url;
+        appendAudit(this.db, 'karvi', 'global', 'register_webhook', { url }, 'system');
+        return true;
+      }
+      appendAudit(this.db, 'karvi', 'global', 'register_webhook_failed', { status: res.status }, 'system');
+      return false;
+    } catch {
+      appendAudit(this.db, 'karvi', 'global', 'register_webhook_unreachable', { error: 'Karvi unreachable' }, 'system');
+      return false;
+    }
+  }
+
+  getRegisteredWebhookUrl(): string | null {
+    return this.webhookUrl;
   }
 }
