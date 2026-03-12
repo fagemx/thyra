@@ -7,14 +7,20 @@ import type { KarviEvent } from './karvi-bridge';
 // Mock Karvi server using Bun.serve
 let mockServer: ReturnType<typeof Bun.serve> | null = null;
 let lastRequest: { method: string; url: string; body?: unknown } | null = null;
+let allRequests: { method: string; url: string; body?: unknown }[] = [];
 let mockResponses: Map<string, { status: number; body: unknown }> = new Map();
 
 function startMockKarvi(port: number) {
   mockServer = Bun.serve({
     port,
-    fetch(req) {
+    async fetch(req) {
       const url = new URL(req.url);
-      lastRequest = { method: req.method, url: url.pathname };
+      let body: unknown = undefined;
+      if (req.method === 'POST' && req.body) {
+        body = await req.json();
+      }
+      lastRequest = { method: req.method, url: url.pathname, body };
+      allRequests.push(lastRequest);
 
       const key = `${req.method} ${url.pathname}`;
       const mock = mockResponses.get(key);
@@ -40,6 +46,7 @@ describe('KarviBridge', () => {
     db = createDb(':memory:');
     initSchema(db);
     lastRequest = null;
+    allRequests = [];
     mockResponses = new Map();
     bridge = new KarviBridge(db, MOCK_URL);
   });
@@ -148,6 +155,113 @@ describe('KarviBridge', () => {
     it('returns null when Karvi is down', async () => {
       const status = await bridge.getTaskStatus('THYRA-v1-123');
       expect(status).toBeNull();
+    });
+  });
+
+  describe('registerWebhookUrl', () => {
+    it('registers webhook URL successfully and returns true', async () => {
+      mockResponses.set('POST /api/controls', { status: 200, body: { ok: true } });
+      startMockKarvi(MOCK_PORT);
+
+      const result = await bridge.registerWebhookUrl('http://localhost:3462/api/webhooks/karvi');
+      expect(result).toBe(true);
+
+      // Verify the request body sent to Karvi
+      expect(lastRequest?.method).toBe('POST');
+      expect(lastRequest?.url).toBe('/api/controls');
+      expect(lastRequest?.body).toEqual({ event_webhook_url: 'http://localhost:3462/api/webhooks/karvi' });
+    });
+
+    it('records audit log on successful registration', async () => {
+      mockResponses.set('POST /api/controls', { status: 200, body: { ok: true } });
+      startMockKarvi(MOCK_PORT);
+
+      await bridge.registerWebhookUrl('http://localhost:3462/api/webhooks/karvi');
+
+      const logs = db.prepare(
+        "SELECT * FROM audit_log WHERE entity_type = 'karvi' AND action = 'register_webhook'"
+      ).all() as Record<string, unknown>[];
+      expect(logs).toHaveLength(1);
+      const payload = JSON.parse(logs[0].payload as string);
+      expect(payload.url).toBe('http://localhost:3462/api/webhooks/karvi');
+    });
+
+    it('returns false when Karvi responds with error', async () => {
+      mockResponses.set('POST /api/controls', { status: 500, body: { error: 'internal' } });
+      startMockKarvi(MOCK_PORT);
+
+      const result = await bridge.registerWebhookUrl('http://localhost:3462/api/webhooks/karvi');
+      expect(result).toBe(false);
+
+      const logs = db.prepare(
+        "SELECT * FROM audit_log WHERE action = 'register_webhook_failed'"
+      ).all();
+      expect(logs).toHaveLength(1);
+    });
+
+    it('returns false when Karvi is unreachable (graceful degradation)', async () => {
+      // Use a port that nothing is listening on
+      const offlineBridge = new KarviBridge(db, 'http://localhost:19999');
+      const result = await offlineBridge.registerWebhookUrl('http://localhost:3462/api/webhooks/karvi');
+      expect(result).toBe(false);
+
+      const logs = db.prepare(
+        "SELECT * FROM audit_log WHERE action = 'register_webhook_unreachable'"
+      ).all();
+      expect(logs).toHaveLength(1);
+    });
+
+    it('getRegisteredWebhookUrl returns null before registration', () => {
+      expect(bridge.getRegisteredWebhookUrl()).toBeNull();
+    });
+
+    it('getRegisteredWebhookUrl returns URL after successful registration', async () => {
+      mockResponses.set('POST /api/controls', { status: 200, body: { ok: true } });
+      startMockKarvi(MOCK_PORT);
+
+      await bridge.registerWebhookUrl('http://localhost:3462/api/webhooks/karvi');
+      expect(bridge.getRegisteredWebhookUrl()).toBe('http://localhost:3462/api/webhooks/karvi');
+    });
+
+    it('getRegisteredWebhookUrl stays null after failed registration', async () => {
+      mockResponses.set('POST /api/controls', { status: 500, body: { error: 'fail' } });
+      startMockKarvi(MOCK_PORT);
+
+      await bridge.registerWebhookUrl('http://localhost:3462/api/webhooks/karvi');
+      expect(bridge.getRegisteredWebhookUrl()).toBeNull();
+    });
+  });
+
+  describe('getHealth re-registration', () => {
+    it('re-registers webhook URL on successful health check', async () => {
+      mockResponses.set('POST /api/controls', { status: 200, body: { ok: true } });
+      mockResponses.set('GET /api/health/preflight', { status: 200, body: { ok: true } });
+      startMockKarvi(MOCK_PORT);
+
+      // First register the webhook URL
+      await bridge.registerWebhookUrl('http://localhost:3462/api/webhooks/karvi');
+      allRequests = [];
+
+      // Then trigger a health check
+      await bridge.getHealth();
+
+      // Wait briefly for the async re-registration
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // Verify POST /api/controls was called again during health check
+      const controlPosts = allRequests.filter((r) => r.method === 'POST' && r.url === '/api/controls');
+      expect(controlPosts.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('does not re-register when no webhook URL is set', async () => {
+      mockResponses.set('GET /api/health/preflight', { status: 200, body: { ok: true } });
+      startMockKarvi(MOCK_PORT);
+
+      await bridge.getHealth();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const controlPosts = allRequests.filter((r) => r.method === 'POST' && r.url === '/api/controls');
+      expect(controlPosts).toHaveLength(0);
     });
   });
 

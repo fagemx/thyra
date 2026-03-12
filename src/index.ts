@@ -51,6 +51,19 @@ app.route('', territoryRoutes(territoryCoordinator));
 
 const PORT = Number(process.env.THYRA_PORT ?? 3462);
 
+// Webhook URL: 從環境變數讀取或自動組裝
+const THYRA_WEBHOOK_URL = process.env.THYRA_WEBHOOK_URL
+  ?? `http://localhost:${PORT}/api/webhooks/karvi`;
+
+// 啟動時註冊 webhook URL（async，不 block 啟動）
+karviBridge.registerWebhookUrl(THYRA_WEBHOOK_URL).then((ok) => {
+  if (ok) console.log(`[thyra] webhook registered on karvi: ${THYRA_WEBHOOK_URL}`);
+  else console.warn('[thyra] failed to register webhook on karvi (will retry via health monitor)');
+});
+
+// 啟動 health monitor（含自動 re-registration）
+karviBridge.startMonitor();
+
 console.log(`[thyra] starting on :${PORT}`);
 
 export default {

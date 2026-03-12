@@ -49,6 +49,30 @@ export function bridgeRoutes(karvi: KarviBridge, edda: EddaBridge): Hono {
     }
   });
 
+  app.post('/api/bridges/karvi/webhook-url', async (c) => {
+    const body = await c.req.json() as Record<string, unknown>;
+    const url = body.url;
+    if (typeof url !== 'string' || !/^https?:\/\/.+/.test(url)) {
+      return c.json({
+        ok: false,
+        error: { code: 'VALIDATION', message: 'url must be a valid http(s) URL' },
+      }, 400);
+    }
+    const result = await karvi.registerWebhookUrl(url);
+    if (!result) {
+      return c.json({
+        ok: false,
+        error: { code: 'KARVI_UNAVAILABLE', message: 'Failed to register webhook URL on Karvi' },
+      }, 502);
+    }
+    return c.json({ ok: true, data: { url } });
+  });
+
+  app.get('/api/bridges/karvi/webhook-url', (c) => {
+    const url = karvi.getRegisteredWebhookUrl();
+    return c.json({ ok: true, data: { url, registered: url !== null } });
+  });
+
   // === Edda Bridge ===
 
   app.get('/api/bridges/edda/status', async (c) => {
