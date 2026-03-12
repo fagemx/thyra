@@ -97,11 +97,19 @@ interface DecideSnapshot {
   result: DecideResult;        // 當時的 output
   timestamp: string;
   engine_version: string;      // 'phase1' | 'phase2-advisor' | ...
+  schema_version: string;      // 'snapshot.v1' — context/result 結構演進時升版
+  context_hash: string;        // SHA-256 of JSON.stringify(context) — 快速比對是否同一情境
+  redaction_level: 'full' | 'summary';  // full = 完整保留, summary = 只保留摘要欄位
 }
 ```
 
 每次 `decide()` 被呼叫時，把 snapshot 存入 audit_log（`action='decide_snapshot'`）。
 後續可以用同一組 context 餵給不同版本的 engine 做 A/B 比較。
+
+`schema_version` 確保 replay 時知道用哪個版本的 deserializer。
+`context_hash` 讓 golden fixtures 可以快速比對是否對應同一情境。
+`redaction_level` 控制長期保留策略：正常運行用 `summary`（只保留 cycle_id、budget_ratio、
+last_action、intent），debug / fixture 提取用 `full`。
 
 #### Golden Test Fixtures
 
@@ -157,8 +165,13 @@ class DecisionEngine {
     // Step 2: LLM 調整（可選）
     if (this.llmAdvisor && ranked.length > 1) {
       try {
-        const advised = await this.llmAdvisor.rerank(ranked, ctx);
-        return advised;
+        const selection = await this.llmAdvisor.advise(ranked, ctx);
+        // LLM 只回傳 selection metadata，候選本體仍屬於 deterministic engine
+        const selected = ranked[selection.selected_index];
+        if (selected) {
+          selected.confidence = selection.confidence;
+          return selected;
+        }
       } catch {
         // LLM 失敗 → fallback 到 rule-based 結果
       }
@@ -171,13 +184,25 @@ class DecisionEngine {
 
 ### 2.2 LlmAdvisor Interface
 
+LLM 不直接回傳 ActionIntent。它回傳的是**對既有候選的 selection metadata**。
+候選本體仍然屬於 deterministic engine，LLM 只提供建議。
+
 ```typescript
+/** LLM 的回傳：對既有候選的選擇與補充，不是新的 action */
+interface AdvisorSelection {
+  selected_index: number;           // 從 candidates[] 中選哪個
+  confidence: number;               // 0-1
+  reasoning: DecisionReasoning;     // 結構化推理
+  law_suggestions: LawProposalDraft[];  // 建議的 law 修改（最多 3 個）
+}
+
 interface LlmAdvisor {
   /**
-   * 對候選 actions 重新排序 + 調整 confidence。
-   * 回傳最佳候選。失敗時 throw（由上層 fallback）。
+   * 對候選 actions 做選擇建議。
+   * 回傳 AdvisorSelection（selection metadata，不是 ActionIntent）。
+   * 失敗時 throw（由上層 fallback）。
    */
-  rerank(candidates: ActionIntent[], ctx: DecideContext): Promise<ActionIntent>;
+  advise(candidates: ActionIntent[], ctx: DecideContext): Promise<AdvisorSelection>;
 
   /**
    * 為已選定的 action 生成人類可讀的 reasoning。
@@ -195,7 +220,27 @@ interface LlmAdvisor {
 ### 2.3 LLM Prompt Contract
 
 LLM 的 system prompt 基於現有的 `buildChiefPrompt()`（已存在於 `chief-engine.ts:204-261`），
-擴充為 Decision Advisor prompt：
+擴充為 Decision Advisor prompt。
+
+**雙格式策略**：prompt 同時包含人類可讀 markdown 和 machine-readable structured summary。
+這讓 prompt 演進或換 provider 時不依賴單一格式：
+
+```typescript
+/** 結構化 chief profile，與 buildChiefPrompt() 的 markdown 並行 */
+interface ChiefProfile {
+  name: string;
+  role: string;
+  risk_tolerance: 'conservative' | 'moderate' | 'aggressive';
+  decision_speed: 'fast' | 'deliberate' | 'cautious';
+  must: string[];       // 從 constraints type='must' 提取
+  must_not: string[];   // 從 constraints type='must_not' 提取
+  prefer: string[];     // 從 constraints type='prefer' 提取
+  avoid: string[];      // 從 constraints type='avoid' 提取
+  skill_names: string[];
+}
+```
+
+Prompt 結構：
 
 ```markdown
 ## Role
@@ -203,7 +248,12 @@ You are the decision advisor for chief "{name}" in village "{village_id}".
 Your role is to help rank candidate actions, not to make final decisions.
 
 ## Chief Personality
-{buildChiefPrompt() output}
+{buildChiefPrompt() output — human-readable markdown}
+
+## Chief Profile (structured)
+```json
+{ChiefProfile JSON — machine-readable}
+```
 
 ## Current Situation
 - Cycle: {cycle_id}, iteration {iteration}/{max_iterations}
@@ -232,8 +282,10 @@ Your role is to help rank candidate actions, not to make final decisions.
 
 ### 2.4 LLM Output Schema（Zod 驗證）
 
+對應 `AdvisorSelection` 介面：
+
 ```typescript
-const AdvisorOutputSchema = z.object({
+const AdvisorSelectionSchema = z.object({
   selected_index: z.number().int().min(0),
   confidence: z.number().min(0).max(1),
   reasoning: z.object({
