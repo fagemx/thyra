@@ -19,6 +19,8 @@ import { EddaBridge } from './edda-bridge';
 import { bridgeRoutes } from './routes/bridges';
 import { TerritoryCoordinator } from './territory';
 import { territoryRoutes } from './routes/territories';
+import { AuditQuery } from './audit-query';
+import { auditRoutes } from './routes/audit';
 
 const app = new Hono();
 
@@ -34,6 +36,7 @@ const chiefEngine = new ChiefEngine(db, constitutionStore, skillRegistry);
 const lawEngine = new LawEngine(db, constitutionStore, chiefEngine, eddaBridge);
 const loopRunner = new LoopRunner(db, constitutionStore, chiefEngine, lawEngine, riskAssessor, eddaBridge);
 const territoryCoordinator = new TerritoryCoordinator(db, constitutionStore, skillRegistry);
+const auditQuery = new AuditQuery(db);
 
 app.get('/api/health', (c) => {
   return c.json({ ok: true, version: '0.1.0' });
@@ -48,6 +51,7 @@ app.route('', lawRoutes(lawEngine));
 app.route('', loopRoutes(loopRunner));
 app.route('', bridgeRoutes(karviBridge, eddaBridge));
 app.route('', territoryRoutes(territoryCoordinator));
+app.route('', auditRoutes(auditQuery));
 
 const PORT = Number(process.env.THYRA_PORT ?? 3462);
 
