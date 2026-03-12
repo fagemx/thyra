@@ -168,16 +168,74 @@ export function checkBudget(
   return amount <= constitution.budget_limits[key];
 }
 
+const STOP_WORDS = new Set([
+  'a', 'an', 'the', 'is', 'are', 'be', 'to', 'of', 'in', 'for',
+  'and', 'or', 'it', 'this', 'that', 'all', 'on', 'with', 'as', 'by',
+]);
+
+const NEGATION_WORDS = [
+  'no', 'skip', 'without', 'disable', 'never', 'remove', 'not', "don't", 'dont',
+];
+
+/** 從文字中提取有意義的關鍵字 */
+function extractKeywords(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[\s,.;:!?()[\]{}"']+/)
+    .filter((w) => w.length > 1 && !STOP_WORDS.has(w));
+}
+
+/** 檢查目標文字是否違反規則描述 — Phase 0 keyword/negation matching */
+export function detectRuleViolation(ruleDescription: string, targetText: string): boolean {
+  const ruleKeywords = extractKeywords(ruleDescription);
+  const lowerTarget = targetText.toLowerCase();
+  const ruleText = ruleDescription.toLowerCase();
+
+  // 情境 A: 規則是正面要求 (e.g. "must review")，目標文字否定了關鍵字
+  for (const keyword of ruleKeywords) {
+    if (NEGATION_WORDS.includes(keyword)) continue; // 跳過否定詞本身
+    for (const neg of NEGATION_WORDS) {
+      if (lowerTarget.includes(`${neg} ${keyword}`) || lowerTarget.includes(`${neg}_${keyword}`)) {
+        return true;
+      }
+    }
+  }
+
+  // 情境 B: 規則是否定要求 (e.g. "must not auto-deploy")，目標文字啟用了被禁止的行為
+  const hasNegationInRule = NEGATION_WORDS.some((neg) => ruleText.includes(neg));
+  if (hasNegationInRule) {
+    // 找出規則中否定詞後面的關鍵字
+    const contentKeywords = ruleKeywords.filter((kw) => !NEGATION_WORDS.includes(kw));
+    const targetKeywords = extractKeywords(targetText);
+    // 目標文字含有被禁止的關鍵字，且目標文字沒有否定它
+    for (const keyword of contentKeywords) {
+      if (!targetKeywords.includes(keyword)) continue;
+      // 確認目標文字中該關鍵字沒有被否定
+      const isNegatedInTarget = NEGATION_WORDS.some(
+        (neg) => lowerTarget.includes(`${neg} ${keyword}`) || lowerTarget.includes(`${neg}_${keyword}`),
+      );
+      if (!isNegatedInTarget) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 /** Check constitution rules for a given chief (framework for T4/T5) */
 export function checkRules(
   constitution: Constitution,
   chiefId: string,
+  targetText?: string,
 ): { allowed: boolean; violated: ConstitutionRule[] } {
   const violated: ConstitutionRule[] = [];
   for (const rule of constitution.rules) {
     const inScope = rule.scope.includes('*') || rule.scope.includes(chiefId);
     if (!inScope) continue;
-    // Match logic placeholder — actual matching implemented in T4 Law Engine
+    if (targetText && detectRuleViolation(rule.description, targetText)) {
+      violated.push(rule);
+    }
   }
   return { allowed: violated.length === 0, violated };
 }
