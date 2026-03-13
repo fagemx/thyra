@@ -326,12 +326,12 @@ describe('LoopRunner', () => {
   });
 
   describe('observeKarviEvents', () => {
-    it('returns karvi_event entries from audit_log', () => {
+    it('returns karvi_event entries from audit_log filtered by villageId', () => {
       const now = new Date().toISOString();
       db.prepare(`
         INSERT INTO audit_log (entity_type, entity_id, action, payload, actor, created_at)
         VALUES (?, ?, ?, ?, ?, ?)
-      `).run('karvi_event', 'task-001', 'task_completed', JSON.stringify({ result: 'success' }), 'karvi', now);
+      `).run('karvi_event', 'task-001', 'task_completed', JSON.stringify({ result: 'success', village_id: villageId }), 'karvi', now);
 
       const events = loopRunner.observeKarviEvents(villageId);
       expect(events).toHaveLength(1);
@@ -352,10 +352,62 @@ describe('LoopRunner', () => {
         db.prepare(`
           INSERT INTO audit_log (entity_type, entity_id, action, payload, actor, created_at)
           VALUES (?, ?, ?, ?, ?, ?)
-        `).run('karvi_event', `task-${i}`, 'task_completed', '{}', 'karvi', now);
+        `).run('karvi_event', `task-${i}`, 'task_completed', JSON.stringify({ village_id: villageId }), 'karvi', now);
       }
       const events = loopRunner.observeKarviEvents(villageId, 3);
       expect(events).toHaveLength(3);
+    });
+
+    it('filters events by villageId — no cross-village leakage', () => {
+      const villageMgr = new VillageManager(db);
+      const otherVillageId = villageMgr.create({ name: 'other-village', target_repo: 'r2' }, 'u').id;
+
+      const now = new Date().toISOString();
+      // Insert events for current village
+      db.prepare(`
+        INSERT INTO audit_log (entity_type, entity_id, action, payload, actor, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('karvi_event', 'task-a1', 'task_completed', JSON.stringify({ village_id: villageId }), 'karvi', now);
+      db.prepare(`
+        INSERT INTO audit_log (entity_type, entity_id, action, payload, actor, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('karvi_event', 'task-a2', 'step_started', JSON.stringify({ village_id: villageId }), 'karvi', now);
+
+      // Insert events for other village
+      db.prepare(`
+        INSERT INTO audit_log (entity_type, entity_id, action, payload, actor, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('karvi_event', 'task-b1', 'task_completed', JSON.stringify({ village_id: otherVillageId }), 'karvi', now);
+
+      // Insert event with no village_id (should not appear for either village)
+      db.prepare(`
+        INSERT INTO audit_log (entity_type, entity_id, action, payload, actor, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('karvi_event', 'task-orphan', 'task_failed', JSON.stringify({ result: 'fail' }), 'karvi', now);
+
+      // villageId should only see its own 2 events
+      const eventsA = loopRunner.observeKarviEvents(villageId);
+      expect(eventsA).toHaveLength(2);
+      expect(eventsA.map((e) => e.entity_id)).toContain('task-a1');
+      expect(eventsA.map((e) => e.entity_id)).toContain('task-a2');
+      expect(eventsA.map((e) => e.entity_id)).not.toContain('task-b1');
+      expect(eventsA.map((e) => e.entity_id)).not.toContain('task-orphan');
+
+      // otherVillageId should only see its own 1 event
+      const eventsB = loopRunner.observeKarviEvents(otherVillageId);
+      expect(eventsB).toHaveLength(1);
+      expect(eventsB[0].entity_id).toBe('task-b1');
+    });
+
+    it('excludes events without village_id in payload', () => {
+      const now = new Date().toISOString();
+      db.prepare(`
+        INSERT INTO audit_log (entity_type, entity_id, action, payload, actor, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('karvi_event', 'task-no-vid', 'task_completed', JSON.stringify({ result: 'ok' }), 'karvi', now);
+
+      const events = loopRunner.observeKarviEvents(villageId);
+      expect(events).toHaveLength(0);
     });
   });
 
@@ -367,7 +419,7 @@ describe('LoopRunner', () => {
       db.prepare(`
         INSERT INTO audit_log (entity_type, entity_id, action, payload, actor, created_at)
         VALUES (?, ?, ?, ?, ?, ?)
-      `).run('karvi_event', 'task-abc', 'task_started', JSON.stringify({ agent: 'bot-1' }), 'karvi', now);
+      `).run('karvi_event', 'task-abc', 'task_started', JSON.stringify({ agent: 'bot-1', village_id: villageId }), 'karvi', now);
 
       const obs = loopRunner.observe(villageId);
       expect(obs.length).toBeGreaterThan(0);
@@ -392,7 +444,7 @@ describe('LoopRunner', () => {
       db.prepare(`
         INSERT INTO audit_log (entity_type, entity_id, action, payload, actor, created_at)
         VALUES (?, ?, ?, ?, ?, ?)
-      `).run('karvi_event', 'task-future', 'task_completed', '{}', 'karvi', futureTime);
+      `).run('karvi_event', 'task-future', 'task_completed', JSON.stringify({ village_id: villageId }), 'karvi', futureTime);
 
       const obs = loopRunner.observe(villageId);
       expect(obs.length).toBeGreaterThan(1);
