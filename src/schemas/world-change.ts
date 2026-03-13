@@ -209,17 +209,17 @@ export type SkillDeprecateChange = z.infer<typeof SkillDeprecateChangeSchema>;
  * 建立 WorldChange，自動填入 change_id 和 proposed_at。
  * 呼叫者只需提供 change_type-specific 欄位。
  */
-export function createWorldChange<T extends WorldChange>(
-  fields: Omit<T, 'change_id' | 'proposed_at'> & {
+export function createWorldChange(
+  fields: Omit<WorldChange, 'change_id' | 'proposed_at'> & {
     change_id?: string;
     proposed_at?: string;
   },
-): T {
+): WorldChange {
   const change = {
     ...fields,
     change_id: fields.change_id ?? `chg_${randomUUID()}`,
     proposed_at: fields.proposed_at ?? new Date().toISOString(),
   };
   // validate 產出物
-  return WorldChangeSchema.parse(change) as T;
+  return WorldChangeSchema.parse(change);
 }
