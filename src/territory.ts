@@ -92,18 +92,20 @@ export class TerritoryCoordinator {
     if (!territory || territory.status !== 'active') throw new Error('Territory not found or not active');
 
     const now = new Date().toISOString();
-    this.db.prepare('UPDATE territories SET status = ?, updated_at = ? WHERE id = ?')
-      .run('dissolved', now, id);
+    this.db.transaction(() => {
+      this.db.prepare('UPDATE territories SET status = ?, updated_at = ? WHERE id = ?')
+        .run('dissolved', now, id);
 
-    // Revoke all active agreements
-    this.db.prepare("UPDATE agreements SET status = 'revoked', updated_at = ? WHERE territory_id = ? AND status IN ('pending', 'active')")
-      .run(now, id);
+      // Revoke all active agreements
+      this.db.prepare("UPDATE agreements SET status = 'revoked', updated_at = ? WHERE territory_id = ? AND status IN ('pending', 'active')")
+        .run(now, id);
 
-    // Revoke all active skill shares
-    this.db.prepare("UPDATE skill_shares SET status = 'revoked' WHERE territory_id = ? AND status = 'active'")
-      .run(id);
+      // Revoke all active skill shares
+      this.db.prepare("UPDATE skill_shares SET status = 'revoked' WHERE territory_id = ? AND status = 'active'")
+        .run(id);
 
-    appendAudit(this.db, 'territory', id, 'dissolve', {}, actor);
+      appendAudit(this.db, 'territory', id, 'dissolve', {}, actor);
+    })();
     return { ...territory, status: 'dissolved', updated_at: now };
   }
 
