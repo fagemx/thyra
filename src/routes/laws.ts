@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { ProposeLawInput, EvaluateLawInput } from '../schemas/law';
+import { ProposeLawRequestInput, EvaluateLawInput, RollbackLawInput } from '../schemas/law';
 import type { LawEngine } from '../law-engine';
 
 export function lawRoutes(engine: LawEngine): Hono {
@@ -15,14 +15,13 @@ export function lawRoutes(engine: LawEngine): Hono {
   });
 
   app.post('/api/villages/:vid/laws/propose', async (c) => {
-    const body = await c.req.json();
-    const { chief_id, ...rest } = body;
-    const parsed = ProposeLawInput.safeParse(rest);
+    const parsed = ProposeLawRequestInput.safeParse(await c.req.json());
     if (!parsed.success) {
       return c.json({ ok: false, error: { code: 'VALIDATION', message: parsed.error.message } }, 400);
     }
     try {
-      const law = engine.propose(c.req.param('vid'), chief_id, parsed.data);
+      const { chief_id, ...rest } = parsed.data;
+      const law = engine.propose(c.req.param('vid'), chief_id, rest);
       return c.json({ ok: true, data: law }, 201);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
@@ -64,9 +63,12 @@ export function lawRoutes(engine: LawEngine): Hono {
   });
 
   app.post('/api/laws/:id/rollback', async (c) => {
-    const body = await c.req.json();
+    const parsed = RollbackLawInput.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: parsed.error.message } }, 400);
+    }
     try {
-      return c.json({ ok: true, data: engine.rollback(c.req.param('id'), 'human', body.reason ?? 'Manual rollback') });
+      return c.json({ ok: true, data: engine.rollback(c.req.param('id'), 'human', parsed.data.reason) });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
       return c.json({ ok: false, error: { code: 'BAD_REQUEST', message: msg } }, 400);

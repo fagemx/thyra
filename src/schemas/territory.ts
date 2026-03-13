@@ -25,5 +25,10 @@ export const ShareSkillInput = z.object({
   to_village_id: z.string().min(1),
 });
 
+export const ApproveAgreementInput = z.object({
+  village_id: z.string().min(1),
+});
+
 export type ShareSkillInputRaw = z.input<typeof ShareSkillInput>;
 export type ShareSkillInput = z.infer<typeof ShareSkillInput>;
+export type ApproveAgreementInput = z.infer<typeof ApproveAgreementInput>;

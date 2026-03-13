@@ -1,13 +1,17 @@
 import { Hono } from 'hono';
+import { StartCycleInput, StopCycleInput } from '../schemas/loop';
 import type { LoopRunner } from '../loop-runner';
 
 export function loopRoutes(runner: LoopRunner): Hono {
   const app = new Hono();
 
   app.post('/api/villages/:vid/loops/start', async (c) => {
-    const body = await c.req.json();
+    const parsed = StartCycleInput.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: parsed.error.message } }, 400);
+    }
     try {
-      const cycle = runner.startCycle(c.req.param('vid'), body);
+      const cycle = runner.startCycle(c.req.param('vid'), parsed.data);
       return c.json({ ok: true, data: cycle }, 201);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
@@ -27,9 +31,12 @@ export function loopRoutes(runner: LoopRunner): Hono {
   });
 
   app.post('/api/loops/:id/stop', async (c) => {
-    const body = await c.req.json().catch(() => ({}));
+    const parsed = StopCycleInput.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: parsed.error.message } }, 400);
+    }
     try {
-      const cycle = runner.abortCycle(c.req.param('id'), (body as Record<string, unknown>).reason as string ?? 'Human stop');
+      const cycle = runner.abortCycle(c.req.param('id'), parsed.data.reason);
       return c.json({ ok: true, data: cycle });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
