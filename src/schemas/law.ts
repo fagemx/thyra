@@ -18,6 +18,16 @@ export const EvaluateLawInput = z.object({
   verdict: z.enum(['effective', 'neutral', 'harmful']),
 });
 
+export const ProposeLawRequestInput = ProposeLawInput.extend({
+  chief_id: z.string().min(1),
+});
+
+export const RollbackLawInput = z.object({
+  reason: z.string().optional().default('Manual rollback'),
+});
+
 export type ProposeLawInputRaw = z.input<typeof ProposeLawInput>;
 export type ProposeLawInput = z.infer<typeof ProposeLawInput>;
 export type EvaluateLawInput = z.infer<typeof EvaluateLawInput>;
+export type ProposeLawRequestInput = z.infer<typeof ProposeLawRequestInput>;
+export type RollbackLawInput = z.infer<typeof RollbackLawInput>;

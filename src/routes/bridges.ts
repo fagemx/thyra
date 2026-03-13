@@ -4,6 +4,7 @@ import type { EddaBridge } from '../edda-bridge';
 import { KarviWebhookPayloadSchema, normalizeKarviEvent } from '../schemas/karvi-event';
 import { EddaQueryInput, EddaDecideInput } from '../schemas/edda-bridge';
 import { EddaNoteInput } from '../schemas/edda-note';
+import { DispatchProjectInput } from '../schemas/karvi-dispatch';
 
 export function bridgeRoutes(karvi: KarviBridge, edda: EddaBridge): Hono {
   const app = new Hono();
@@ -16,9 +17,12 @@ export function bridgeRoutes(karvi: KarviBridge, edda: EddaBridge): Hono {
   });
 
   app.post('/api/bridges/karvi/dispatch', async (c) => {
-    const body = await c.req.json();
+    const parsed = DispatchProjectInput.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ ok: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } }, 400);
+    }
     try {
-      const result = await karvi.dispatchProject(body);
+      const result = await karvi.dispatchProject(parsed.data);
       if (!result) {
         return c.json({ ok: false, error: { code: 'KARVI_UNAVAILABLE', message: 'Karvi unreachable' } }, 502);
       }

@@ -17,8 +17,13 @@ export const StartCycleInput = z.object({
   intent: CycleIntentSchema.nullable().optional(),
 });
 
+export const StopCycleInput = z.object({
+  reason: z.string().optional().default('Human stop'),
+});
+
 export type StartCycleInputRaw = z.input<typeof StartCycleInput>;
 export type StartCycleInput = z.infer<typeof StartCycleInput>;
+export type StopCycleInput = z.infer<typeof StopCycleInput>;
 
 export const LoopActionStatus = z.enum(['executed', 'pending_approval', 'blocked']);
 
