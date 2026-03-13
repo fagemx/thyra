@@ -7,7 +7,6 @@ import type { ConstitutionStore } from '../constitution-store';
 import type { ChiefEngine } from '../chief-engine';
 import type { LawEngine } from '../law-engine';
 import type { SkillRegistry } from '../skill-registry';
-import type { VillagePack as VillagePackSchema } from '../schemas/village-pack';
 
 // ── Types ────────────────────────────────────────────────────
 
