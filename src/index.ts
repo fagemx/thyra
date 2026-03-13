@@ -42,7 +42,7 @@ app.get('/api/health', (c) => {
   return c.json({ ok: true, version: '0.1.0' });
 });
 
-app.route('', villageRoutes(villageMgr));
+app.route('', villageRoutes(villageMgr, db));
 app.route('', skillRoutes(skillRegistry));
 app.route('', constitutionRoutes(constitutionStore));
 app.route('', assessRoutes(riskAssessor, constitutionStore));
