@@ -476,13 +476,14 @@ export class LoopRunner {
     `).all(villageId, villageId, villageId, villageId) as Record<string, unknown>[];
   }
 
-  /** Query karvi_event entries from audit_log for the observe phase */
+  /** Query karvi_event entries from audit_log for the observe phase, filtered by village */
   observeKarviEvents(villageId: string, limit = 20): Record<string, unknown>[] {
     const rows = this.db.prepare(`
       SELECT *, 'karvi' as source FROM audit_log
       WHERE entity_type = 'karvi_event'
+        AND json_extract(payload, '$.village_id') = ?
       ORDER BY created_at DESC LIMIT ?
-    `).all(limit) as Record<string, unknown>[];
+    `).all(villageId, limit) as Record<string, unknown>[];
     return rows;
   }
 
