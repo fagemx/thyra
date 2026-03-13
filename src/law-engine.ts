@@ -1,6 +1,7 @@
 import type { Database } from 'bun:sqlite';
 import { randomUUID } from 'crypto';
 import { appendAudit } from './db';
+import { detectRuleViolation } from './constitution-store';
 import type { ConstitutionStore, Constitution, ConstitutionRule } from './constitution-store';
 import type { ChiefEngine } from './chief-engine';
 import { ProposeLawInput as ProposeLawSchema, EvaluateLawInput as EvaluateLawSchema } from './schemas/law';
@@ -184,9 +185,17 @@ export class LawEngine {
     const hardViolations: ConstitutionRule[] = [];
     const softViolations: ConstitutionRule[] = [];
     // Phase 0: keyword matching against constitution rules
+    const lawText = input.category + ' ' + input.content.description + ' ' + JSON.stringify(input.content.strategy);
     for (const rule of constitution.rules) {
-      // Check if law content contradicts rule description
-      // This is a simplified check — Phase 1 can use LLM for semantic matching
+      const inScope = rule.scope.includes('*') || rule.scope.includes(input.category);
+      if (!inScope) continue;
+      if (detectRuleViolation(rule.description, lawText)) {
+        if (rule.enforcement === 'hard') {
+          hardViolations.push(rule);
+        } else {
+          softViolations.push(rule);
+        }
+      }
     }
     return { hardViolations, softViolations };
   }
