@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Local scratch
+.tmp/
+
+# Local databases
+thyra.db
+thyra.db-shm
+thyra.db-wal
+
+# Claude local tooling
+.claude/worktrees/
+.claude/skills/
+.claude/review-config.md
+
+# Build and coverage output
+dist/
+coverage/
+
+# Logs
+*.log
