@@ -193,6 +193,109 @@ describe('LawEngine', () => {
   });
 });
 
+describe('LawEngine checkCompliance', () => {
+  let db: Database;
+  let lawEngine: LawEngine;
+  let constitutionStore: ConstitutionStore;
+  let chiefEngine: ChiefEngine;
+  let villageId: string;
+
+  function setupWithRules(rules: Array<{ description: string; enforcement: 'hard' | 'soft'; scope: string[] }>) {
+    db = createDb(':memory:');
+    initSchema(db);
+    const villageMgr = new VillageManager(db);
+    villageId = villageMgr.create({ name: 'test', target_repo: 'r' }, 'u').id;
+
+    constitutionStore = new ConstitutionStore(db);
+    constitutionStore.create(villageId, {
+      rules,
+      allowed_permissions: ['dispatch_task', 'propose_law', 'enact_law_low'],
+      budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+    }, 'human');
+
+    const skillRegistry = new SkillRegistry(db);
+    chiefEngine = new ChiefEngine(db, constitutionStore, skillRegistry);
+    lawEngine = new LawEngine(db, constitutionStore, chiefEngine);
+  }
+
+  function createChief() {
+    return chiefEngine.create(villageId, {
+      name: 'Lawmaker',
+      role: 'lawmaker',
+      permissions: ['propose_law', 'enact_law_low'],
+    }, 'h').id;
+  }
+
+  it('compliance pass: law does not violate any rules', () => {
+    setupWithRules([
+      { description: 'must not delete production data', enforcement: 'hard', scope: ['*'] },
+    ]);
+    const chiefId = createChief();
+    const law = lawEngine.propose(villageId, chiefId, {
+      category: 'review',
+      content: { description: 'require code review for all PRs', strategy: { min_approvals: 2 } },
+      evidence: { source: 'init', reasoning: 'best practice' },
+    });
+    // Should not be rejected — no violation
+    expect(law.status).toBe('active'); // auto-approved (low risk + enact_law_low)
+  });
+
+  it('hard violation blocks: law rejected when violating hard rule', () => {
+    setupWithRules([
+      { description: 'must not delete production data', enforcement: 'hard', scope: ['*'] },
+    ]);
+    const chiefId = createChief();
+    const law = lawEngine.propose(villageId, chiefId, {
+      category: 'cleanup',
+      content: { description: 'delete production data older than 30 days', strategy: {} },
+      evidence: { source: 'init', reasoning: 'save storage' },
+    });
+    expect(law.status).toBe('rejected');
+  });
+
+  it('soft violation warns: law proposed (not rejected) with elevated risk', () => {
+    setupWithRules([
+      { description: 'should not bypass code review', enforcement: 'soft', scope: ['*'] },
+    ]);
+    const chiefId = createChief();
+    const law = lawEngine.propose(villageId, chiefId, {
+      category: 'workflow',
+      content: { description: 'bypass code review for hotfixes', strategy: {} },
+      evidence: { source: 'init', reasoning: 'speed' },
+    });
+    // Soft violation should NOT reject, but should elevate risk to at least medium → proposed
+    expect(law.status).toBe('proposed');
+    expect(law.risk_level).toBe('medium');
+  });
+
+  it('multiple rules: hard violation takes priority over soft', () => {
+    setupWithRules([
+      { description: 'must not deploy without tests', enforcement: 'hard', scope: ['*'] },
+      { description: 'should not skip linting', enforcement: 'soft', scope: ['*'] },
+    ]);
+    const chiefId = createChief();
+    const law = lawEngine.propose(villageId, chiefId, {
+      category: 'ci',
+      content: { description: 'deploy without tests and skip linting', strategy: {} },
+      evidence: { source: 'init', reasoning: 'speed' },
+    });
+    expect(law.status).toBe('rejected');
+  });
+
+  it('positive rule: "must review" violated when law says "skip review"', () => {
+    setupWithRules([
+      { description: 'must review all changes', enforcement: 'hard', scope: ['*'] },
+    ]);
+    const chiefId = createChief();
+    const law = lawEngine.propose(villageId, chiefId, {
+      category: 'workflow',
+      content: { description: 'skip review for minor changes', strategy: {} },
+      evidence: { source: 'init', reasoning: 'speed' },
+    });
+    expect(law.status).toBe('rejected');
+  });
+});
+
 describe('LawEngine + Edda recording', () => {
   let db: Database;
   let lawEngine: LawEngine;
