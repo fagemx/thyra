@@ -9,7 +9,7 @@ export function assessRoutes(assessor: RiskAssessor, constitutionStore: Constitu
   app.post('/api/assess', async (c) => {
     const parsed = AssessActionInput.safeParse(await c.req.json());
     if (!parsed.success) {
-      return c.json({ ok: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } }, 400);
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: parsed.error.message } }, 400);
     }
     try {
       const action = parsed.data;

@@ -17,7 +17,7 @@ export function lawRoutes(engine: LawEngine): Hono {
   app.post('/api/villages/:vid/laws/propose', async (c) => {
     const parsed = ProposeLawRequestInput.safeParse(await c.req.json());
     if (!parsed.success) {
-      return c.json({ ok: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } }, 400);
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: parsed.error.message } }, 400);
     }
     try {
       const { chief_id, ...rest } = parsed.data;
@@ -65,7 +65,7 @@ export function lawRoutes(engine: LawEngine): Hono {
   app.post('/api/laws/:id/rollback', async (c) => {
     const parsed = RollbackLawInput.safeParse(await c.req.json());
     if (!parsed.success) {
-      return c.json({ ok: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } }, 400);
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: parsed.error.message } }, 400);
     }
     try {
       return c.json({ ok: true, data: engine.rollback(c.req.param('id'), 'human', parsed.data.reason) });
@@ -78,7 +78,7 @@ export function lawRoutes(engine: LawEngine): Hono {
   app.post('/api/laws/:id/evaluate', async (c) => {
     const parsed = EvaluateLawInput.safeParse(await c.req.json());
     if (!parsed.success) {
-      return c.json({ ok: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } }, 400);
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: parsed.error.message } }, 400);
     }
     try {
       return c.json({ ok: true, data: engine.evaluate(c.req.param('id'), parsed.data) });

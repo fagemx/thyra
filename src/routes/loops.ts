@@ -8,7 +8,7 @@ export function loopRoutes(runner: LoopRunner): Hono {
   app.post('/api/villages/:vid/loops/start', async (c) => {
     const parsed = StartCycleInput.safeParse(await c.req.json());
     if (!parsed.success) {
-      return c.json({ ok: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } }, 400);
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: parsed.error.message } }, 400);
     }
     try {
       const cycle = runner.startCycle(c.req.param('vid'), parsed.data);
@@ -33,7 +33,7 @@ export function loopRoutes(runner: LoopRunner): Hono {
   app.post('/api/loops/:id/stop', async (c) => {
     const parsed = StopCycleInput.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) {
-      return c.json({ ok: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } }, 400);
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: parsed.error.message } }, 400);
     }
     try {
       const cycle = runner.abortCycle(c.req.param('id'), parsed.data.reason);

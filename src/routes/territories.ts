@@ -8,7 +8,7 @@ export function territoryRoutes(coordinator: TerritoryCoordinator): Hono {
   app.post('/api/territories', async (c) => {
     const parsed = CreateTerritoryInput.safeParse(await c.req.json());
     if (!parsed.success) {
-      return c.json({ ok: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } }, 400);
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: parsed.error.message } }, 400);
     }
     try {
       const territory = coordinator.create(parsed.data, 'human');
@@ -44,7 +44,7 @@ export function territoryRoutes(coordinator: TerritoryCoordinator): Hono {
   app.post('/api/territories/:id/agreements', async (c) => {
     const parsed = CreateAgreementInput.safeParse(await c.req.json());
     if (!parsed.success) {
-      return c.json({ ok: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } }, 400);
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: parsed.error.message } }, 400);
     }
     try {
       const agreement = coordinator.createAgreement(c.req.param('id'), parsed.data, 'human');
@@ -63,7 +63,7 @@ export function territoryRoutes(coordinator: TerritoryCoordinator): Hono {
   app.post('/api/agreements/:id/approve', async (c) => {
     const parsed = ApproveAgreementInput.safeParse(await c.req.json());
     if (!parsed.success) {
-      return c.json({ ok: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } }, 400);
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: parsed.error.message } }, 400);
     }
     try {
       const agreement = coordinator.approveAgreement(c.req.param('id'), parsed.data.village_id, 'human');
@@ -78,7 +78,7 @@ export function territoryRoutes(coordinator: TerritoryCoordinator): Hono {
   app.post('/api/territories/share-skill', async (c) => {
     const parsed = ShareSkillInput.safeParse(await c.req.json());
     if (!parsed.success) {
-      return c.json({ ok: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } }, 400);
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: parsed.error.message } }, 400);
     }
     try {
       const result = coordinator.shareSkill(parsed.data, 'human');

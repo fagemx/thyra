@@ -19,7 +19,7 @@ export function bridgeRoutes(karvi: KarviBridge, edda: EddaBridge): Hono {
   app.post('/api/bridges/karvi/dispatch', async (c) => {
     const parsed = DispatchProjectInput.safeParse(await c.req.json());
     if (!parsed.success) {
-      return c.json({ ok: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.message } }, 400);
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: parsed.error.message } }, 400);
     }
     try {
       const result = await karvi.dispatchProject(parsed.data);
