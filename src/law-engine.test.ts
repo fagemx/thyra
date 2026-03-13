@@ -294,6 +294,28 @@ describe('LawEngine checkCompliance', () => {
     });
     expect(law.status).toBe('rejected');
   });
+
+  it('scoped rule only applies to matching category', () => {
+    setupWithRules([
+      { description: 'must not delete data', enforcement: 'hard', scope: ['cleanup'] },
+    ]);
+    const chiefId = createChief();
+    // Category 'review' is NOT in scope → rule should not trigger
+    const law = lawEngine.propose(villageId, chiefId, {
+      category: 'review',
+      content: { description: 'delete old review data', strategy: {} },
+      evidence: { source: 'init', reasoning: 'housekeeping' },
+    });
+    expect(law.status).toBe('active'); // not rejected because rule scope doesn't match
+
+    // Category 'cleanup' IS in scope → rule should trigger
+    const law2 = lawEngine.propose(villageId, chiefId, {
+      category: 'cleanup',
+      content: { description: 'delete old production data', strategy: {} },
+      evidence: { source: 'init', reasoning: 'housekeeping' },
+    });
+    expect(law2.status).toBe('rejected');
+  });
 });
 
 describe('LawEngine + Edda recording', () => {

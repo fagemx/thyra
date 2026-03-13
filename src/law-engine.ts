@@ -185,8 +185,10 @@ export class LawEngine {
     const hardViolations: ConstitutionRule[] = [];
     const softViolations: ConstitutionRule[] = [];
     // Phase 0: keyword matching against constitution rules
-    const lawText = input.content.description + ' ' + JSON.stringify(input.content.strategy);
+    const lawText = input.category + ' ' + input.content.description + ' ' + JSON.stringify(input.content.strategy);
     for (const rule of constitution.rules) {
+      const inScope = rule.scope.includes('*') || rule.scope.includes(input.category);
+      if (!inScope) continue;
       if (detectRuleViolation(rule.description, lawText)) {
         if (rule.enforcement === 'hard') {
           hardViolations.push(rule);
