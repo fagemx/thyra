@@ -30,6 +30,9 @@ import type { VillagePack as SchemaPack } from '../schemas/village-pack';
 /**
  * parseVillagePack 產出的型別和 compiler 的 VillagePack 不同。
  * 這裡做映射：pack_version→version, skills 移入 chief, laws.content 攤平。
+ *
+ * TODO: compiler 定義了自己的 VillagePack interface，與 schema 的 VillagePack 形狀不同。
+ * 應重構 compiler 直接使用 schemas/village-pack 的型別，消除這層手動映射。
  */
 function toCompilerPack(parsed: SchemaPack): CompilerPack {
   return {
@@ -232,17 +235,21 @@ export function runCli(opts: CliOptions): CompileResult {
   const compilerPack = toCompilerPack(parseResult.data);
 
   // 5. Bootstrap DB + stores
-  const { compiler } = bootstrap(opts.dbPath);
+  const { compiler, db } = bootstrap(opts.dbPath);
 
   // 6. Compile
-  const dryRun = opts.command === 'diff';
-  const result = compiler.compile(compilerPack, {
-    dry_run: dryRun,
-    source_path: absPath,
-    compiled_by: 'village-pack:human',
-  });
+  try {
+    const dryRun = opts.command === 'diff';
+    const result = compiler.compile(compilerPack, {
+      dry_run: dryRun,
+      source_path: absPath,
+      compiled_by: 'village-pack:human',
+    });
 
-  return result;
+    return result;
+  } finally {
+    db.close();
+  }
 }
 
 // ── Entry point ──────────────────────────────────────────────
