@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect } from 'vitest';
 import { diffWorldState } from './diff';
 import type { WorldState } from './state';
 import type { Village } from '../village-manager';
