@@ -2,6 +2,7 @@ import type { Database } from 'bun:sqlite';
 import type { Constitution, BudgetLimits } from './constitution-store';
 import { detectRuleViolation } from './constitution-store';
 import type { Permission } from './schemas/constitution';
+import type { ChiefPersonality } from './schemas/chief';
 
 export interface Action {
   type: string;
@@ -32,12 +33,6 @@ export interface AssessmentReason {
   id: string;
   message: string;
   severity: 'block' | 'high' | 'medium' | 'low';
-}
-
-export interface ChiefPersonality {
-  risk_tolerance: 'conservative' | 'moderate' | 'aggressive';
-  communication_style: 'concise' | 'detailed' | 'minimal';
-  decision_speed: 'fast' | 'deliberate' | 'cautious';
 }
 
 export interface AssessmentContext {

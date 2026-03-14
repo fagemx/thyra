@@ -2,18 +2,14 @@ import type { Database } from 'bun:sqlite';
 import { randomUUID } from 'crypto';
 import { appendAudit } from './db';
 import { CreateChiefInput as CreateChiefSchema } from './schemas/chief';
-import type { CreateChiefInputRaw, UpdateChiefInput } from './schemas/chief';
+import type { CreateChiefInputRaw, UpdateChiefInput, ChiefPersonality } from './schemas/chief';
 import type { ConstitutionStore } from './constitution-store';
 import type { SkillRegistry } from './skill-registry';
 import { buildSkillPrompt } from './skill-registry';
 import type { Permission } from './schemas/constitution';
 import type { SkillBinding as SkillBindingType } from './schemas/skill';
 
-export interface ChiefPersonality {
-  risk_tolerance: 'conservative' | 'moderate' | 'aggressive';
-  communication_style: 'concise' | 'detailed' | 'minimal';
-  decision_speed: 'fast' | 'deliberate' | 'cautious';
-}
+export type { ChiefPersonality } from './schemas/chief';
 
 export interface ChiefConstraint {
   type: 'must' | 'must_not' | 'prefer' | 'avoid';
