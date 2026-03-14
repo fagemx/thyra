@@ -64,19 +64,21 @@ export class ConstitutionStore {
       superseded_by: null,
     };
 
-    this.db.prepare(`
-      INSERT INTO constitutions
-        (id, village_id, version, status, created_at, created_by, rules, allowed_permissions, budget_limits)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      constitution.id, villageId, constitution.version, constitution.status,
-      now, actor,
-      JSON.stringify(constitution.rules),
-      JSON.stringify(constitution.allowed_permissions),
-      JSON.stringify(constitution.budget_limits),
-    );
+    this.db.transaction(() => {
+      this.db.prepare(`
+        INSERT INTO constitutions
+          (id, village_id, version, status, created_at, created_by, rules, allowed_permissions, budget_limits)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        constitution.id, villageId, constitution.version, constitution.status,
+        now, actor,
+        JSON.stringify(constitution.rules),
+        JSON.stringify(constitution.allowed_permissions),
+        JSON.stringify(constitution.budget_limits),
+      );
 
-    appendAudit(this.db, 'constitution', constitution.id, 'create', constitution, actor);
+      appendAudit(this.db, 'constitution', constitution.id, 'create', constitution, actor);
+    })();
     this.syncToKarvi(villageId, constitution.budget_limits);
     return constitution;
   }
@@ -142,9 +144,9 @@ export class ConstitutionStore {
         JSON.stringify(newConstitution.allowed_permissions),
         JSON.stringify(newConstitution.budget_limits),
       );
-    })();
 
-    appendAudit(this.db, 'constitution', id, 'supersede', { old_id: id, new_id: newConstitution.id, new_version: newConstitution.version }, actor);
+      appendAudit(this.db, 'constitution', id, 'supersede', { old_id: id, new_id: newConstitution.id, new_version: newConstitution.version }, actor);
+    })();
     this.syncToKarvi(newConstitution.village_id, newConstitution.budget_limits);
     return newConstitution;
   }
