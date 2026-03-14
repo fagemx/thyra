@@ -7,7 +7,7 @@ const SkillBindingInput = z.object({
   config: z.record(z.unknown()).optional(),
 });
 
-const ChiefPersonalityInput = z.object({
+export const ChiefPersonalityInput = z.object({
   risk_tolerance: z.enum(['conservative', 'moderate', 'aggressive']).default('moderate'),
   communication_style: z.enum(['concise', 'detailed', 'minimal']).default('concise'),
   decision_speed: z.enum(['fast', 'deliberate', 'cautious']).default('deliberate'),
@@ -36,6 +36,7 @@ export const UpdateChiefInput = z.object({
   constraints: z.array(ChiefConstraintInput).optional(),
 });
 
+export type ChiefPersonality = z.infer<typeof ChiefPersonalityInput>;
 export type CreateChiefInputRaw = z.input<typeof CreateChiefInput>;
 export type CreateChiefInput = z.infer<typeof CreateChiefInput>;
 export type UpdateChiefInput = z.infer<typeof UpdateChiefInput>;
