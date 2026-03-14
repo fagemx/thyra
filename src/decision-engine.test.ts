@@ -703,36 +703,31 @@ describe('DecisionEngine', () => {
 
     // Extra: harmful law still active → propose revoke
     it('law with harmful effectiveness still active → propose revoke', async () => {
-      chiefEngine.update(chiefId, {
-        permissions: ['dispatch_task', 'propose_law', 'enact_law_low'],
-      }, 'human');
-
+      // Chief without enact_law_low → law stays 'proposed', must be manually approved
+      // Manual approval sets approved_by='human', so harmful verdict won't auto-rollback
       const law = lawEngine.propose(villageId, chiefId, {
         category: 'testing',
         content: { description: 'harmful test law', strategy: {} },
         evidence: { source: 'test', reasoning: 'testing' },
       });
 
-      // 評估為 harmful（非 auto-approved 的 law 不會 auto-rollback）
-      // 需要手動 approve 先
-      if (law.status === 'proposed') {
-        lawEngine.approve(law.id, 'human');
-      }
+      expect(law.status).toBe('proposed');
+      lawEngine.approve(law.id, 'human');
 
       lawEngine.evaluate(law.id, {
         metrics: { quality: -5 },
         verdict: 'harmful',
       });
 
-      // law 可能已被 auto-rollback（如果 auto-approved），先確認 active
+      // Manually approved law with harmful verdict stays active (no auto-rollback)
       const activeLaws = lawEngine.getActiveLaws(villageId);
-      if (activeLaws.some(l => l.effectiveness?.verdict === 'harmful')) {
-        const ctx = await buildTestContext();
-        const result = engine.decide(ctx);
+      expect(activeLaws.some(l => l.effectiveness?.verdict === 'harmful')).toBe(true);
 
-        expect(result.law_proposals.length).toBeGreaterThan(0);
-        expect(result.law_proposals.some(p => p.content.description.includes('Revoke harmful'))).toBe(true);
-      }
+      const ctx = await buildTestContext();
+      const result = engine.decide(ctx);
+
+      expect(result.law_proposals.length).toBeGreaterThan(0);
+      expect(result.law_proposals.some(p => p.content.description.includes('Revoke harmful'))).toBe(true);
     });
 
     // Extra: pipeline advances through review → publish
