@@ -213,6 +213,51 @@ describe('checkBudget', () => {
     }, 'h');
     expect(checkBudget(c, 10, 'per_action')).toBe(false);
   });
+
+  it('per_day: within daily limit → true', () => {
+    const c = store.create(villageId, {
+      rules: [{ description: 'r', enforcement: 'hard' }],
+      allowed_permissions: ['dispatch_task'],
+      budget_limits: { max_cost_per_action: 5, max_cost_per_day: 50, max_cost_per_loop: 25 },
+    }, 'h');
+    expect(checkBudget(c, 30, 'per_day')).toBe(true);
+  });
+
+  it('per_day: accumulated cost exceeds daily limit → false', () => {
+    const c = store.create(villageId, {
+      rules: [{ description: 'r', enforcement: 'hard' }],
+      allowed_permissions: ['dispatch_task'],
+      budget_limits: { max_cost_per_action: 5, max_cost_per_day: 50, max_cost_per_loop: 25 },
+    }, 'h');
+    expect(checkBudget(c, 51, 'per_day')).toBe(false);
+  });
+
+  it('per_day: exactly at daily limit boundary → true', () => {
+    const c = store.create(villageId, {
+      rules: [{ description: 'r', enforcement: 'hard' }],
+      allowed_permissions: ['dispatch_task'],
+      budget_limits: { max_cost_per_action: 5, max_cost_per_day: 50, max_cost_per_loop: 25 },
+    }, 'h');
+    expect(checkBudget(c, 50, 'per_day')).toBe(true);
+  });
+
+  it('per_loop: within loop limit → true', () => {
+    const c = store.create(villageId, {
+      rules: [{ description: 'r', enforcement: 'hard' }],
+      allowed_permissions: ['dispatch_task'],
+      budget_limits: { max_cost_per_action: 5, max_cost_per_day: 50, max_cost_per_loop: 25 },
+    }, 'h');
+    expect(checkBudget(c, 20, 'per_loop')).toBe(true);
+  });
+
+  it('per_loop: accumulated cost exceeds loop limit → false', () => {
+    const c = store.create(villageId, {
+      rules: [{ description: 'r', enforcement: 'hard' }],
+      allowed_permissions: ['dispatch_task'],
+      budget_limits: { max_cost_per_action: 5, max_cost_per_day: 50, max_cost_per_loop: 25 },
+    }, 'h');
+    expect(checkBudget(c, 26, 'per_loop')).toBe(false);
+  });
 });
 
 describe('checkRules', () => {
