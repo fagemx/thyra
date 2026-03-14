@@ -44,6 +44,12 @@ describe('RiskAssessor', () => {
     expect(SAFETY_INVARIANTS).toHaveLength(7);
   });
 
+  it('SAFETY_INVARIANTS is frozen — push throws', () => {
+    expect(() => {
+      (SAFETY_INVARIANTS as unknown[]).push({ id: 'SI-X', check: () => true, message: 'hack' });
+    }).toThrow();
+  });
+
   it('SI-1: disable_human_override → blocked', () => {
     const result = assessor.assess(makeAction({ type: 'disable_human_override', village_id: villageId }), ctx);
     expect(result.blocked).toBe(true);
@@ -60,6 +66,18 @@ describe('RiskAssessor', () => {
     const action = makeAction({ village_id: villageId });
     delete action.rollback_plan;
     const result = assessor.assess(action, ctx);
+    expect(result.blocked).toBe(true);
+    expect(result.reasons.some((r) => r.id === 'SI-3')).toBe(true);
+  });
+
+  it('SI-3: empty string rollback_plan → blocked', () => {
+    const result = assessor.assess(makeAction({ rollback_plan: '', village_id: villageId }), ctx);
+    expect(result.blocked).toBe(true);
+    expect(result.reasons.some((r) => r.id === 'SI-3')).toBe(true);
+  });
+
+  it('SI-3: whitespace-only rollback_plan → blocked', () => {
+    const result = assessor.assess(makeAction({ rollback_plan: '   ', village_id: villageId }), ctx);
     expect(result.blocked).toBe(true);
     expect(result.reasons.some((r) => r.id === 'SI-3')).toBe(true);
   });

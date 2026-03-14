@@ -55,7 +55,7 @@ interface SafetyInvariant {
 }
 
 /** 7 Safety Invariants — hardcoded, never overridable (THY-12) */
-export const SAFETY_INVARIANTS: SafetyInvariant[] = [
+export const SAFETY_INVARIANTS: readonly SafetyInvariant[] = Object.freeze([
   {
     id: 'SI-1',
     check: (action) => action.type !== 'disable_human_override',
@@ -68,7 +68,7 @@ export const SAFETY_INVARIANTS: SafetyInvariant[] = [
   },
   {
     id: 'SI-3',
-    check: (action) => action.rollback_plan !== undefined,
+    check: (action) => action.rollback_plan !== undefined && action.rollback_plan.trim() !== '',
     message: '自動執行必須可回滾',
   },
   {
@@ -97,7 +97,7 @@ export const SAFETY_INVARIANTS: SafetyInvariant[] = [
       !action.cross_village || ctx.both_constitutions_allow === true,
     message: '跨村莊操作需雙方 Constitution 允許',
   },
-];
+]);
 
 export class RiskAssessor {
   constructor(private db: Database) {}
