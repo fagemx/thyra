@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { generateEventId } from './event-id';
 
 // governance.policy.v1 — Thyra 下發策略給 Karvi (budget, permissions, risk thresholds)
 
@@ -36,15 +37,6 @@ export type GovernancePolicyPayload = z.infer<typeof GovernancePolicyPayload>;
 export type BudgetLimitsPayload = z.infer<typeof BudgetLimitsPayload>;
 
 // --- Helper: 建立 governance policy event ---
-
-let counter = 0;
-
-function generateEventId(): string {
-  const ts = Date.now().toString(36);
-  counter += 1;
-  const seq = counter.toString(36).padStart(4, '0');
-  return `evt_${ts}_${seq}`;
-}
 
 export interface CreateGovernancePolicyOptions {
   source_village_id: string;

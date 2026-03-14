@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { generateEventId } from './event-id';
 
 // governance.decision.v1 — Thyra ↔ Edda 決策記錄格式
 
@@ -27,13 +28,6 @@ export const GovernanceDecisionSchema = z.object({
 });
 
 export type GovernanceDecision = z.infer<typeof GovernanceDecisionSchema>;
-
-/** 產生 evt_ 前綴的唯一 ID */
-function generateEventId(): string {
-  const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substring(2, 10);
-  return `evt_${timestamp}_${random}`;
-}
 
 /** 建立一筆合法的 governance decision 事件 */
 export function createGovernanceDecision(
