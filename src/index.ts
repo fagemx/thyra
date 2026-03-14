@@ -13,6 +13,7 @@ import { chiefRoutes } from './routes/chiefs';
 import { LawEngine } from './law-engine';
 import { lawRoutes } from './routes/laws';
 import { LoopRunner } from './loop-runner';
+import { DecisionEngine } from './decision-engine';
 import { loopRoutes } from './routes/loops';
 import { KarviBridge } from './karvi-bridge';
 import { EddaBridge } from './edda-bridge';
@@ -24,6 +25,13 @@ import { auditRoutes } from './routes/audit';
 
 const app = new Hono();
 
+app.onError((err, c) => {
+  return c.json(
+    { ok: false, error: { code: 'INTERNAL_ERROR', message: err.message } },
+    500,
+  );
+});
+
 const db = createDb();
 initSchema(db);
 const villageMgr = new VillageManager(db);
@@ -34,7 +42,8 @@ const constitutionStore = new ConstitutionStore(db, karviBridge);
 const riskAssessor = new RiskAssessor(db);
 const chiefEngine = new ChiefEngine(db, constitutionStore, skillRegistry);
 const lawEngine = new LawEngine(db, constitutionStore, chiefEngine, eddaBridge);
-const loopRunner = new LoopRunner(db, constitutionStore, chiefEngine, lawEngine, riskAssessor, eddaBridge);
+const decisionEngine = new DecisionEngine(db, constitutionStore, chiefEngine, lawEngine, skillRegistry, riskAssessor, eddaBridge);
+const loopRunner = new LoopRunner(db, constitutionStore, chiefEngine, lawEngine, riskAssessor, eddaBridge, skillRegistry, decisionEngine);
 const territoryCoordinator = new TerritoryCoordinator(db, constitutionStore, skillRegistry);
 const auditQuery = new AuditQuery(db);
 
