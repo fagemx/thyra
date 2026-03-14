@@ -183,6 +183,17 @@ export function initSchema(db: Database): void {
       ON skill_shares(to_village_id, status);
     CREATE INDEX IF NOT EXISTS idx_skill_shares_territory
       ON skill_shares(territory_id, status);
+
+    CREATE TABLE IF NOT EXISTS world_snapshots (
+      id TEXT PRIMARY KEY,
+      village_id TEXT NOT NULL REFERENCES villages(id),
+      trigger TEXT NOT NULL CHECK(trigger IN ('manual','cycle_end','pre_change')),
+      snapshot TEXT NOT NULL,
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_snapshot_village
+      ON world_snapshots(village_id, created_at);
   `);
 
   // ALTER TABLE 新增 intent 欄位（冪等：column 已存在就忽略）
