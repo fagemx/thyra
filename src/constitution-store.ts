@@ -224,14 +224,20 @@ export function checkRules(
   constitution: Constitution,
   chiefId: string,
   actionText?: string,
-): { allowed: boolean; violated: ConstitutionRule[] } {
+): { allowed: boolean; violated: ConstitutionRule[]; warnings: ConstitutionRule[] } {
   const violated: ConstitutionRule[] = [];
+  const warnings: ConstitutionRule[] = [];
   for (const rule of constitution.rules) {
     const inScope = rule.scope.includes('*') || rule.scope.includes(chiefId);
     if (!inScope) continue;
     if (actionText && detectRuleViolation(rule.description, actionText)) {
-      violated.push(rule);
+      if (rule.enforcement === 'hard') {
+        violated.push(rule);
+      } else {
+        warnings.push(rule);
+      }
     }
   }
-  return { allowed: violated.length === 0, violated };
+  // Only hard violations block the action; soft violations are warnings
+  return { allowed: violated.length === 0, violated, warnings };
 }
