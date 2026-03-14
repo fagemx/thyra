@@ -278,5 +278,90 @@ describe('checkRules', () => {
     const result = checkRules(c, 'chief-1');
     expect(result.allowed).toBe(true);
     expect(result.violated).toHaveLength(0);
+    expect(result.warnings).toHaveLength(0);
+  });
+
+  it('hard rule violation blocks action', () => {
+    const c = store.create(villageId, {
+      rules: [
+        { id: 'R1', description: 'must not delete production data', enforcement: 'hard', scope: ['*'] },
+      ],
+      allowed_permissions: ['dispatch_task'],
+      budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+    }, 'h');
+    const result = checkRules(c, 'chief-1', 'delete production data');
+    expect(result.allowed).toBe(false);
+    expect(result.violated).toHaveLength(1);
+    expect(result.violated[0].id).toBe('R1');
+    expect(result.violated[0].enforcement).toBe('hard');
+    expect(result.warnings).toHaveLength(0);
+  });
+
+  it('soft rule violation warns but allows action', () => {
+    const c = store.create(villageId, {
+      rules: [
+        { id: 'R1', description: 'must not skip tests', enforcement: 'soft', scope: ['*'] },
+      ],
+      allowed_permissions: ['dispatch_task'],
+      budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+    }, 'h');
+    const result = checkRules(c, 'chief-1', 'skip tests for hotfix');
+    expect(result.allowed).toBe(true);
+    expect(result.violated).toHaveLength(0);
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0].id).toBe('R1');
+    expect(result.warnings[0].enforcement).toBe('soft');
+  });
+
+  it('mixed hard and soft: hard blocks, soft warns', () => {
+    const c = store.create(villageId, {
+      rules: [
+        { id: 'R1', description: 'never skip review', enforcement: 'hard', scope: ['*'] },
+        { id: 'R2', description: 'must not skip tests', enforcement: 'soft', scope: ['*'] },
+      ],
+      allowed_permissions: ['dispatch_task'],
+      budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+    }, 'h');
+    const result = checkRules(c, 'chief-1', 'skip review and skip tests');
+    expect(result.allowed).toBe(false);
+    expect(result.violated).toHaveLength(1);
+    expect(result.violated[0].id).toBe('R1');
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0].id).toBe('R2');
+  });
+
+  it('scope filtering: only checks rules matching chiefId or wildcard', () => {
+    const c = store.create(villageId, {
+      rules: [
+        { id: 'R1', description: 'never delete files', enforcement: 'hard', scope: ['chief-1'] },
+        { id: 'R2', description: 'never delete files', enforcement: 'hard', scope: ['chief-2'] },
+        { id: 'R3', description: 'never delete files', enforcement: 'hard', scope: ['*'] },
+      ],
+      allowed_permissions: ['dispatch_task'],
+      budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+    }, 'h');
+    const result = checkRules(c, 'chief-1', 'delete files from disk');
+    expect(result.allowed).toBe(false);
+    // R1 (chief-1 scope) and R3 (wildcard) should be violated, R2 (chief-2) skipped
+    expect(result.violated).toHaveLength(2);
+    const ids = result.violated.map((r) => r.id);
+    expect(ids).toContain('R1');
+    expect(ids).toContain('R3');
+    expect(ids).not.toContain('R2');
+  });
+
+  it('no rules violated passes with empty violations and warnings', () => {
+    const c = store.create(villageId, {
+      rules: [
+        { id: 'R1', description: 'must not delete data', enforcement: 'hard', scope: ['*'] },
+        { id: 'R2', description: 'must not skip review', enforcement: 'soft', scope: ['*'] },
+      ],
+      allowed_permissions: ['dispatch_task'],
+      budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+    }, 'h');
+    const result = checkRules(c, 'chief-1', 'add linting step');
+    expect(result.allowed).toBe(true);
+    expect(result.violated).toHaveLength(0);
+    expect(result.warnings).toHaveLength(0);
   });
 });
