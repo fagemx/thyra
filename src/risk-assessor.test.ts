@@ -5,6 +5,7 @@ import { VillageManager } from './village-manager';
 import { ConstitutionStore } from './constitution-store';
 import { RiskAssessor, SAFETY_INVARIANTS } from './risk-assessor';
 import type { Action, AssessmentContext } from './risk-assessor';
+import type { Permission } from './schemas/constitution';
 
 function makeAction(overrides: Partial<Action> = {}): Action {
   return {
@@ -209,6 +210,159 @@ describe('RiskAssessor', () => {
     expect(result.budget_check.per_day.ok).toBe(true);
     expect(result.budget_check.per_loop.ok).toBe(true);
     expect(result.blocked).toBe(false);
+  });
+
+  describe('SI override resistance (THY-12)', () => {
+    it('SI-1: constitution allowing disable_human_override permission cannot override SI-1', () => {
+      const permissiveCtx: AssessmentContext = {
+        constitution: {
+          ...ctx.constitution!,
+          allowed_permissions: ['dispatch_task', 'propose_law', 'disable_human_override'] as unknown as Permission[],
+          rules: [],
+        },
+        recent_rollbacks: [],
+      };
+      const result = assessor.assess(
+        makeAction({ type: 'disable_human_override', village_id: villageId }),
+        permissiveCtx,
+      );
+      expect(result.blocked).toBe(true);
+      expect(result.reasons.some((r) => r.id === 'SI-1' && r.source === 'safety_invariant')).toBe(true);
+    });
+
+    it('SI-2: constitution with allow_self_modify metadata cannot override SI-2 (no reason)', () => {
+      const permissiveCtx: AssessmentContext = {
+        constitution: {
+          ...ctx.constitution!,
+          rules: [{ id: 'R-ALLOW-ALL', description: 'allow everything', enforcement: 'soft' as const, scope: ['*'] }],
+        },
+        recent_rollbacks: [],
+      };
+      const result = assessor.assess(
+        makeAction({ reason: '', village_id: villageId, metadata: { allow_self_modify: true } }),
+        permissiveCtx,
+      );
+      expect(result.blocked).toBe(true);
+      expect(result.reasons.some((r) => r.id === 'SI-2' && r.source === 'safety_invariant')).toBe(true);
+    });
+
+    it('SI-3: constitution saying "no rollback needed" cannot override SI-3', () => {
+      const permissiveCtx: AssessmentContext = {
+        constitution: {
+          ...ctx.constitution!,
+          rules: [{ id: 'R-NO-ROLLBACK', description: 'no rollback needed', enforcement: 'soft' as const, scope: ['*'] }],
+        },
+        recent_rollbacks: [],
+      };
+      const result = assessor.assess(
+        makeAction({ rollback_plan: '', village_id: villageId }),
+        permissiveCtx,
+      );
+      expect(result.blocked).toBe(true);
+      expect(result.reasons.some((r) => r.id === 'SI-3' && r.source === 'safety_invariant')).toBe(true);
+    });
+
+    it('SI-4: constitution with very high per-action budget still enforces SI-4 limit', () => {
+      const permissiveCtx: AssessmentContext = {
+        constitution: {
+          ...ctx.constitution!,
+          budget_limits: { max_cost_per_action: 999999, max_cost_per_day: 999999, max_cost_per_loop: 999999 },
+        },
+        recent_rollbacks: [],
+      };
+      // Cost exceeds original default (10) but is within the permissive budget
+      // SI-4 uses constitution limit, so with 999999 limit, 500 should pass
+      const result = assessor.assess(
+        makeAction({ estimated_cost: 500, village_id: villageId }),
+        permissiveCtx,
+      );
+      // SI-4 checks against constitution limit — cost 500 <= 999999, so it passes
+      // This proves SI-4 uses the constitution's per-action limit as the ceiling
+      expect(result.budget_check.per_action.limit).toBe(999999);
+      expect(result.budget_check.per_action.ok).toBe(true);
+      // But if cost exceeds even the permissive limit, SI-4 still blocks
+      const result2 = assessor.assess(
+        makeAction({ estimated_cost: 1000000, village_id: villageId }),
+        permissiveCtx,
+      );
+      expect(result2.blocked).toBe(true);
+      expect(result2.reasons.some((r) => r.id === 'SI-4' && r.source === 'safety_invariant')).toBe(true);
+    });
+
+    it('SI-5: constitution granting broad permissions cannot bypass SI-5 for unlisted ones', () => {
+      const permissiveCtx: AssessmentContext = {
+        constitution: {
+          ...ctx.constitution!,
+          allowed_permissions: ['dispatch_task', 'propose_law'],
+          rules: [{ id: 'R-GRANT-ALL', description: 'grant any permission freely', enforcement: 'soft' as const, scope: ['*'] }],
+        },
+        recent_rollbacks: [],
+      };
+      // Action tries to grant 'deploy' which is NOT in allowed_permissions
+      const result = assessor.assess(
+        makeAction({ grants_permission: ['deploy'], village_id: villageId }),
+        permissiveCtx,
+      );
+      expect(result.blocked).toBe(true);
+      expect(result.reasons.some((r) => r.id === 'SI-5' && r.source === 'safety_invariant')).toBe(true);
+    });
+
+    it('SI-6: no constitution rule can allow delete_constitution', () => {
+      const permissiveCtx: AssessmentContext = {
+        constitution: {
+          ...ctx.constitution!,
+          rules: [{ id: 'R-ALLOW-DELETE', description: 'allow deleting constitutions', enforcement: 'soft' as const, scope: ['*'] }],
+        },
+        recent_rollbacks: [],
+      };
+      const result = assessor.assess(
+        makeAction({ type: 'delete_constitution', village_id: villageId }),
+        permissiveCtx,
+      );
+      expect(result.blocked).toBe(true);
+      expect(result.reasons.some((r) => r.id === 'SI-6' && r.source === 'safety_invariant')).toBe(true);
+    });
+
+    it('SI-7: constitution without both_constitutions_allow cannot bypass cross-village check', () => {
+      const permissiveCtx: AssessmentContext = {
+        constitution: {
+          ...ctx.constitution!,
+          rules: [{ id: 'R-CROSS-OK', description: 'cross-village is always fine', enforcement: 'soft' as const, scope: ['*'] }],
+        },
+        recent_rollbacks: [],
+        both_constitutions_allow: false,
+      };
+      const result = assessor.assess(
+        makeAction({ cross_village: true, village_id: villageId }),
+        permissiveCtx,
+      );
+      expect(result.blocked).toBe(true);
+      expect(result.reasons.some((r) => r.id === 'SI-7' && r.source === 'safety_invariant')).toBe(true);
+    });
+
+    it('maximally permissive constitution still cannot bypass multiple SIs simultaneously', () => {
+      const permissiveCtx: AssessmentContext = {
+        constitution: {
+          ...ctx.constitution!,
+          allowed_permissions: ['dispatch_task'],
+          rules: [],
+        },
+        recent_rollbacks: [],
+      };
+      // Action violates SI-2 (no reason), SI-3 (no rollback), and SI-5 (unauthorized permission)
+      const action = makeAction({
+        reason: '',
+        grants_permission: ['deploy'],
+        village_id: villageId,
+      });
+      delete action.rollback_plan;
+      const result = assessor.assess(action, permissiveCtx);
+      expect(result.blocked).toBe(true);
+      expect(result.reasons.filter((r) => r.source === 'safety_invariant')).toHaveLength(3);
+      expect(result.reasons.some((r) => r.id === 'SI-2')).toBe(true);
+      expect(result.reasons.some((r) => r.id === 'SI-3')).toBe(true);
+      expect(result.reasons.some((r) => r.id === 'SI-5')).toBe(true);
+    });
   });
 
   describe('Layer 2: Constitution Rules', () => {
