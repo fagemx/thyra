@@ -22,6 +22,7 @@ import { TerritoryCoordinator } from './territory';
 import { territoryRoutes } from './routes/territories';
 import { AuditQuery } from './audit-query';
 import { auditRoutes } from './routes/audit';
+import { proposalRoutes } from './routes/proposals';
 
 const app = new Hono();
 
@@ -61,6 +62,7 @@ app.route('', loopRoutes(loopRunner));
 app.route('', bridgeRoutes(karviBridge, eddaBridge));
 app.route('', territoryRoutes(territoryCoordinator));
 app.route('', auditRoutes(auditQuery));
+app.route('', proposalRoutes(db));
 
 const PORT = Number(process.env.THYRA_PORT ?? 3462);
 
