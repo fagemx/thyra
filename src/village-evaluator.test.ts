@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { Database } from 'bun:sqlite';
 import { initSchema, appendAudit } from './db';
 import { evaluateVillage } from './village-evaluator';
