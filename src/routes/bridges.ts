@@ -6,6 +6,13 @@ import { EddaQueryInput, EddaDecideInput } from '../schemas/edda-bridge';
 import { EddaNoteInput } from '../schemas/edda-note';
 import { DispatchProjectInput } from '../schemas/karvi-dispatch';
 
+/** Clamp a raw query string to a safe integer in [1, max], defaulting to `def`. */
+function clampLimit(raw: string | undefined, def = 20, max = 100): number {
+  const n = Number(raw ?? def);
+  if (!Number.isFinite(n)) return def;
+  return Math.max(1, Math.min(Math.round(n), max));
+}
+
 export function bridgeRoutes(karvi: KarviBridge, edda: EddaBridge): Hono {
   const app = new Hono();
 
@@ -51,7 +58,7 @@ export function bridgeRoutes(karvi: KarviBridge, edda: EddaBridge): Hono {
   });
 
   app.get('/api/bridges/karvi/events', (c) => {
-    const limit = Number(c.req.query('limit') ?? 20);
+    const limit = clampLimit(c.req.query('limit'));
     return c.json({ ok: true, data: karvi.getRecentEvents(limit) });
   });
 
@@ -187,7 +194,7 @@ export function bridgeRoutes(karvi: KarviBridge, edda: EddaBridge): Hono {
   });
 
   app.get('/api/bridges/edda/recent', (c) => {
-    const limit = Number(c.req.query('limit') ?? 20);
+    const limit = clampLimit(c.req.query('limit'));
     return c.json({ ok: true, data: edda.getRecentRecorded(limit) });
   });
 
@@ -209,7 +216,7 @@ export function bridgeRoutes(karvi: KarviBridge, edda: EddaBridge): Hono {
       keyword: c.req.query('keyword') || undefined,
       after: c.req.query('after') || undefined,
       before: c.req.query('before') || undefined,
-      limit: c.req.query('limit') ? Number(c.req.query('limit')) : undefined,
+      limit: c.req.query('limit') ? clampLimit(c.req.query('limit')) : undefined,
     });
     return c.json({ ok: true, data: entries });
   });
