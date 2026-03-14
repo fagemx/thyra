@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { randomUUID } from 'crypto';
+import { generateEventId } from './event-id';
 
 // governance.patch.v1 -- Thyra 下發 constitution/law 變更給 Karvi
 
@@ -34,7 +34,7 @@ export function createGovernancePatch(
 ): GovernancePatch {
   return {
     version: 'governance.patch.v1',
-    event_id: `evt_${randomUUID()}`,
+    event_id: generateEventId(),
     occurred_at: new Date().toISOString(),
     source_village_id,
     patch_type,
