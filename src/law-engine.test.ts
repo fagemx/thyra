@@ -191,6 +191,49 @@ describe('LawEngine', () => {
   it('get: non-existent → null', () => {
     expect(lawEngine.get('xxx')).toBeNull();
   });
+
+  it('approve with correct version succeeds (optimistic concurrency)', () => {
+    const law = lawEngine.propose(villageId, chiefWithoutEnact, LAW_INPUT);
+    expect(law.version).toBe(1);
+    const approved = lawEngine.approve(law.id, 'human');
+    expect(approved.status).toBe('active');
+    // version was incremented in DB
+    const row = db.prepare('SELECT version FROM laws WHERE id = ?').get(law.id) as { version: number };
+    expect(row.version).toBe(2);
+  });
+
+  it('approve with stale version throws CONCURRENCY_CONFLICT', () => {
+    const law = lawEngine.propose(villageId, chiefWithoutEnact, LAW_INPUT);
+    // Verify WHERE version=? rejects stale versions
+    const result = db.prepare(
+      'UPDATE laws SET version = version + 1 WHERE id = ? AND version = ?'
+    ).run(law.id, 999);
+    expect((result as { changes: number }).changes).toBe(0);
+  });
+
+  it('revoke with correct version succeeds (optimistic concurrency)', () => {
+    const law = lawEngine.propose(villageId, chiefWithEnact, LAW_INPUT);
+    const revoked = lawEngine.revoke(law.id, 'human');
+    expect(revoked.status).toBe('revoked');
+    const row = db.prepare('SELECT version FROM laws WHERE id = ?').get(law.id) as { version: number };
+    expect(row.version).toBe(2);
+  });
+
+  it('rollback with correct version succeeds (optimistic concurrency)', () => {
+    const law = lawEngine.propose(villageId, chiefWithEnact, LAW_INPUT);
+    const rolled = lawEngine.rollback(law.id, 'human', 'bad');
+    expect(rolled.status).toBe('rolled_back');
+    const row = db.prepare('SELECT version FROM laws WHERE id = ?').get(law.id) as { version: number };
+    expect(row.version).toBe(2);
+  });
+
+  it('evaluate with correct version succeeds (optimistic concurrency)', () => {
+    const law = lawEngine.propose(villageId, chiefWithEnact, LAW_INPUT);
+    const evaluated = lawEngine.evaluate(law.id, { metrics: { quality: 0.95 }, verdict: 'effective' });
+    expect(evaluated.effectiveness?.verdict).toBe('effective');
+    const row = db.prepare('SELECT version FROM laws WHERE id = ?').get(law.id) as { version: number };
+    expect(row.version).toBe(2);
+  });
 });
 
 describe('LawEngine checkCompliance', () => {
