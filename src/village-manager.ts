@@ -80,13 +80,17 @@ export class VillageManager {
       updated_at: now,
     };
 
-    this.db.prepare(`
+    const result = this.db.prepare(`
       UPDATE villages SET name=?, description=?, target_repo=?, status=?,
-        metadata=?, version=?, updated_at=? WHERE id=?
+        metadata=?, version=?, updated_at=? WHERE id=? AND version=?
     `).run(
       updated.name, updated.description, updated.target_repo, updated.status,
-      JSON.stringify(updated.metadata), updated.version, updated.updated_at, id
+      JSON.stringify(updated.metadata), updated.version, updated.updated_at, id,
+      existing.version,
     );
+    if ((result as { changes: number }).changes === 0) {
+      throw new Error('CONCURRENCY_CONFLICT: version mismatch');
+    }
 
     appendAudit(this.db, 'village', id, 'update', { before: existing, after: updated }, actor);
     return updated;
