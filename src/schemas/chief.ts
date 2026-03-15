@@ -55,6 +55,39 @@ export const UpdateChiefInput = z.object({
   profile: ChiefProfileNameEnum.optional(),
 });
 
+/**
+ * T2 Governance Action — Chief 透過 KarviBridge 執行治理動作
+ * 例如建立 project/tasks、調整優先級等
+ */
+export const GovernanceActionInput = z.object({
+  /** 動作類型 */
+  action_type: z.enum(['create_project', 'adjust_priority', 'cancel_task']),
+  /** 動作描述（用於 risk assessment + audit） */
+  description: z.string().min(1).max(1000),
+  /** 預估成本（用於 budget check） */
+  estimated_cost: z.number().min(0).default(1),
+  /** 回滾計畫（SI-3 要求） */
+  rollback_plan: z.string().min(1).max(1000),
+  /** create_project 的 payload */
+  project: z.object({
+    title: z.string().min(1),
+    repo: z.string().optional(),
+    tasks: z.array(z.object({
+      id: z.string().optional(),
+      title: z.string().optional(),
+      description: z.string().optional(),
+      depends: z.array(z.string()).optional(),
+    })).min(1),
+  }).optional(),
+  /** adjust_priority / cancel_task 的 target task id */
+  task_id: z.string().optional(),
+  /** adjust_priority 的新優先級 */
+  priority: z.number().int().min(0).max(100).optional(),
+});
+
+export type GovernanceActionInput = z.infer<typeof GovernanceActionInput>;
+export type GovernanceActionInputRaw = z.input<typeof GovernanceActionInput>;
+
 export type ChiefPersonality = z.infer<typeof ChiefPersonalityInput>;
 export type ChiefProfileName = z.infer<typeof ChiefProfileNameEnum>;
 export type ChiefProfile = z.infer<typeof ChiefProfileSchema>;

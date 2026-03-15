@@ -56,7 +56,7 @@ app.route('', villageRoutes(villageMgr, db));
 app.route('', skillRoutes(skillRegistry));
 app.route('', constitutionRoutes(constitutionStore));
 app.route('', assessRoutes(riskAssessor, constitutionStore));
-app.route('', chiefRoutes(chiefEngine, skillRegistry));
+app.route('', chiefRoutes(chiefEngine, skillRegistry, { riskAssessor, karviBridge, db }));
 app.route('', lawRoutes(lawEngine));
 app.route('', loopRoutes(loopRunner));
 app.route('', bridgeRoutes(karviBridge, eddaBridge));
