@@ -24,6 +24,7 @@ import { AuditQuery } from './audit-query';
 import { auditRoutes } from './routes/audit';
 import { proposalRoutes } from './routes/proposals';
 import { governanceRoutes } from './routes/governance';
+import { packRoutes } from './routes/pack';
 
 const app = new Hono();
 
@@ -71,6 +72,14 @@ app.route('', governanceRoutes({
   chiefEngine,
   lawEngine,
   riskAssessor,
+}));
+app.route('', packRoutes({
+  db,
+  villageMgr,
+  constitutionStore,
+  chiefEngine,
+  lawEngine,
+  skillRegistry,
 }));
 
 const PORT = Number(process.env.THYRA_PORT ?? 3462);
