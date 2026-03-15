@@ -1,0 +1,23 @@
+pre-commit:
+  parallel: true
+  commands:
+    build:
+      run: bun run build
+      fail_text: "TypeScript build failed. Fix errors before committing."
+    lint:
+      run: bun run lint
+      fail_text: "ESLint found issues. Run 'bun run lint' to see details."
+
+commit-msg:
+  commands:
+    conventional:
+      run: |
+        MSG=$(head -1 {1})
+        if ! echo "$MSG" | grep -qE '^(feat|fix|docs|style|refactor|test|chore|ci|perf|build|revert)(\(.+\))?: .+'; then
+          echo "ERROR: Commit message must follow conventional commits format:"
+          echo "  <type>(scope): description"
+          echo "  Types: feat, fix, docs, style, refactor, test, chore, ci, perf, build, revert"
+          echo ""
+          echo "Your message: $MSG"
+          exit 1
+        fi

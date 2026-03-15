@@ -183,9 +183,24 @@ bun test --reporter=verbose                 # 詳細輸出
 
 ## Pre-Commit 檢查
 
+使用 [lefthook](https://github.com/evilmartians/lefthook) 自動執行 git hooks（設定檔：`lefthook.yml`）。
+
+**pre-commit hook**（自動觸發）：
+- `bun run build` — TypeScript 編譯通過
+- `bun run lint` — ESLint 檢查通過
+
+**commit-msg hook**（自動觸發）：
+- 驗證 commit message 符合 conventional commits 格式
+
+**手動全量檢查**（CI 或 release 前）：
 ```bash
 bun run build                # TypeScript 編譯通過
 bun test                     # 所有測試通過
+```
+
+**安裝 hooks**（clone 後首次）：
+```bash
+npx lefthook install
 ```
 
 ## Commit 規範
