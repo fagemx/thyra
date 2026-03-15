@@ -20,8 +20,8 @@ export function lawRoutes(engine: LawEngine): Hono {
       return c.json({ ok: false, error: { code: 'VALIDATION', message: parsed.error.message } }, 400);
     }
     try {
-      const { chief_id, ...rest } = parsed.data;
-      const law = engine.propose(c.req.param('vid'), chief_id, rest);
+      const { chief_id: chiefId, ...rest } = parsed.data;
+      const law = engine.propose(c.req.param('vid'), chiefId, rest);
       return c.json({ ok: true, data: law }, 201);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
