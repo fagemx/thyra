@@ -99,7 +99,7 @@ export class LawEngine {
     }
     appendAudit(this.db, 'law', id, 'approved', {}, actor);
     this.recordToEdda(id, 'status', 'approved', `approved by ${actor}`);
-    return { ...law, status: 'active', approved_by: actor, updated_at: now };
+    return { ...law, status: 'active', approved_by: actor, version: law.version + 1, updated_at: now };
   }
 
   reject(id: string, actor: string, reason?: string): Law {
@@ -113,7 +113,7 @@ export class LawEngine {
     }
     appendAudit(this.db, 'law', id, 'rejected', { reason }, actor);
     this.recordToEdda(id, 'status', 'rejected', `rejected by ${actor}: ${reason ?? 'no reason'}`);
-    return { ...law, status: 'rejected', updated_at: now };
+    return { ...law, status: 'rejected', version: law.version + 1, updated_at: now };
   }
 
   revoke(id: string, actor: string): Law {
@@ -127,7 +127,7 @@ export class LawEngine {
     }
     appendAudit(this.db, 'law', id, 'revoked', {}, actor);
     this.recordToEdda(id, 'status', 'revoked', `revoked by ${actor}`);
-    return { ...law, status: 'revoked', updated_at: now };
+    return { ...law, status: 'revoked', version: law.version + 1, updated_at: now };
   }
 
   rollback(id: string, actor: string, reason: string): Law {
@@ -141,7 +141,7 @@ export class LawEngine {
     }
     appendAudit(this.db, 'law', id, 'rolled_back', { reason }, actor);
     this.recordToEdda(id, 'status', 'rolled_back', reason);
-    return { ...law, status: 'rolled_back', updated_at: now };
+    return { ...law, status: 'rolled_back', version: law.version + 1, updated_at: now };
   }
 
   evaluate(id: string, rawInput: EvaluateLawInput): Law {
@@ -166,12 +166,12 @@ export class LawEngine {
     if (input.verdict === 'harmful' && law.approved_by === 'auto') {
       this.recordToEdda(id, 'safety', 'auto_rollback', 'harmful verdict on auto-approved law — triggering safety rollback');
       this.rollback(id, 'system', 'Auto-rollback: harmful verdict on auto-approved law');
-      return { ...law, effectiveness, status: 'rolled_back', updated_at: now };
+      return { ...law, effectiveness, status: 'rolled_back', version: law.version + 1, updated_at: now };
     }
 
     appendAudit(this.db, 'law', id, 'evaluated', effectiveness, 'system');
     this.recordToEdda(id, 'effectiveness', input.verdict, `metrics: ${JSON.stringify(input.metrics)}`);
-    return { ...law, effectiveness, updated_at: now };
+    return { ...law, effectiveness, version: law.version + 1, updated_at: now };
   }
 
   get(id: string): Law | null {
