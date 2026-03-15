@@ -242,7 +242,7 @@ export class EddaBridge {
       });
 
       if (!res.ok) return [];
-      const data = await res.json();
+      const data: unknown = await res.json();
       const parsed = EddaLogResponseSchema.safeParse(data);
       if (!parsed.success) return [];
 
@@ -311,7 +311,7 @@ export class EddaBridge {
     return rows.map((r) => ({
       id: r.entity_id,
       action: r.action,
-      payload: JSON.parse((r.payload as string) || '{}'),
+      payload: JSON.parse((r.payload as string) || '{}') as Record<string, unknown>,
       created_at: r.created_at,
     }));
   }

@@ -164,7 +164,7 @@ function computeEddaReuseRate(
   let withEdda = 0;
   for (const row of rows) {
     try {
-      const payload = JSON.parse(row.payload);
+      const payload = JSON.parse(row.payload) as { edda_refs?: unknown[] };
       if (
         payload.edda_refs &&
         Array.isArray(payload.edda_refs) &&

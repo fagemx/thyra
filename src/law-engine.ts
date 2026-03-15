@@ -259,10 +259,10 @@ export class LawEngine {
       version: row.version as number,
       status: row.status as Law['status'],
       category: row.category as string,
-      content: JSON.parse((row.content as string) || '{}'),
+      content: JSON.parse((row.content as string) || '{}') as Law['content'],
       risk_level: row.risk_level as Law['risk_level'],
-      evidence: JSON.parse((row.evidence as string) || '{}'),
-      effectiveness: row.effectiveness ? JSON.parse(row.effectiveness as string) : null,
+      evidence: JSON.parse((row.evidence as string) || '{}') as Law['evidence'],
+      effectiveness: row.effectiveness ? JSON.parse(row.effectiveness as string) as Law['effectiveness'] : null,
       created_at: row.created_at as string,
       updated_at: row.updated_at as string,
     };

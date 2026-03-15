@@ -36,7 +36,7 @@ export function listPendingChanges(db: Database, villageId: string): ChangePropo
   ).all(villageId, 'proposed') as Record<string, unknown>[];
 
   for (const row of lawRows) {
-    const content = JSON.parse((row.content as string) || '{}');
+    const content = JSON.parse((row.content as string) || '{}') as { description?: string };
     proposals.push({
       id: `proposal-law-${row.id as string}`,
       village_id: villageId,

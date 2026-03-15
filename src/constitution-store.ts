@@ -159,9 +159,9 @@ export class ConstitutionStore {
       status: row.status as Constitution['status'],
       created_at: row.created_at as string,
       created_by: row.created_by as string,
-      rules: JSON.parse((row.rules as string) || '[]'),
-      allowed_permissions: JSON.parse((row.allowed_permissions as string) || '[]'),
-      budget_limits: JSON.parse((row.budget_limits as string) || '{}'),
+      rules: JSON.parse((row.rules as string) || '[]') as Constitution['rules'],
+      allowed_permissions: JSON.parse((row.allowed_permissions as string) || '[]') as Constitution['allowed_permissions'],
+      budget_limits: JSON.parse((row.budget_limits as string) || '{}') as Constitution['budget_limits'],
       superseded_by: (row.superseded_by as string) || null,
     };
   }
