@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Database } from 'bun:sqlite';
 import { initSchema } from './db';
 import { WorldManager } from './world-manager';
@@ -8,6 +8,7 @@ import { ChiefEngine } from './chief-engine';
 import { SkillRegistry } from './skill-registry';
 import type { WorldChange } from './schemas/world-change';
 import type { Village } from './village-manager';
+import type { EddaBridge } from './edda-bridge';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -350,6 +351,99 @@ describe('WorldManager', () => {
       const village = createVillage(vm);
       const pending = wm.listPendingChanges(village.id);
       expect(pending).toEqual([]);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // EddaBridge integration (#185)
+  // -------------------------------------------------------------------------
+
+  describe('EddaBridge integration', () => {
+    function createMockEddaBridge(): EddaBridge {
+      return {
+        recordDecision: vi.fn().mockResolvedValue({ event_id: 'evt-mock' }),
+      } as unknown as EddaBridge;
+    }
+
+    it('apply() should call recordDecision on EddaBridge', () => {
+      const mockEdda = createMockEddaBridge();
+      const wmWithEdda = new WorldManager(db, mockEdda);
+      const village = createVillage(vm);
+
+      wmWithEdda.apply(village.id, makeConstitutionChange(), 'test reason');
+
+      expect(mockEdda.recordDecision).toHaveBeenCalledTimes(1);
+      const call = (mockEdda.recordDecision as ReturnType<typeof vi.fn>).mock.calls[0][0] as Record<string, unknown>;
+      expect(call.domain).toBe('world');
+      expect((call.aspect as string)).toContain('.change');
+      expect(call.value).toBe('constitution.supersede');
+    });
+
+    it('apply() without EddaBridge still works', () => {
+      const wmNoEdda = new WorldManager(db);
+      const village = createVillage(vm);
+
+      const result = wmNoEdda.apply(village.id, makeConstitutionChange());
+      expect(result.applied).toBe(true);
+    });
+
+    it('rollback() should call recordDecision on EddaBridge', () => {
+      const mockEdda = createMockEddaBridge();
+      const wmWithEdda = new WorldManager(db, mockEdda);
+      const village = createVillage(vm);
+      createConstitution(cs, village.id);
+
+      const snapId = wmWithEdda.snapshot(village.id, 'manual');
+      wmWithEdda.rollback(village.id, snapId, 'test rollback');
+
+      expect(mockEdda.recordDecision).toHaveBeenCalledTimes(1);
+      const call = (mockEdda.recordDecision as ReturnType<typeof vi.fn>).mock.calls[0][0] as Record<string, unknown>;
+      expect(call.domain).toBe('world');
+      expect((call.aspect as string)).toContain('.rollback');
+      expect(call.value).toBe(snapId);
+    });
+
+    it('EddaBridge failure should not crash apply (THY-06)', () => {
+      const mockEdda = createMockEddaBridge();
+      (mockEdda.recordDecision as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Edda offline'));
+      const wmWithEdda = new WorldManager(db, mockEdda);
+      const village = createVillage(vm);
+
+      // apply 應正常完成，不被 Edda 錯誤影響
+      const result = wmWithEdda.apply(village.id, makeConstitutionChange());
+      expect(result.applied).toBe(true);
+      expect(mockEdda.recordDecision).toHaveBeenCalledTimes(1);
+    });
+
+    it('EddaBridge failure should not crash rollback (THY-06)', () => {
+      const mockEdda = createMockEddaBridge();
+      (mockEdda.recordDecision as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Edda offline'));
+      const wmWithEdda = new WorldManager(db, mockEdda);
+      const village = createVillage(vm);
+      createConstitution(cs, village.id);
+
+      const snapId = wmWithEdda.snapshot(village.id, 'manual');
+      const result = wmWithEdda.rollback(village.id, snapId, 'test rollback');
+      expect(result.success).toBe(true);
+      expect(mockEdda.recordDecision).toHaveBeenCalledTimes(1);
+    });
+
+    it('apply() rejection should not call recordDecision', () => {
+      const mockEdda = createMockEddaBridge();
+      const wmWithEdda = new WorldManager(db, mockEdda);
+      const village = createVillage(vm);
+
+      // chief.appoint without constitution → rejected
+      const change: WorldChange = {
+        type: 'chief.appoint',
+        name: 'BadChief',
+        role: 'rogue',
+        permissions: ['dispatch_task'],
+        skills: [],
+      };
+      const result = wmWithEdda.apply(village.id, change);
+      expect(result.applied).toBe(false);
+      expect(mockEdda.recordDecision).not.toHaveBeenCalled();
     });
   });
 });
