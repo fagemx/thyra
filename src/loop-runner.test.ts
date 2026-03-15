@@ -515,6 +515,108 @@ describe('LoopRunner', () => {
     });
   });
 
+  describe('max_iterations and timeout_ms auto-stop (THY-08, issue #34)', () => {
+    it('startCycle with max_iterations=2 stops after exactly 2 iterations', async () => {
+      // Override decide to always return an action so the loop iterates
+      let decideCallCount = 0;
+      loopRunner.decide = async () => {
+        decideCallCount++;
+        return {
+          action_type: 'review_code',
+          description: `Review iteration ${decideCallCount}`,
+          estimated_cost: 1,
+          reason: 'Needs review',
+          rollback_plan: 'Revert',
+        };
+      };
+
+      const cycle = loopRunner.startCycle(villageId, {
+        chief_id: chiefId,
+        max_iterations: 2,
+        timeout_ms: 5000,
+      });
+
+      // Poll until cycle finishes (max 2 seconds)
+      let updated = loopRunner.get(cycle.id);
+      const deadline = Date.now() + 2000;
+      while (updated?.status === 'running' && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        updated = loopRunner.get(cycle.id);
+      }
+
+      expect(updated?.status).toBe('completed');
+      expect(updated?.iterations).toBe(2);
+      expect(updated?.abort_reason).toContain('Max iterations reached');
+    });
+
+    it('startCycle with timeout_ms=1000 stops after timeout', async () => {
+      // Override decide to always return an action, but add a delay so timeout fires
+      loopRunner.decide = async () => {
+        // Delay each decide call to let timeout fire before max_iterations
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        return {
+          action_type: 'slow_task',
+          description: 'Slow task',
+          estimated_cost: 1,
+          reason: 'Takes time',
+          rollback_plan: 'Revert',
+        };
+      };
+
+      const cycle = loopRunner.startCycle(villageId, {
+        chief_id: chiefId,
+        max_iterations: 100, // high enough that timeout fires first
+        timeout_ms: 1000,    // minimum allowed by schema
+      });
+
+      // Poll until cycle finishes (max 3 seconds, timeout is 1s)
+      let updated = loopRunner.get(cycle.id);
+      const deadline = Date.now() + 3000;
+      while (updated?.status === 'running' && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        updated = loopRunner.get(cycle.id);
+      }
+
+      expect(updated?.status).toBe('timeout');
+      expect(updated?.abort_reason).toContain('Timeout exceeded');
+      // Should have completed fewer iterations than max_iterations
+      expect(updated!.iterations).toBeLessThan(100);
+    });
+
+    it('cycle status is completed after max_iterations auto-stop', async () => {
+      // Override decide to return actions for exactly 3 iterations
+      let callCount = 0;
+      loopRunner.decide = async () => {
+        callCount++;
+        if (callCount > 3) return null;
+        return {
+          action_type: 'task',
+          description: `Task ${callCount}`,
+          estimated_cost: 1,
+          reason: 'Work',
+          rollback_plan: 'Undo',
+        };
+      };
+
+      const cycle = loopRunner.startCycle(villageId, {
+        chief_id: chiefId,
+        max_iterations: 3,
+        timeout_ms: 5000,
+      });
+
+      let updated = loopRunner.get(cycle.id);
+      const deadline = Date.now() + 2000;
+      while (updated?.status === 'running' && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        updated = loopRunner.get(cycle.id);
+      }
+
+      expect(updated?.status).toBe('completed');
+      expect(updated?.iterations).toBe(3);
+      expect(updated?.actions).toHaveLength(3);
+    });
+  });
+
   describe('runLoop error handling (issue #31)', () => {
     it('runLoop error transitions cycle to aborted with error reason', async () => {
       const cycle = loopRunner.startCycle(villageId, { chief_id: chiefId });
