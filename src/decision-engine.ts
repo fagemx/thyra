@@ -695,6 +695,16 @@ export class DecisionEngine {
       );
     }
 
+    if (plan.fallback === 'retry') {
+      // retry: 重試被阻擋的步驟（回到 pending，下次 iteration 會重新嘗試）
+      factors.push('Plan fallback=retry, retrying blocked step');
+      const retrPlan = this.retryBlockedStep(plan);
+      return this.buildPlanRepairResult(
+        context, retrPlan, factors, lawConsiderations, precedentNotes,
+        personalityEffect, eddaRefs,
+      );
+    }
+
     if (plan.fallback === 'replan' && this.llmAdvisor) {
       // LLM plan repair
       try {
@@ -740,16 +750,29 @@ export class DecisionEngine {
 
   /**
    * 跳過被阻擋的步驟（fallback=skip）。
+   * 優先跳過 in_progress 的步驟，否則跳過第一個 pending。
    */
   private skipBlockedStep(plan: PlanState, _blockingReason: string): PlanState {
-    const pending = plan.planned_steps.filter(s => s.status === 'pending');
-    if (pending.length === 0) return plan;
+    // 被阻擋的步驟通常是 in_progress 的那個
+    const blockedStep = plan.planned_steps.find(s => s.status === 'in_progress')
+      ?? plan.planned_steps.find(s => s.status === 'pending');
+    if (!blockedStep) return plan;
 
-    const firstPending = pending[0];
     const updatedSteps = plan.planned_steps.map(s =>
-      s.task_key === firstPending.task_key ? { ...s, status: 'skipped' as const } : s,
+      s === blockedStep ? { ...s, status: 'skipped' as const } : s,
     );
 
+    return { ...plan, planned_steps: updatedSteps };
+  }
+
+  /**
+   * 重試被阻擋的步驟（fallback=retry）。
+   * 將 in_progress 步驟重設為 pending 以便下次 iteration 重試。
+   */
+  private retryBlockedStep(plan: PlanState): PlanState {
+    const updatedSteps = plan.planned_steps.map(s =>
+      s.status === 'in_progress' ? { ...s, status: 'pending' as const } : s,
+    );
     return { ...plan, planned_steps: updatedSteps };
   }
 
