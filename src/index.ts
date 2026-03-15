@@ -23,6 +23,7 @@ import { territoryRoutes } from './routes/territories';
 import { AuditQuery } from './audit-query';
 import { auditRoutes } from './routes/audit';
 import { proposalRoutes } from './routes/proposals';
+import { governanceRoutes } from './routes/governance';
 
 const app = new Hono();
 
@@ -63,6 +64,14 @@ app.route('', bridgeRoutes(karviBridge, eddaBridge));
 app.route('', territoryRoutes(territoryCoordinator));
 app.route('', auditRoutes(auditQuery));
 app.route('', proposalRoutes(db));
+app.route('', governanceRoutes({
+  db,
+  villageMgr,
+  constitutionStore,
+  chiefEngine,
+  lawEngine,
+  riskAssessor,
+}));
 
 const PORT = Number(process.env.THYRA_PORT ?? 3462);
 
