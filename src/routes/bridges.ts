@@ -125,7 +125,7 @@ export function bridgeRoutes(karvi: KarviBridge, edda: EddaBridge): Hono {
   });
 
   app.post('/api/bridges/karvi/webhook-url', async (c) => {
-    const body = await c.req.json() as Record<string, unknown>;
+    const body: Record<string, unknown> = await c.req.json();
     const url = body.url;
     if (typeof url !== 'string' || !/^https?:\/\/.+/.test(url)) {
       return c.json({

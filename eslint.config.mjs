@@ -14,7 +14,7 @@ export default tseslint.config(
       },
     },
     rules: {
-      // --- TypeScript strict rules ---
+      // --- TypeScript strict rules (all error) ---
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-floating-promises': 'error',
       '@typescript-eslint/no-misused-promises': 'error',
@@ -22,6 +22,15 @@ export default tseslint.config(
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
+      '@typescript-eslint/no-non-null-assertion': 'error',
+      '@typescript-eslint/no-unnecessary-condition': 'error',
+      '@typescript-eslint/no-unnecessary-type-assertion': 'error',
+      '@typescript-eslint/no-unsafe-assignment': 'error',
+      '@typescript-eslint/no-unsafe-member-access': 'error',
+      '@typescript-eslint/no-unsafe-call': 'error',
+      '@typescript-eslint/no-unsafe-return': 'error',
+      '@typescript-eslint/no-unsafe-argument': 'error',
+      '@typescript-eslint/no-deprecated': 'error',
 
       // --- Naming convention ---
       '@typescript-eslint/naming-convention': [
@@ -46,7 +55,7 @@ export default tseslint.config(
         },
         {
           selector: 'property',
-          format: null, // allow any format for properties (JSON, DB columns, etc.)
+          format: null,
         },
         {
           selector: 'enumMember',
@@ -55,24 +64,45 @@ export default tseslint.config(
       ],
 
       // --- Complexity ---
-      complexity: ['warn', { max: 20 }],
+      complexity: ['error', { max: 20 }],
 
-      // --- Relax some strict rules that are too noisy for initial adoption ---
+      // --- Custom: DB query must have type assertion ---
+      'no-restricted-syntax': ['error', {
+        selector: 'CallExpression[callee.property.name="all"]:not([parent.type="TSAsExpression"])',
+        message: 'db.prepare().all() must have a type assertion: .all() as SomeRow[]',
+      }],
+
+      // --- Off ---
       '@typescript-eslint/restrict-template-expressions': 'off',
-      '@typescript-eslint/no-unnecessary-condition': 'warn',
-      '@typescript-eslint/no-unsafe-assignment': 'warn',
-      '@typescript-eslint/no-unsafe-member-access': 'warn',
-      '@typescript-eslint/no-unsafe-call': 'warn',
-      '@typescript-eslint/no-unsafe-return': 'warn',
-      '@typescript-eslint/no-unsafe-argument': 'warn',
-      '@typescript-eslint/no-deprecated': 'warn',
       '@typescript-eslint/no-extraneous-class': 'off',
-      '@typescript-eslint/no-non-null-assertion': 'warn',
-      '@typescript-eslint/no-unnecessary-type-assertion': 'warn',
     },
   },
+  // --- L1 files: cannot import L2 or L3 (ARCH-02) ---
   {
-    // Ignore test files and config files
+    files: ['src/village-manager.ts', 'src/constitution-store.ts', 'src/skill-registry.ts'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [{
+          group: ['./chief-engine', './law-engine', './risk-assessor', './loop-runner', './decision-engine', './llm-advisor', './candidate-filter'],
+          message: 'L1 module cannot import L2/L3 modules (ARCH-02)',
+        }],
+      }],
+    },
+  },
+  // --- L2 files: cannot import L3 (ARCH-02) ---
+  {
+    files: ['src/chief-engine.ts', 'src/law-engine.ts', 'src/risk-assessor.ts'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [{
+          group: ['./loop-runner', './decision-engine', './llm-advisor', './candidate-filter'],
+          message: 'L2 module cannot import L3 modules (ARCH-02)',
+        }],
+      }],
+    },
+  },
+  // --- Ignore test files and config files ---
+  {
     ignores: [
       '**/*.test.ts',
       'tests/**',
