@@ -2,10 +2,11 @@ import type { Database } from 'bun:sqlite';
 import { appendAudit } from './db';
 import type { KarviEventNormalized } from './schemas/karvi-event';
 import { DispatchProjectInput } from './schemas/karvi-dispatch';
-import type { DispatchProjectInputRaw, KarviProjectResponse, KarviSingleDispatchResponse, KarviBudgetExceededError, KarviBoard, KarviStatus, KarviTaskProgress } from './schemas/karvi-dispatch';
+import type { DispatchProjectInputRaw, KarviProjectResponse, KarviSingleDispatchResponse, KarviBudgetExceededError, KarviBoard, KarviStatus, KarviTaskProgress, KarviCapabilities } from './schemas/karvi-dispatch';
+import { KarviCapabilitiesSchema } from './schemas/karvi-dispatch';
 
 export type { KarviEventNormalized } from './schemas/karvi-event';
-export type { DispatchProjectInputRaw, KarviProjectResponse, KarviSingleDispatchResponse, KarviBoard, KarviStatus, KarviTaskProgress } from './schemas/karvi-dispatch';
+export type { DispatchProjectInputRaw, KarviProjectResponse, KarviSingleDispatchResponse, KarviBoard, KarviStatus, KarviTaskProgress, KarviCapabilities, KarviRuntime, KarviRemoteSkill } from './schemas/karvi-dispatch';
 
 export interface TaskStatus {
   id: string;
@@ -278,6 +279,26 @@ export class KarviBridge {
       );
       if (!res.ok) return null;
       return (await res.json()) as KarviTaskProgress;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * 查詢 Karvi 可用的 runtimes + skills（discovery API）
+   * GET /api/capabilities → 聚合回傳
+   * Karvi 離線時回傳 null（graceful degradation — THY-06）
+   */
+  async getCapabilities(): Promise<KarviCapabilities | null> {
+    try {
+      const res = await fetch(`${this.karviUrl}/api/capabilities`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) return null;
+      const raw: unknown = await res.json();
+      const parsed = KarviCapabilitiesSchema.safeParse(raw);
+      if (!parsed.success) return null;
+      return parsed.data;
     } catch {
       return null;
     }
