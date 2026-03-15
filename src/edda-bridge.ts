@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
 import { appendAudit } from './db';
-import { EddaLogResponseSchema } from './schemas/edda-bridge';
+import { EddaLogResponseSchema, EddaDraftsResponseSchema } from './schemas/edda-bridge';
 
 // --- Edda-aligned types (matches edda-ask AskResult / DecisionHit) ---
 
@@ -88,6 +88,17 @@ export interface EddaLogEntry {
   ts: string;
   branch?: string;
   tags?: string[];
+}
+
+/** 匹配 Edda 的 Draft proposal */
+export interface EddaDraft {
+  event_id: string;
+  key: string;
+  value: string;
+  reason?: string;
+  status: string;
+  ts: string;
+  branch?: string;
 }
 
 /** queryEventLog 的選項 */
@@ -280,6 +291,36 @@ export class EddaBridge {
       if (!res.ok) return null;
       return await res.json() as Record<string, unknown>;
     } catch {
+      return null;
+    }
+  }
+
+  /**
+   * 列出 Edda 的 pending draft proposals。使用 GET /api/drafts
+   * 回傳 null 表示 Edda 不可用（graceful degradation）
+   */
+  async listDrafts(): Promise<EddaDraft[] | null> {
+    try {
+      const res = await fetch(`${this.eddaUrl}/api/drafts`, {
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (!res.ok) return null;
+      const data: unknown = await res.json();
+      const parsed = EddaDraftsResponseSchema.safeParse(data);
+      if (!parsed.success) return null;
+
+      return parsed.data.map((d) => ({
+        event_id: d.event_id,
+        key: d.key,
+        value: d.value,
+        reason: d.reason,
+        status: d.status,
+        ts: d.ts,
+        branch: d.branch,
+      }));
+    } catch {
+      // Graceful degradation: Edda offline → null
       return null;
     }
   }

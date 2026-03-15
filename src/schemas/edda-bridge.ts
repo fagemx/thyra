@@ -49,3 +49,19 @@ export const EddaLogResponseSchema = z.union([
 ]);
 
 export type EddaLogResponse = z.infer<typeof EddaLogResponseSchema>;
+
+/** Edda /api/drafts 回應格式 — 單一 draft proposal */
+export const EddaDraftSchema = z.object({
+  event_id: z.string(),
+  key: z.string(),
+  value: z.string(),
+  reason: z.string().optional(),
+  status: z.string(),
+  ts: z.string(),
+  branch: z.string().optional(),
+});
+
+export type EddaDraftRaw = z.infer<typeof EddaDraftSchema>;
+
+/** Edda /api/drafts 回應：陣列格式 */
+export const EddaDraftsResponseSchema = z.array(EddaDraftSchema);
