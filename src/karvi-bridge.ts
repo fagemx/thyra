@@ -93,6 +93,49 @@ export class KarviBridge {
     }
   }
 
+  /**
+   * 派發專案到指定 board namespace。
+   * 將 board_namespace 附加到 request body，供 Karvi 做 board 隔離。
+   * Karvi 尚未實作 multi-board 時，此欄位會被忽略（向前相容）。
+   */
+  async dispatchToBoard(
+    boardNamespace: string,
+    rawInput: DispatchProjectInputRaw,
+  ): Promise<KarviProjectResponse | null> {
+    const input = DispatchProjectInput.parse(rawInput);
+    try {
+      const res = await fetch(`${this.karviUrl}/api/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...input, board_namespace: boardNamespace }),
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (!res.ok) {
+        appendAudit(this.db, 'karvi', input.title, 'dispatch_to_board_failed', {
+          status: res.status, board_namespace: boardNamespace,
+        }, 'system');
+        throw new Error(`Karvi dispatch failed: ${res.status}`);
+      }
+
+      const data = await res.json() as KarviProjectResponse;
+      const projectId = data.project?.id ?? input.title;
+      appendAudit(this.db, 'karvi', projectId, 'dispatch_to_board', {
+        title: input.title,
+        board_namespace: boardNamespace,
+        taskCount: data.taskCount,
+        taskIds: data.project?.taskIds,
+      }, 'system');
+      return data;
+    } catch (e) {
+      if (e instanceof Error && e.message.startsWith('Karvi dispatch failed')) throw e;
+      appendAudit(this.db, 'karvi', input.title, 'dispatch_to_board_unreachable', {
+        error: 'Karvi unreachable', board_namespace: boardNamespace,
+      }, 'system');
+      return null;
+    }
+  }
+
   async getTaskStatus(taskId: string): Promise<TaskStatus | null> {
     try {
       const res = await fetch(`${this.karviUrl}/api/board`, {
@@ -243,9 +286,13 @@ export class KarviBridge {
     }
   }
 
-  async getBoard(): Promise<KarviBoard | null> {
+  async getBoard(boardNamespace?: string): Promise<KarviBoard | null> {
     try {
-      const res = await fetch(`${this.karviUrl}/api/board`, {
+      let url = `${this.karviUrl}/api/board`;
+      if (boardNamespace) {
+        url += `?namespace=${encodeURIComponent(boardNamespace)}`;
+      }
+      const res = await fetch(url, {
         signal: AbortSignal.timeout(5000),
       });
       if (!res.ok) return null;
