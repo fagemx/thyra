@@ -192,6 +192,50 @@ describe('LawEngine', () => {
     expect(lawEngine.get('xxx')).toBeNull();
   });
 
+  // --- Illegal state transition tests (issue #36) ---
+
+  it('approve already-active law → throws', () => {
+    const law = lawEngine.propose(villageId, chiefWithEnact, LAW_INPUT);
+    expect(law.status).toBe('active'); // auto-approved
+    expect(() => lawEngine.approve(law.id, 'human')).toThrow('not proposed');
+  });
+
+  it('approve already-rejected law → throws', () => {
+    const law = lawEngine.propose(villageId, chiefWithoutEnact, LAW_INPUT);
+    lawEngine.reject(law.id, 'human', 'no');
+    expect(() => lawEngine.approve(law.id, 'human')).toThrow('not proposed');
+  });
+
+  it('reject already-rejected law → throws', () => {
+    const law = lawEngine.propose(villageId, chiefWithoutEnact, LAW_INPUT);
+    lawEngine.reject(law.id, 'human', 'no');
+    expect(() => lawEngine.reject(law.id, 'human', 'again')).toThrow('not proposed');
+  });
+
+  it('revoke proposed law (not active) → throws', () => {
+    const law = lawEngine.propose(villageId, chiefWithoutEnact, LAW_INPUT);
+    expect(law.status).toBe('proposed');
+    expect(() => lawEngine.revoke(law.id, 'human')).toThrow('not active');
+  });
+
+  it('rollback proposed law (not active) → throws', () => {
+    const law = lawEngine.propose(villageId, chiefWithoutEnact, LAW_INPUT);
+    expect(law.status).toBe('proposed');
+    expect(() => lawEngine.rollback(law.id, 'human', 'reason')).toThrow('not active');
+  });
+
+  it('evaluate proposed law (not active) → throws', () => {
+    const law = lawEngine.propose(villageId, chiefWithoutEnact, LAW_INPUT);
+    expect(law.status).toBe('proposed');
+    expect(() => lawEngine.evaluate(law.id, { metrics: { q: 1 }, verdict: 'effective' })).toThrow('not active');
+  });
+
+  it('double approve same law → second throws (already active)', () => {
+    const law = lawEngine.propose(villageId, chiefWithoutEnact, LAW_INPUT);
+    lawEngine.approve(law.id, 'human');
+    expect(() => lawEngine.approve(law.id, 'human2')).toThrow('not proposed');
+  });
+
   it('approve with correct version succeeds (optimistic concurrency)', () => {
     const law = lawEngine.propose(villageId, chiefWithoutEnact, LAW_INPUT);
     expect(law.version).toBe(1);
