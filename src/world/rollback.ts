@@ -1,19 +1,19 @@
 /**
  * world/rollback.ts — change-level rollback：從 snapshot 還原 WorldState。
  *
- * 策略（v1）：
+ * 策略（Phase 2）：
  *   1. 從 pre-change snapshot 載入目標狀態
  *   2. 組裝當前 live state
  *   3. 計算 diff（當前 → 目標）
  *   4. 拍攝 rollback 前備份 snapshot
- *   5. 記錄 audit_log
- *   6. 回傳 RollbackResult
- *
- * 不做實際 table 還原（Phase 2），只記錄意圖 + diff。
+ *   5. applyToDb — 在 transaction 內還原所有 DB tables
+ *   6. 記錄 audit_log
+ *   7. 回傳 RollbackResult
  */
 
 import type { Database } from 'bun:sqlite';
 import type { WorldStateDiff } from './diff';
+import type { WorldState } from './state';
 import { loadSnapshot } from './snapshot';
 import { snapshotWorldState } from './snapshot';
 import { assembleWorldState } from './state';
@@ -38,11 +38,114 @@ export interface RollbackResult {
 }
 
 // ---------------------------------------------------------------------------
+// applyToDb — 在 transaction 內還原 DB tables（Phase 2 核心）
+// ---------------------------------------------------------------------------
+
+/**
+ * 在 transaction 內原子還原 DB tables 到 snapshot 狀態。
+ *
+ * 還原範圍：villages（metadata）、constitutions、chiefs、laws、skills。
+ * 不還原 loop_cycles（running cycles 不可逆）和 audit_log（append-only）。
+ *
+ * 順序考量（FK constraints）：
+ *   刪除：laws → chiefs → constitutions → skills（village-owned）→ 更新 village
+ *   插入：village → constitutions → chiefs → laws → skills
+ *
+ * @throws Error 如果任何步驟失敗（transaction 自動 rollback）
+ */
+export function applyToDb(
+  db: Database,
+  villageId: string,
+  targetState: WorldState,
+): void {
+  const tx = db.transaction(() => {
+    // --- 刪除現有的 village-scoped 資料（子表先刪）---
+    db.prepare('DELETE FROM laws WHERE village_id = ?').run(villageId);
+    db.prepare('DELETE FROM chiefs WHERE village_id = ?').run(villageId);
+    db.prepare('DELETE FROM constitutions WHERE village_id = ?').run(villageId);
+    db.prepare('DELETE FROM skills WHERE village_id = ?').run(villageId);
+
+    // --- 更新 village metadata ---
+    const v = targetState.village;
+    db.prepare(`
+      UPDATE villages
+      SET name = ?, description = ?, target_repo = ?, status = ?,
+          metadata = ?, version = ?, updated_at = ?
+      WHERE id = ?
+    `).run(
+      v.name, v.description, v.target_repo, v.status,
+      JSON.stringify(v.metadata), v.version, v.updated_at, v.id,
+    );
+
+    // --- 插入 snapshot 中的 constitution ---
+    const con = targetState.constitution;
+    if (con) {
+      db.prepare(`
+        INSERT INTO constitutions (id, village_id, version, status, created_at, created_by,
+          rules, allowed_permissions, budget_limits, superseded_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        con.id, con.village_id, con.version, con.status, con.created_at, con.created_by,
+        JSON.stringify(con.rules), JSON.stringify(con.allowed_permissions),
+        JSON.stringify(con.budget_limits), con.superseded_by,
+      );
+    }
+
+    // --- 插入 snapshot 中的 chiefs ---
+    for (const c of targetState.chiefs) {
+      db.prepare(`
+        INSERT INTO chiefs (id, village_id, name, role, version, status,
+          skills, permissions, personality, constraints, profile, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        c.id, c.village_id, c.name, c.role, c.version, c.status,
+        JSON.stringify(c.skills), JSON.stringify(c.permissions),
+        JSON.stringify(c.personality), JSON.stringify(c.constraints),
+        c.profile ?? null, c.created_at, c.updated_at,
+      );
+    }
+
+    // --- 插入 snapshot 中的 active laws ---
+    for (const l of targetState.active_laws) {
+      db.prepare(`
+        INSERT INTO laws (id, village_id, proposed_by, approved_by, version, status,
+          category, content, risk_level, evidence, effectiveness, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        l.id, l.village_id, l.proposed_by, l.approved_by, l.version, l.status,
+        l.category, JSON.stringify(l.content), l.risk_level,
+        JSON.stringify(l.evidence),
+        l.effectiveness ? JSON.stringify(l.effectiveness) : null,
+        l.created_at, l.updated_at,
+      );
+    }
+
+    // --- 插入 snapshot 中的 village-owned skills ---
+    // 只還原屬於此 village 的 skills（非 global、非 shared）
+    for (const s of targetState.skills) {
+      if (s.village_id !== villageId) continue;
+      db.prepare(`
+        INSERT INTO skills (id, name, version, status, village_id,
+          definition, created_at, updated_at, verified_at, verified_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        s.id, s.name, s.version, s.status, s.village_id,
+        JSON.stringify(s.definition), s.created_at, s.updated_at,
+        s.verified_at, s.verified_by,
+      );
+    }
+  });
+
+  // 執行 transaction — 任何步驟失敗自動 rollback
+  tx();
+}
+
+// ---------------------------------------------------------------------------
 // 主函數
 // ---------------------------------------------------------------------------
 
 /**
- * 執行 change-level rollback。
+ * 執行 change-level rollback：從 snapshot 還原 WorldState 並寫入 DB。
  *
  * @param db - SQLite database handle
  * @param villageId - 目標 village ID
@@ -52,6 +155,7 @@ export interface RollbackResult {
  *
  * @throws Error 如果 snapshot 不存在
  * @throws Error 如果 snapshot 的 village 與 villageId 不符
+ * @throws Error 如果 DB 還原失敗（transaction 自動 rollback，不影響原資料）
  */
 export function rollbackChange(
   db: Database,
@@ -78,12 +182,16 @@ export function rollbackChange(
   // 5. 計算 diff（當前 → 目標）
   const diff = diffWorldState(currentState, targetState);
 
-  // 6. 寫入 audit_log（THY-07）
+  // 6. 實際還原 DB tables（Phase 2）
+  applyToDb(db, villageId, targetState);
+
+  // 7. 寫入 audit_log（THY-07）
   appendAudit(db, 'world', villageId, 'rollback', {
     snapshot_id: snapshotId,
     rollback_snapshot_id: rollbackSnapshotId,
     reason,
     has_changes: diff.has_changes,
+    restored: true,
   }, 'system');
 
   return {
