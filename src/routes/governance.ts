@@ -14,7 +14,7 @@ export function governanceRoutes(deps: GovernanceDeps): Hono {
 
   // POST /api/villages/:id/brief — 村莊簡報
   app.post('/api/villages/:id/brief', async (c) => {
-    const body = await c.req.json().catch(() => ({}));
+    const body: unknown = await c.req.json().catch(() => ({}));
     const parsed = BriefInput.safeParse(body);
     if (!parsed.success) {
       return c.json({ ok: false, error: { code: 'VALIDATION', message: parsed.error.message } }, 400);
