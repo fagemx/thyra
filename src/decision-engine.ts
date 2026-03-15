@@ -7,6 +7,7 @@ import type { SkillRegistry, Skill } from './skill-registry';
 import type { EddaBridge, EddaDecisionHit } from './edda-bridge';
 import type { RiskAssessor } from './risk-assessor';
 import type { LlmAdvisor } from './llm-advisor';
+import { filterCandidates } from './candidate-filter';
 import type { LoopAction } from './schemas/loop';
 
 // Re-export CycleIntent from schemas/loop (single source of truth)
@@ -394,6 +395,30 @@ export class DecisionEngine {
     const advisor = this.llmAdvisor!;
     let currentAction = action;
     const lawProposals: LawProposalDraft[] = [];
+
+    // LLM 候選生成 + 確定性過濾
+    try {
+      const drafts = await advisor.generateCandidates(context);
+      if (drafts.length > 0) {
+        const filterResult = filterCandidates(
+          drafts, context, candidates, this.skillRegistry, this.db,
+        );
+        if (filterResult.accepted.length > 0) {
+          candidates.push(...filterResult.accepted);
+          factors.push(`LLM generated ${drafts.length} candidate(s), ${filterResult.accepted.length} passed filter`);
+          // 重新選擇（因為有新候選加入）
+          currentAction = this.selectBest(candidates, context);
+        }
+        if (filterResult.discarded.length > 0) {
+          factors.push(`LLM ${filterResult.discarded.length} candidate(s) filtered out`);
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendAudit(this.db, 'llm_advisor', context.cycle_id, 'generate_candidates_fallback', {
+        error: msg.slice(0, 500),
+      }, 'system');
+    }
 
     // LLM 重排候選
     if (candidates.length > 0) {
