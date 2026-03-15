@@ -10,6 +10,16 @@ import { RiskAssessor } from './risk-assessor';
 import { LoopRunner } from './loop-runner';
 import { DecisionEngine } from './decision-engine';
 
+/** Poll until predicate returns true, or throw after maxMs. */
+async function waitFor(fn: () => boolean, maxMs = 2000, intervalMs = 10): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < maxMs) {
+    if (fn()) return;
+    await new Promise(r => setTimeout(r, intervalMs));
+  }
+  throw new Error(`waitFor timed out after ${maxMs}ms`);
+}
+
 describe('LoopRunner', () => {
   let db: Database;
   let loopRunner: LoopRunner;
@@ -236,11 +246,10 @@ describe('LoopRunner', () => {
 
   it('runLoop: completes when decide returns null (Phase 0)', async () => {
     const cycle = loopRunner.startCycle(villageId, { chief_id: chiefId });
-    // runLoop runs async — wait a tick for it to complete
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await waitFor(() => loopRunner.get(cycle.id)?.status === 'completed');
     const updated = loopRunner.get(cycle.id);
     // Phase 0 decide() always returns null → completed
-    expect(['completed', 'running']).toContain(updated?.status);
+    expect(updated?.status).toBe('completed');
   });
 
   it('observe: returns audit log entries', () => {
@@ -624,8 +633,7 @@ describe('LoopRunner', () => {
       // Override observe to throw, simulating a DB error mid-loop
       loopRunner.observe = () => { throw new Error('DB read failed'); };
 
-      // Wait for async runLoop to process
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await waitFor(() => loopRunner.get(cycle.id)?.status === 'aborted');
 
       const updated = loopRunner.get(cycle.id);
       expect(updated?.status).toBe('aborted');
@@ -642,7 +650,7 @@ describe('LoopRunner', () => {
       expect(cycle.status).toBe('running');
 
       // Wait for async completion — no unhandled rejection should occur
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await waitFor(() => loopRunner.get(cycle.id)?.status === 'aborted');
 
       const updated = loopRunner.get(cycle.id);
       expect(updated?.status).toBe('aborted');
@@ -677,8 +685,7 @@ describe('LoopRunner', () => {
     it('completes with no action when no laws and no intent', async () => {
       const cycle = v1Runner.startCycle(villageId, { chief_id: v1ChiefId });
 
-      // Wait for async loop to complete
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await waitFor(() => v1Runner.get(cycle.id)?.status === 'completed');
 
       const updated = v1Runner.get(cycle.id);
       expect(updated?.status).toBe('completed');
@@ -700,7 +707,7 @@ describe('LoopRunner', () => {
       });
 
       const cycle = v1Runner.startCycle(villageId, { chief_id: v1ChiefId });
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await waitFor(() => v1Runner.get(cycle.id)?.status === 'completed');
 
       const updated = v1Runner.get(cycle.id);
       // Loop should have recorded at least one action
@@ -731,7 +738,7 @@ describe('LoopRunner', () => {
         max_iterations: 20,
       });
 
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      await waitFor(() => v1Runner.get(cycle.id)?.status === 'completed');
 
       const updated = v1Runner.get(cycle.id);
       expect(updated?.status).toBe('completed');
@@ -764,7 +771,7 @@ describe('LoopRunner', () => {
         max_iterations: 5,
       });
 
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await waitFor(() => v1Runner.get(cycle.id)?.status === 'completed');
 
       const updated = v1Runner.get(cycle.id);
       // After first iteration, intent should be updated with stage_hint
@@ -808,7 +815,10 @@ describe('LoopRunner', () => {
           reason: 'needs human',
         }]), cycle.id);
 
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await waitFor(() => {
+        const c = v1Runner.get(cycle.id);
+        return c?.status === 'completed' || (c?.actions.some(a => a.type === 'wait') ?? false);
+      });
 
       const updated = v1Runner.get(cycle.id);
       // Should have wait actions recorded
@@ -821,7 +831,7 @@ describe('LoopRunner', () => {
       riskAssessor.recordSpend(villageId, null, 95);
 
       const cycle = v1Runner.startCycle(villageId, { chief_id: v1ChiefId });
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await waitFor(() => v1Runner.get(cycle.id)?.status === 'completed');
 
       const updated = v1Runner.get(cycle.id);
       expect(updated?.status).toBe('completed');
@@ -836,7 +846,7 @@ describe('LoopRunner', () => {
       });
 
       const cycle = v1Runner.startCycle(villageId, { chief_id: v1ChiefId });
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await waitFor(() => v1Runner.get(cycle.id)?.status === 'completed');
 
       const updated = v1Runner.get(cycle.id);
       // DecisionEngine returns null action when no skill is found → cycle completes
@@ -874,7 +884,7 @@ describe('LoopRunner', () => {
       db.prepare('UPDATE loop_cycles SET actions = ? WHERE id = ?')
         .run(JSON.stringify(blockedActions), cycle.id);
 
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await waitFor(() => v1Runner.get(cycle.id)?.status === 'completed');
 
       const updated = v1Runner.get(cycle.id);
       // With 3 blocked actions, DecisionEngine generates law proposals
@@ -884,7 +894,7 @@ describe('LoopRunner', () => {
 
     it('audit_log records decision entries in V1 flow', async () => {
       const cycle = v1Runner.startCycle(villageId, { chief_id: v1ChiefId });
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await waitFor(() => v1Runner.get(cycle.id)?.status === 'completed');
 
       // Check audit_log for decision entries
       const entries = db.prepare(
@@ -906,7 +916,7 @@ describe('LoopRunner', () => {
       const phase0Runner = new LoopRunner(db, constitutionStore, chiefEngine, lawEngine, ra);
 
       const cycle = phase0Runner.startCycle(villageId, { chief_id: v1ChiefId });
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await waitFor(() => phase0Runner.get(cycle.id)?.status === 'completed');
 
       const updated = phase0Runner.get(cycle.id);
       // Phase 0 decide() returns null → completed immediately
