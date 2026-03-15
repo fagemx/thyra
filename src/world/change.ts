@@ -145,6 +145,7 @@ function applyChiefAppoint(
       decision_speed: 'deliberate',
     },
     constraints: [],
+    profile: null,
     created_at: now,
     updated_at: now,
   };

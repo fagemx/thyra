@@ -68,6 +68,7 @@ function makeDbChief(overrides?: Partial<Chief>): Chief {
     permissions: ['dispatch_task', 'propose_law'],
     personality: { risk_tolerance: 'conservative', communication_style: 'concise', decision_speed: 'deliberate' },
     constraints: [{ type: 'must', description: 'verify all sources' }],
+    profile: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     ...overrides,

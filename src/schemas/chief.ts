@@ -18,6 +18,23 @@ const ChiefConstraintInput = z.object({
   description: z.string().min(1),
 });
 
+/** 預設 profile 名稱 — 可插拔的人格模版 */
+export const ChiefProfileNameEnum = z.enum([
+  'conservative',
+  'aggressive',
+  'balanced',
+  'analyst',
+  'executor',
+]);
+
+/** ChiefProfile 定義：人格模版，包含 personality 預設值 + 預設 constraints + 描述 */
+export const ChiefProfileSchema = z.object({
+  name: ChiefProfileNameEnum,
+  description: z.string(),
+  personality: ChiefPersonalityInput,
+  default_constraints: z.array(ChiefConstraintInput).default([]),
+});
+
 export const CreateChiefInput = z.object({
   name: z.string().min(1).max(100),
   role: z.string().min(1).max(500),
@@ -25,6 +42,7 @@ export const CreateChiefInput = z.object({
   permissions: z.array(PermissionEnum).default([]),
   personality: ChiefPersonalityInput.default({}),
   constraints: z.array(ChiefConstraintInput).default([]),
+  profile: ChiefProfileNameEnum.optional(),
 });
 
 export const UpdateChiefInput = z.object({
@@ -34,9 +52,12 @@ export const UpdateChiefInput = z.object({
   permissions: z.array(PermissionEnum).optional(),
   personality: ChiefPersonalityInput.optional(),
   constraints: z.array(ChiefConstraintInput).optional(),
+  profile: ChiefProfileNameEnum.optional(),
 });
 
 export type ChiefPersonality = z.infer<typeof ChiefPersonalityInput>;
+export type ChiefProfileName = z.infer<typeof ChiefProfileNameEnum>;
+export type ChiefProfile = z.infer<typeof ChiefProfileSchema>;
 export type CreateChiefInputRaw = z.input<typeof CreateChiefInput>;
 export type CreateChiefInput = z.infer<typeof CreateChiefInput>;
 export type UpdateChiefInput = z.infer<typeof UpdateChiefInput>;

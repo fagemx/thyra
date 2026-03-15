@@ -2,14 +2,14 @@ import type { Database } from 'bun:sqlite';
 import { randomUUID } from 'crypto';
 import { appendAudit } from './db';
 import { CreateChiefInput as CreateChiefSchema } from './schemas/chief';
-import type { CreateChiefInputRaw, UpdateChiefInput, ChiefPersonality } from './schemas/chief';
+import type { CreateChiefInputRaw, UpdateChiefInput, ChiefPersonality, ChiefProfile, ChiefProfileName } from './schemas/chief';
 import type { ConstitutionStore } from './constitution-store';
 import type { SkillRegistry } from './skill-registry';
 import { buildSkillPrompt } from './skill-registry';
 import type { Permission } from './schemas/constitution';
 import type { SkillBinding as SkillBindingType } from './schemas/skill';
 
-export type { ChiefPersonality } from './schemas/chief';
+export type { ChiefPersonality, ChiefProfile, ChiefProfileName } from './schemas/chief';
 
 export interface ChiefConstraint {
   type: 'must' | 'must_not' | 'prefer' | 'avoid';
@@ -27,8 +27,80 @@ export interface Chief {
   permissions: Permission[];
   personality: ChiefPersonality;
   constraints: ChiefConstraint[];
+  profile: ChiefProfileName | null;
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * 預設人格 profile 定義。
+ * 每個 profile 包含 personality 設定 + 預設 constraints + 描述。
+ * 可透過 CHIEF_PROFILES map 查詢，供 buildChiefPrompt 使用。
+ */
+export const CHIEF_PROFILES: ReadonlyMap<ChiefProfileName, ChiefProfile> = new Map<ChiefProfileName, ChiefProfile>([
+  ['conservative', {
+    name: 'conservative',
+    description: 'Risk-averse profile. Prioritizes safety, compliance, and thorough validation before any action.',
+    personality: { risk_tolerance: 'conservative', communication_style: 'detailed', decision_speed: 'cautious' },
+    default_constraints: [
+      { type: 'must', description: 'validate all inputs before processing' },
+      { type: 'must', description: 'check compliance with all active laws before acting' },
+      { type: 'avoid', description: 'taking actions with estimated cost above 50% of budget remaining' },
+    ],
+  }],
+  ['aggressive', {
+    name: 'aggressive',
+    description: 'Action-oriented profile. Biases toward speed and throughput, accepting higher risk for faster results.',
+    personality: { risk_tolerance: 'aggressive', communication_style: 'concise', decision_speed: 'fast' },
+    default_constraints: [
+      { type: 'prefer', description: 'dispatching tasks immediately when conditions are met' },
+      { type: 'avoid', description: 'waiting when there are actionable items in the queue' },
+    ],
+  }],
+  ['balanced', {
+    name: 'balanced',
+    description: 'Default balanced profile. Weighs risk and reward evenly, communicates concisely, decides at moderate speed.',
+    personality: { risk_tolerance: 'moderate', communication_style: 'concise', decision_speed: 'deliberate' },
+    default_constraints: [],
+  }],
+  ['analyst', {
+    name: 'analyst',
+    description: 'Analysis-focused profile. Prioritizes data gathering, detailed reporting, and evidence-based decisions.',
+    personality: { risk_tolerance: 'conservative', communication_style: 'detailed', decision_speed: 'deliberate' },
+    default_constraints: [
+      { type: 'must', description: 'cite evidence for every recommendation' },
+      { type: 'prefer', description: 'gathering additional data before making decisions' },
+      { type: 'avoid', description: 'acting without sufficient observational data' },
+    ],
+  }],
+  ['executor', {
+    name: 'executor',
+    description: 'Execution-focused profile. Focuses on task completion with moderate risk tolerance and minimal communication overhead.',
+    personality: { risk_tolerance: 'moderate', communication_style: 'minimal', decision_speed: 'fast' },
+    default_constraints: [
+      { type: 'prefer', description: 'completing current tasks before starting new ones' },
+      { type: 'must', description: 'report task outcomes immediately after execution' },
+    ],
+  }],
+]);
+
+/**
+ * 解析 profile 名稱，回傳對應的 ChiefProfile。
+ * 若 profile 名稱不存在，拋出錯誤。
+ */
+export function resolveProfile(profileName: ChiefProfileName): ChiefProfile {
+  const profile = CHIEF_PROFILES.get(profileName);
+  if (!profile) {
+    throw new Error(`Unknown chief profile: "${profileName}"`);
+  }
+  return profile;
+}
+
+/**
+ * 取得所有可用 profile 列表。
+ */
+export function listProfiles(): ChiefProfile[] {
+  return Array.from(CHIEF_PROFILES.values());
 }
 
 export class ChiefEngine {
@@ -56,6 +128,11 @@ export class ChiefEngine {
     // THY-14: only verified skills
     this.validateSkillBindings(input.skills, villageId);
 
+    // 解析 profile：profile 提供預設值，只有用戶明確指定的 personality/constraints 覆蓋
+    // 需要檢查 rawInput 來判斷哪些欄位是用戶明確提供的
+    const rawPersonality = (rawInput as Record<string, unknown>).personality as Partial<ChiefPersonality> | undefined;
+    const resolved = this.resolveProfileDefaults(input.profile, input.personality, input.constraints, rawPersonality);
+
     const now = new Date().toISOString();
     const chief: Chief = {
       id: `chief-${randomUUID()}`,
@@ -66,20 +143,21 @@ export class ChiefEngine {
       status: 'active',
       skills: input.skills,
       permissions: input.permissions,
-      personality: input.personality,
-      constraints: input.constraints,
+      personality: resolved.personality,
+      constraints: resolved.constraints,
+      profile: input.profile ?? null,
       created_at: now,
       updated_at: now,
     };
 
     this.db.prepare(`
-      INSERT INTO chiefs (id, village_id, name, role, version, status, skills, permissions, personality, constraints, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO chiefs (id, village_id, name, role, version, status, skills, permissions, personality, constraints, profile, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       chief.id, villageId, chief.name, chief.role, chief.version, chief.status,
       JSON.stringify(chief.skills), JSON.stringify(chief.permissions),
       JSON.stringify(chief.personality), JSON.stringify(chief.constraints),
-      chief.created_at, chief.updated_at,
+      chief.profile, chief.created_at, chief.updated_at,
     );
 
     appendAudit(this.db, 'chief', chief.id, 'create', chief, actor);
@@ -121,6 +199,22 @@ export class ChiefEngine {
       this.validateSkillBindings(input.skills, existing.village_id);
     }
 
+    // 解析 profile 更新：profile 變更時重新計算 personality/constraints
+    let resolvedPersonality = input.personality ?? existing.personality;
+    let resolvedConstraints = input.constraints ?? existing.constraints;
+    const resolvedProfile = input.profile !== undefined ? input.profile : existing.profile;
+
+    if (input.profile !== undefined) {
+      const resolved = this.resolveProfileDefaults(
+        input.profile,
+        input.personality ?? existing.personality,
+        input.constraints ?? existing.constraints,
+        input.personality,
+      );
+      resolvedPersonality = resolved.personality;
+      resolvedConstraints = resolved.constraints;
+    }
+
     const now = new Date().toISOString();
     const updated: Chief = {
       ...existing,
@@ -128,20 +222,21 @@ export class ChiefEngine {
       ...(input.role !== undefined && { role: input.role }),
       ...(input.skills !== undefined && { skills: input.skills }),
       ...(input.permissions !== undefined && { permissions: input.permissions }),
-      ...(input.personality !== undefined && { personality: input.personality }),
-      ...(input.constraints !== undefined && { constraints: input.constraints }),
+      personality: resolvedPersonality,
+      constraints: resolvedConstraints,
+      profile: resolvedProfile,
       version: existing.version + 1,
       updated_at: now,
     };
 
     const result = this.db.prepare(`
       UPDATE chiefs SET name=?, role=?, version=?, skills=?, permissions=?,
-        personality=?, constraints=?, updated_at=? WHERE id=? AND version=?
+        personality=?, constraints=?, profile=?, updated_at=? WHERE id=? AND version=?
     `).run(
       updated.name, updated.role, updated.version,
       JSON.stringify(updated.skills), JSON.stringify(updated.permissions),
       JSON.stringify(updated.personality), JSON.stringify(updated.constraints),
-      now, id, existing.version,
+      updated.profile, now, id, existing.version,
     );
     if ((result as { changes: number }).changes === 0) {
       throw new Error('CONCURRENCY_CONFLICT: version mismatch');
@@ -160,6 +255,49 @@ export class ChiefEngine {
       throw new Error('CONCURRENCY_CONFLICT: version mismatch');
     }
     appendAudit(this.db, 'chief', id, 'deactivate', { previous_status: chief.status }, actor);
+  }
+
+  /**
+   * 解析 profile 預設值。
+   * 如果指定 profile，使用 profile 的 personality 作為基礎，
+   * 並將 profile 的 default_constraints 與用戶指定的 constraints 合併。
+   * 只有用戶明確指定的 personality 欄位會覆蓋 profile 預設值。
+   *
+   * @param rawPersonality 用戶原始輸入的 personality 物件（Zod parse 前），
+   *   用於判斷哪些欄位是用戶明確指定的。
+   */
+  private resolveProfileDefaults(
+    profileName: ChiefProfileName | undefined,
+    inputPersonality: ChiefPersonality,
+    inputConstraints: ChiefConstraint[],
+    rawPersonality?: Partial<ChiefPersonality>,
+  ): { personality: ChiefPersonality; constraints: ChiefConstraint[] } {
+    if (!profileName) {
+      return { personality: inputPersonality, constraints: inputConstraints };
+    }
+
+    const profile = resolveProfile(profileName);
+
+    // Profile personality 作為基底，只有用戶明確指定的欄位覆蓋
+    // rawPersonality 代表用戶實際傳入的值（未經 Zod default）
+    const explicitFields = rawPersonality ?? {};
+    const personality: ChiefPersonality = {
+      risk_tolerance: explicitFields.risk_tolerance ?? profile.personality.risk_tolerance,
+      communication_style: explicitFields.communication_style ?? profile.personality.communication_style,
+      decision_speed: explicitFields.decision_speed ?? profile.personality.decision_speed,
+    };
+
+    // 合併：用戶 constraints + profile default_constraints（去重）
+    const existingDescs = new Set(inputConstraints.map(c => `${c.type}:${c.description}`));
+    const mergedConstraints = [...inputConstraints];
+    for (const dc of profile.default_constraints) {
+      const key = `${dc.type}:${dc.description}`;
+      if (!existingDescs.has(key)) {
+        mergedConstraints.push(dc);
+      }
+    }
+
+    return { personality, constraints: mergedConstraints };
   }
 
   private validateSkillBindings(bindings: SkillBindingType[], villageId: string): void {
@@ -194,6 +332,7 @@ export class ChiefEngine {
       permissions: JSON.parse((row.permissions as string) || '[]') as Chief['permissions'],
       personality: JSON.parse((row.personality as string) || '{}') as Chief['personality'],
       constraints: JSON.parse((row.constraints as string) || '[]') as Chief['constraints'],
+      profile: (row.profile as ChiefProfileName | null) ?? null,
       created_at: row.created_at as string,
       updated_at: row.updated_at as string,
     };
@@ -208,6 +347,16 @@ export function buildChiefPrompt(chief: Chief, skillRegistry: SkillRegistry): st
 
   lines.push(`You are "${chief.name}", a ${chief.role}.`);
   lines.push('');
+
+  // Profile 描述（如果有）
+  if (chief.profile) {
+    const profile = CHIEF_PROFILES.get(chief.profile);
+    if (profile) {
+      lines.push(`## Profile: ${profile.name}`);
+      lines.push(profile.description);
+      lines.push('');
+    }
+  }
 
   // Personality
   const p = chief.personality;

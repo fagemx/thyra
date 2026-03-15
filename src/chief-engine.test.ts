@@ -4,7 +4,7 @@ import { createDb, initSchema } from './db';
 import { VillageManager } from './village-manager';
 import { ConstitutionStore } from './constitution-store';
 import { SkillRegistry } from './skill-registry';
-import { ChiefEngine, buildChiefPrompt } from './chief-engine';
+import { ChiefEngine, buildChiefPrompt, CHIEF_PROFILES, resolveProfile, listProfiles } from './chief-engine';
 
 const SKILL_DEF = {
   description: 'Review code',
@@ -183,6 +183,7 @@ describe('buildChiefPrompt', () => {
         { type: 'must' as const, description: 'check OWASP top 10' },
         { type: 'must_not' as const, description: 'comment on formatting' },
       ],
+      profile: null,
       created_at: '', updated_at: '',
     };
     const prompt = buildChiefPrompt(chief, skillRegistry);
@@ -204,11 +205,175 @@ describe('buildChiefPrompt', () => {
       permissions: [],
       personality: { risk_tolerance: 'moderate' as const, communication_style: 'concise' as const, decision_speed: 'deliberate' as const },
       constraints: [],
+      profile: null,
       created_at: '', updated_at: '',
     };
     const prompt = buildChiefPrompt(chief, skillRegistry);
     expect(prompt).toContain('## Skills');
     expect(prompt).toContain('Do stuff');
     expect(prompt).toContain('Be safe');
+  });
+
+  it('includes profile section when profile is set', () => {
+    const chief = {
+      id: 'chief-1', village_id: 'v', name: 'Analyst', role: 'data analyst',
+      version: 1, status: 'active' as const, skills: [], permissions: [],
+      personality: { risk_tolerance: 'conservative' as const, communication_style: 'detailed' as const, decision_speed: 'deliberate' as const },
+      constraints: [],
+      profile: 'analyst' as const,
+      created_at: '', updated_at: '',
+    };
+    const prompt = buildChiefPrompt(chief, skillRegistry);
+    expect(prompt).toContain('## Profile: analyst');
+    expect(prompt).toContain('Analysis-focused profile');
+  });
+
+  it('does not include profile section when profile is null', () => {
+    const chief = {
+      id: 'chief-1', village_id: 'v', name: 'A', role: 'r',
+      version: 1, status: 'active' as const, skills: [], permissions: [],
+      personality: { risk_tolerance: 'moderate' as const, communication_style: 'concise' as const, decision_speed: 'deliberate' as const },
+      constraints: [],
+      profile: null,
+      created_at: '', updated_at: '',
+    };
+    const prompt = buildChiefPrompt(chief, skillRegistry);
+    expect(prompt).not.toContain('## Profile');
+  });
+});
+
+describe('ChiefProfile system', () => {
+  let db: Database;
+  let chiefEngine: ChiefEngine;
+  let constitutionStore: ConstitutionStore;
+  let skillRegistry: SkillRegistry;
+  let villageId: string;
+
+  beforeEach(() => {
+    db = createDb(':memory:');
+    initSchema(db);
+    const villageMgr = new VillageManager(db);
+    villageId = villageMgr.create({ name: 'test', target_repo: 'r' }, 'u').id;
+    constitutionStore = new ConstitutionStore(db);
+    skillRegistry = new SkillRegistry(db);
+    chiefEngine = new ChiefEngine(db, constitutionStore, skillRegistry);
+
+    constitutionStore.create(villageId, {
+      rules: [{ description: 'must review', enforcement: 'hard', scope: ['*'] }],
+      allowed_permissions: ['dispatch_task', 'propose_law'],
+      budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+    }, 'human');
+  });
+
+  it('CHIEF_PROFILES contains all 5 preset profiles', () => {
+    expect(CHIEF_PROFILES.size).toBe(5);
+    expect(CHIEF_PROFILES.has('conservative')).toBe(true);
+    expect(CHIEF_PROFILES.has('aggressive')).toBe(true);
+    expect(CHIEF_PROFILES.has('balanced')).toBe(true);
+    expect(CHIEF_PROFILES.has('analyst')).toBe(true);
+    expect(CHIEF_PROFILES.has('executor')).toBe(true);
+  });
+
+  it('resolveProfile returns correct profile', () => {
+    const profile = resolveProfile('conservative');
+    expect(profile.name).toBe('conservative');
+    expect(profile.personality.risk_tolerance).toBe('conservative');
+    expect(profile.personality.decision_speed).toBe('cautious');
+    expect(profile.default_constraints.length).toBeGreaterThan(0);
+  });
+
+  it('listProfiles returns all profiles', () => {
+    const profiles = listProfiles();
+    expect(profiles).toHaveLength(5);
+    expect(profiles.map(p => p.name)).toContain('analyst');
+  });
+
+  it('create with profile applies profile personality defaults', () => {
+    const chief = chiefEngine.create(villageId, {
+      name: 'ConservativeChief',
+      role: 'reviewer',
+      profile: 'conservative',
+    }, 'human');
+    expect(chief.profile).toBe('conservative');
+    expect(chief.personality.risk_tolerance).toBe('conservative');
+    expect(chief.personality.communication_style).toBe('detailed');
+    expect(chief.personality.decision_speed).toBe('cautious');
+  });
+
+  it('create with profile merges default constraints', () => {
+    const chief = chiefEngine.create(villageId, {
+      name: 'ConservativeChief',
+      role: 'reviewer',
+      profile: 'conservative',
+    }, 'human');
+    expect(chief.constraints.length).toBeGreaterThan(0);
+    expect(chief.constraints.some(c => c.description.includes('validate all inputs'))).toBe(true);
+  });
+
+  it('create with profile + explicit personality overrides profile defaults', () => {
+    const chief = chiefEngine.create(villageId, {
+      name: 'HybridChief',
+      role: 'hybrid',
+      profile: 'conservative',
+      personality: { risk_tolerance: 'aggressive', communication_style: 'minimal', decision_speed: 'fast' },
+    }, 'human');
+    expect(chief.profile).toBe('conservative');
+    // 顯式 personality 覆蓋 profile 預設值
+    expect(chief.personality.risk_tolerance).toBe('aggressive');
+    expect(chief.personality.communication_style).toBe('minimal');
+    expect(chief.personality.decision_speed).toBe('fast');
+  });
+
+  it('create with profile + explicit constraints merges without duplicates', () => {
+    const chief = chiefEngine.create(villageId, {
+      name: 'MergeTest',
+      role: 'tester',
+      profile: 'analyst',
+      constraints: [
+        { type: 'must', description: 'cite evidence for every recommendation' }, // 與 profile 重複
+        { type: 'must_not', description: 'skip validation steps' }, // 用戶獨有
+      ],
+    }, 'human');
+    // 應去重：profile 有 3 個 default_constraints，用戶有 2 個（1 個重複）
+    const descs = chief.constraints.map(c => c.description);
+    const uniqueDescs = new Set(descs);
+    expect(descs.length).toBe(uniqueDescs.size); // 無重複
+    expect(descs).toContain('cite evidence for every recommendation');
+    expect(descs).toContain('skip validation steps');
+  });
+
+  it('create without profile sets profile to null', () => {
+    const chief = chiefEngine.create(villageId, {
+      name: 'NoProfile',
+      role: 'default',
+    }, 'human');
+    expect(chief.profile).toBeNull();
+  });
+
+  it('update with profile changes personality and constraints', () => {
+    const chief = chiefEngine.create(villageId, {
+      name: 'Updatable',
+      role: 'worker',
+    }, 'human');
+    expect(chief.profile).toBeNull();
+
+    const updated = chiefEngine.update(chief.id, { profile: 'executor' }, 'human');
+    expect(updated.profile).toBe('executor');
+    expect(updated.personality.communication_style).toBe('minimal');
+    expect(updated.personality.decision_speed).toBe('fast');
+    expect(updated.constraints.some(c => c.description.includes('report task outcomes'))).toBe(true);
+  });
+
+  it('profile persists across get after create', () => {
+    const chief = chiefEngine.create(villageId, {
+      name: 'Persistent',
+      role: 'worker',
+      profile: 'aggressive',
+    }, 'human');
+
+    const fetched = chiefEngine.get(chief.id);
+    expect(fetched).not.toBeNull();
+    expect(fetched?.profile).toBe('aggressive');
+    expect(fetched?.personality.risk_tolerance).toBe('aggressive');
   });
 });
