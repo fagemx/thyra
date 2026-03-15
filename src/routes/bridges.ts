@@ -100,7 +100,7 @@ export function bridgeRoutes(karvi: KarviBridge, edda: EddaBridge): Hono {
 
   app.post('/api/webhooks/karvi', async (c) => {
     try {
-      const body = await c.req.json();
+      const body: unknown = await c.req.json();
       const parsed = KarviWebhookPayloadSchema.safeParse(body);
 
       if (!parsed.success) {

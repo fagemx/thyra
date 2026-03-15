@@ -107,7 +107,7 @@ export class VillageManager {
       description: row.description as string,
       target_repo: row.target_repo as string,
       status: row.status as Village['status'],
-      metadata: JSON.parse((row.metadata as string) || '{}'),
+      metadata: JSON.parse((row.metadata as string) || '{}') as Record<string, unknown>,
       version: row.version as number,
       created_at: row.created_at as string,
       updated_at: row.updated_at as string,
