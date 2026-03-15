@@ -657,6 +657,74 @@ describe('LoopRunner', () => {
     });
   });
 
+  describe('cycle-world-state snapshot sync (issue #187)', () => {
+    it('cycle completion triggers world state snapshot', async () => {
+      const cycle = loopRunner.startCycle(villageId, { chief_id: chiefId });
+      await waitFor(() => loopRunner.get(cycle.id)?.status === 'completed');
+
+      // Verify snapshot was created
+      const snapshots = db.prepare(
+        'SELECT * FROM world_snapshots WHERE village_id = ? AND trigger = ?'
+      ).all(villageId, 'cycle_end') as Record<string, unknown>[];
+      expect(snapshots.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('cycle abort triggers world state snapshot', () => {
+      const cycle = loopRunner.startCycle(villageId, { chief_id: chiefId });
+      loopRunner.abortCycle(cycle.id, 'Manual abort for test');
+
+      // Verify snapshot was created
+      const snapshots = db.prepare(
+        'SELECT * FROM world_snapshots WHERE village_id = ? AND trigger = ?'
+      ).all(villageId, 'cycle_end') as Record<string, unknown>[];
+      expect(snapshots.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('audit_log links cycle_id and snapshot_id', () => {
+      const cycle = loopRunner.startCycle(villageId, { chief_id: chiefId });
+      loopRunner.abortCycle(cycle.id, 'Abort to test audit link');
+
+      // Find the world_snapshot audit entry
+      const auditEntries = db.prepare(
+        "SELECT * FROM audit_log WHERE entity_type = 'world_snapshot' AND action = 'cycle_snapshot'"
+      ).all() as Record<string, unknown>[];
+      expect(auditEntries.length).toBeGreaterThanOrEqual(1);
+
+      const entry = auditEntries[0];
+      const payload = JSON.parse(entry.payload as string) as Record<string, unknown>;
+      expect(payload.cycle_id).toBe(cycle.id);
+      expect(payload.snapshot_id).toBeTruthy();
+      expect(payload.cycle_status).toBe('aborted');
+      expect(payload.reason).toBe('Abort to test audit link');
+
+      // Verify the snapshot_id in audit matches a real snapshot
+      const snapshotId = payload.snapshot_id as string;
+      const snapshot = db.prepare(
+        'SELECT * FROM world_snapshots WHERE id = ?'
+      ).get(snapshotId) as Record<string, unknown> | null;
+      expect(snapshot).not.toBeNull();
+      expect(snapshot?.village_id).toBe(villageId);
+    });
+
+    it('completed cycle audit_log records cycle_status as completed', async () => {
+      const cycle = loopRunner.startCycle(villageId, { chief_id: chiefId });
+      await waitFor(() => loopRunner.get(cycle.id)?.status === 'completed');
+
+      const auditEntries = db.prepare(
+        "SELECT * FROM audit_log WHERE entity_type = 'world_snapshot' AND action = 'cycle_snapshot'"
+      ).all() as Record<string, unknown>[];
+
+      const matching = auditEntries.filter((e) => {
+        const p = JSON.parse(e.payload as string) as Record<string, unknown>;
+        return p.cycle_id === cycle.id;
+      });
+      expect(matching.length).toBe(1);
+
+      const payload = JSON.parse(matching[0].payload as string) as Record<string, unknown>;
+      expect(payload.cycle_status).toBe('completed');
+    });
+  });
+
   describe('runLoopV1 with DecisionEngine (issue #70)', () => {
     let v1Runner: LoopRunner;
     let skillRegistry: SkillRegistry;
