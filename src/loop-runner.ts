@@ -8,6 +8,7 @@ import type { RiskAssessor, Action, AssessmentResult } from './risk-assessor';
 import type { EddaBridge, EddaDecisionHit } from './edda-bridge';
 import type { SkillRegistry } from './skill-registry';
 import type { DecisionEngine } from './decision-engine';
+import type { LlmAdvisor } from './llm-advisor';
 import { CycleMetricsCollector } from './cycle-metrics';
 import { StartCycleInput as StartCycleSchema } from './schemas/loop';
 import type { StartCycleInputRaw, LoopAction, CycleIntent } from './schemas/loop';
@@ -54,6 +55,7 @@ export class LoopRunner {
     private eddaBridge?: EddaBridge,
     private skillRegistry?: SkillRegistry,
     private decisionEngine?: DecisionEngine,
+    private _llmAdvisor?: LlmAdvisor,
   ) {}
 
   startCycle(villageId: string, rawInput: StartCycleInputRaw): LoopCycle {
@@ -260,7 +262,7 @@ export class LoopRunner {
         );
 
         // --- Step 2: DECIDE ---
-        const result = de.decide(context);
+        const result = await de.decide(context);
 
         // 記錄 DecideSnapshot（用於 replay / 決定性測試）
         CycleMetricsCollector.snapshot(this.db, context, result, 'v0.1');

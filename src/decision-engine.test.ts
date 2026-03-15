@@ -272,7 +272,7 @@ describe('DecisionEngine', () => {
   describe('decide', () => {
     it('Phase 0: returns action: null with empty law_proposals', async () => {
       const ctx = await engine.buildContext(villageId, chiefId, [], baseCycleState);
-      const result = engine.decide(ctx);
+      const result = await engine.decide(ctx);
 
       expect(result.action).toBeNull();
       expect(result.law_proposals).toHaveLength(0);
@@ -281,7 +281,7 @@ describe('DecisionEngine', () => {
 
     it('reasoning has v0.1 shape (summary, factors, precedent_notes, etc.)', async () => {
       const ctx = await engine.buildContext(villageId, chiefId, [{ some: 'data' }], baseCycleState);
-      const result = engine.decide(ctx);
+      const result = await engine.decide(ctx);
 
       expect(result.reasoning.summary.length).toBeGreaterThan(0);
       expect(result.reasoning.factors.length).toBeGreaterThan(0);
@@ -293,21 +293,21 @@ describe('DecisionEngine', () => {
 
     it('reasoning includes constitution factor', async () => {
       const ctx = await engine.buildContext(villageId, chiefId, [], baseCycleState);
-      const result = engine.decide(ctx);
+      const result = await engine.decide(ctx);
 
       expect(result.reasoning.factors.some(f => f.includes('constitution'))).toBe(true);
     });
 
     it('reasoning includes observation factor when observations exist', async () => {
       const ctx = await engine.buildContext(villageId, chiefId, [{ event: 'test' }], baseCycleState);
-      const result = engine.decide(ctx);
+      const result = await engine.decide(ctx);
 
       expect(result.reasoning.factors.some(f => f.includes('1 observation'))).toBe(true);
     });
 
     it('reasoning includes personality_effect with chief info', async () => {
       const ctx = await engine.buildContext(villageId, chiefId, [], baseCycleState);
-      const result = engine.decide(ctx);
+      const result = await engine.decide(ctx);
 
       expect(result.reasoning.personality_effect).toContain('TestChief');
       expect(result.reasoning.personality_effect).toContain('governor');
@@ -315,7 +315,7 @@ describe('DecisionEngine', () => {
 
     it('reasoning includes budget factor', async () => {
       const ctx = await engine.buildContext(villageId, chiefId, [], baseCycleState);
-      const result = engine.decide(ctx);
+      const result = await engine.decide(ctx);
 
       expect(result.reasoning.factors.some(f => f.includes('budget') && f.includes('0%'))).toBe(true);
     });
@@ -324,7 +324,7 @@ describe('DecisionEngine', () => {
       riskAssessor.recordSpend(villageId, null, 85);
 
       const ctx = await engine.buildContext(villageId, chiefId, [], baseCycleState);
-      const result = engine.decide(ctx);
+      const result = await engine.decide(ctx);
 
       expect(result.reasoning.factors.some(f => f.includes('85%'))).toBe(true);
     });
@@ -373,7 +373,7 @@ describe('DecisionEngine', () => {
       const countBefore = (db.prepare('SELECT COUNT(*) as c FROM audit_log').get() as Record<string, number>).c;
 
       const ctx = await engine.buildContext(villageId, chiefId, [], baseCycleState);
-      engine.decide(ctx);
+      await engine.decide(ctx);
 
       const countAfter = (db.prepare('SELECT COUNT(*) as c FROM audit_log').get() as Record<string, number>).c;
       expect(countAfter).toBe(countBefore);
@@ -453,7 +453,7 @@ describe('DecisionEngine', () => {
     // Test 1: 無 active law、無 intent → action: null
     it('no active law, no intent → action: null (cycle completed)', async () => {
       const ctx = await buildTestContext();
-      const result = engine.decide(ctx);
+      const result = await engine.decide(ctx);
 
       expect(result.action).toBeNull();
       expect(result.reasoning.summary).toContain('No action needed');
@@ -479,7 +479,7 @@ describe('DecisionEngine', () => {
       const ctx = await buildTestContext();
       expect(ctx.active_laws.length).toBeGreaterThan(0);
 
-      const result = engine.decide(ctx);
+      const result = await engine.decide(ctx);
 
       expect(result.action).not.toBeNull();
       expect(result.action!.kind).toBe('dispatch_task');
@@ -504,7 +504,7 @@ describe('DecisionEngine', () => {
         },
       });
 
-      const result = engine.decide(ctx);
+      const result = await engine.decide(ctx);
 
       expect(result.action).not.toBeNull();
       expect(result.action!.kind).toBe('dispatch_task');
@@ -518,7 +518,7 @@ describe('DecisionEngine', () => {
       ];
 
       const ctx = await buildTestContext({ actions });
-      const result = engine.decide(ctx);
+      const result = await engine.decide(ctx);
 
       expect(result.action).not.toBeNull();
       expect(result.action!.kind).toBe('wait');
@@ -530,7 +530,7 @@ describe('DecisionEngine', () => {
       riskAssessor.recordSpend(villageId, null, 95);
 
       const ctx = await buildTestContext();
-      const result = engine.decide(ctx);
+      const result = await engine.decide(ctx);
 
       expect(result.action).not.toBeNull();
       expect(result.action!.kind).toBe('complete_cycle');
@@ -574,7 +574,7 @@ describe('DecisionEngine', () => {
         edda_available: true,
       };
 
-      const result = engine.decide(ctxWithPrecedent);
+      const result = await engine.decide(ctxWithPrecedent);
 
       // conservative + negative precedent → confidence should be lowered
       expect(result.reasoning.confidence).toBeLessThan(0.5);
@@ -616,7 +616,7 @@ describe('DecisionEngine', () => {
         edda_available: true,
       };
 
-      const result = engine.decide(ctxWithPrecedent);
+      const result = await engine.decide(ctxWithPrecedent);
 
       // aggressive + positive precedent → confidence should be high
       expect(result.reasoning.confidence).toBeGreaterThan(0.8);
@@ -631,7 +631,7 @@ describe('DecisionEngine', () => {
       ];
 
       const ctx = await buildTestContext({ actions });
-      const result = engine.decide(ctx);
+      const result = await engine.decide(ctx);
 
       expect(result.law_proposals.length).toBeGreaterThan(0);
       expect(result.law_proposals[0].evidence.source).toBe('decision_engine');
@@ -653,7 +653,7 @@ describe('DecisionEngine', () => {
       const ctx = await buildTestContext();
       expect(ctx.active_laws.length).toBeGreaterThan(0);
 
-      const result = engine.decide(ctx);
+      const result = await engine.decide(ctx);
 
       // No verified 'research' skill → candidates filtered → action null
       expect(result.action).toBeNull();
@@ -666,7 +666,7 @@ describe('DecisionEngine', () => {
       expect(ctx.edda_available).toBe(false);
       expect(ctx.edda_precedents).toEqual([]);
 
-      const result = engine.decide(ctx);
+      const result = await engine.decide(ctx);
 
       // 仍然可以正常運作（無 law 無 intent → null action）
       expect(result.reasoning.summary.length).toBeGreaterThan(0);
@@ -681,7 +681,7 @@ describe('DecisionEngine', () => {
       ];
 
       const ctx = await buildTestContext({ actions });
-      const result = engine.decide(ctx);
+      const result = await engine.decide(ctx);
 
       expect(result.action).not.toBeNull();
       expect(result.action!.kind).toBe('complete_cycle');
@@ -691,7 +691,7 @@ describe('DecisionEngine', () => {
     // Test 12: reasoning 完整 → SI-2 滿足
     it('reasoning complete → SI-2 satisfied (summary non-empty)', async () => {
       const ctx = await buildTestContext();
-      const result = engine.decide(ctx);
+      const result = await engine.decide(ctx);
 
       expect(result.reasoning.summary).toBeTruthy();
       expect(result.reasoning.summary.length).toBeGreaterThan(0);
@@ -724,7 +724,7 @@ describe('DecisionEngine', () => {
       expect(activeLaws.some(l => l.effectiveness?.verdict === 'harmful')).toBe(true);
 
       const ctx = await buildTestContext();
-      const result = engine.decide(ctx);
+      const result = await engine.decide(ctx);
 
       expect(result.law_proposals.length).toBeGreaterThan(0);
       expect(result.law_proposals.some(p => p.content.description.includes('Revoke harmful'))).toBe(true);
@@ -748,7 +748,7 @@ describe('DecisionEngine', () => {
         },
       });
 
-      const result = engine.decide(ctx);
+      const result = await engine.decide(ctx);
 
       expect(result.action).not.toBeNull();
       expect(result.action!.kind).toBe('dispatch_task');
@@ -771,7 +771,7 @@ describe('DecisionEngine', () => {
         },
       });
 
-      const result = engine.decide(ctx);
+      const result = await engine.decide(ctx);
 
       expect(result.action).not.toBeNull();
       expect(result.action!.kind).toBe('complete_cycle');
@@ -796,7 +796,7 @@ describe('DecisionEngine', () => {
         },
       });
 
-      const result = engine.decide(ctx);
+      const result = await engine.decide(ctx);
 
       expect(result.updated_intent).not.toBeNull();
       expect(result.updated_intent!.stage_hint).toBe('draft');
@@ -909,7 +909,7 @@ describe('DecisionEngine', () => {
       });
 
       // Test: positive precedent adds summary notes to reasoning
-      it('positive precedent produces summary in precedent_notes', () => {
+      it('positive precedent produces summary in precedent_notes', async () => {
         const ctx: DecideContext = {
           cycle_id: 'c1', village_id: villageId, iteration: 0, max_iterations: 10,
           budget: { per_action_limit: 10, per_day_limit: 100, per_loop_limit: 50, spent_today: 0, spent_this_loop: 0 },
@@ -928,14 +928,14 @@ describe('DecisionEngine', () => {
           intent: null,
         };
 
-        const result = engine.decide(ctx);
+        const result = await engine.decide(ctx);
 
         expect(result.reasoning.precedent_notes.some(n => n.includes('positive precedent'))).toBe(true);
         expect(result.reasoning.factors.some(f => f.includes('precedent'))).toBe(true);
       });
 
       // Test: negative precedent produces summary in precedent_notes
-      it('negative precedent produces summary in precedent_notes', () => {
+      it('negative precedent produces summary in precedent_notes', async () => {
         const ctx: DecideContext = {
           cycle_id: 'c1', village_id: villageId, iteration: 0, max_iterations: 10,
           budget: { per_action_limit: 10, per_day_limit: 100, per_loop_limit: 50, spent_today: 0, spent_this_loop: 0 },
@@ -954,7 +954,7 @@ describe('DecisionEngine', () => {
           intent: null,
         };
 
-        const result = engine.decide(ctx);
+        const result = await engine.decide(ctx);
 
         expect(result.reasoning.precedent_notes.some(n => n.includes('negative precedent'))).toBe(true);
       });
@@ -962,7 +962,7 @@ describe('DecisionEngine', () => {
       // Test: conservative chief + negative precedent → confidence < 0.5
       // (Validates DoD requirement — the test at line 541 already covers this,
       //  but this test directly verifies the exact threshold with minimal setup)
-      it('conservative + negative precedent → confidence < 0.5 (direct context)', () => {
+      it('conservative + negative precedent → confidence < 0.5 (direct context)', async () => {
         const conservativeChiefId = createChiefWithPersonality('conservative');
         createVerifiedSkill('research');
 
@@ -997,12 +997,12 @@ describe('DecisionEngine', () => {
           intent: null,
         };
 
-        const result = engine.decide(ctx);
+        const result = await engine.decide(ctx);
         expect(result.reasoning.confidence).toBeLessThan(0.5);
       });
 
       // Test: aggressive chief + positive precedent → confidence > 0.8
-      it('aggressive + positive precedent → confidence > 0.8 (direct context)', () => {
+      it('aggressive + positive precedent → confidence > 0.8 (direct context)', async () => {
         const aggressiveChiefId = createChiefWithPersonality('aggressive');
         createVerifiedSkill('research');
 
@@ -1036,12 +1036,12 @@ describe('DecisionEngine', () => {
           intent: null,
         };
 
-        const result = engine.decide(ctx);
+        const result = await engine.decide(ctx);
         expect(result.reasoning.confidence).toBeGreaterThan(0.8);
       });
 
       // Test: mixed precedents — both positive and negative noted
-      it('mixed precedents — both positive and negative summarized', () => {
+      it('mixed precedents — both positive and negative summarized', async () => {
         const ctx: DecideContext = {
           cycle_id: 'c1', village_id: villageId, iteration: 0, max_iterations: 10,
           budget: { per_action_limit: 10, per_day_limit: 100, per_loop_limit: 50, spent_today: 0, spent_this_loop: 0 },
@@ -1061,7 +1061,7 @@ describe('DecisionEngine', () => {
           intent: null,
         };
 
-        const result = engine.decide(ctx);
+        const result = await engine.decide(ctx);
 
         expect(result.reasoning.precedent_notes.some(n => n.includes('positive'))).toBe(true);
         expect(result.reasoning.precedent_notes.some(n => n.includes('negative'))).toBe(true);
