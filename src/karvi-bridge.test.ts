@@ -667,6 +667,106 @@ describe('KarviBridge', () => {
     });
   });
 
+  describe('getCapabilities', () => {
+    it('returns capabilities with runtimes and skills', async () => {
+      const capData = {
+        runtimes: [
+          { id: 'bun', name: 'Bun', version: '1.3.8', status: 'available' },
+          { id: 'node', name: 'Node.js', version: '22.0.0', status: 'available' },
+        ],
+        skills: [
+          { id: 'code-review', name: 'Code Review', runtime: 'bun', description: 'Reviews PRs' },
+          { id: 'test-runner', name: 'Test Runner', runtime: 'node' },
+        ],
+      };
+      mockResponses.set('GET /api/capabilities', { status: 200, body: capData });
+      startMockKarvi(MOCK_PORT);
+
+      const caps = await bridge.getCapabilities();
+      expect(caps).not.toBeNull();
+      expect(caps?.runtimes).toHaveLength(2);
+      expect(caps?.runtimes[0].id).toBe('bun');
+      expect(caps?.runtimes[0].status).toBe('available');
+      expect(caps?.skills).toHaveLength(2);
+      expect(caps?.skills[0].id).toBe('code-review');
+      expect(caps?.skills[0].runtime).toBe('bun');
+    });
+
+    it('returns capabilities with empty arrays when Karvi has none', async () => {
+      mockResponses.set('GET /api/capabilities', {
+        status: 200,
+        body: { runtimes: [], skills: [] },
+      });
+      startMockKarvi(MOCK_PORT);
+
+      const caps = await bridge.getCapabilities();
+      expect(caps).not.toBeNull();
+      expect(caps?.runtimes).toHaveLength(0);
+      expect(caps?.skills).toHaveLength(0);
+    });
+
+    it('defaults missing arrays to empty', async () => {
+      mockResponses.set('GET /api/capabilities', {
+        status: 200,
+        body: {},
+      });
+      startMockKarvi(MOCK_PORT);
+
+      const caps = await bridge.getCapabilities();
+      expect(caps).not.toBeNull();
+      expect(caps?.runtimes).toEqual([]);
+      expect(caps?.skills).toEqual([]);
+    });
+
+    it('preserves extra fields via passthrough', async () => {
+      mockResponses.set('GET /api/capabilities', {
+        status: 200,
+        body: {
+          runtimes: [{ id: 'bun', name: 'Bun', maxConcurrency: 10 }],
+          skills: [],
+          version: 'v2',
+        },
+      });
+      startMockKarvi(MOCK_PORT);
+
+      const caps = await bridge.getCapabilities();
+      expect(caps).not.toBeNull();
+      // Extra field on runtime preserved via passthrough
+      expect((caps?.runtimes[0] as Record<string, unknown>).maxConcurrency).toBe(10);
+      // Extra field on root preserved via passthrough
+      expect((caps as Record<string, unknown>).version).toBe('v2');
+    });
+
+    it('returns null on Karvi error response', async () => {
+      mockResponses.set('GET /api/capabilities', {
+        status: 500,
+        body: { error: 'internal' },
+      });
+      startMockKarvi(MOCK_PORT);
+
+      const caps = await bridge.getCapabilities();
+      expect(caps).toBeNull();
+    });
+
+    it('returns null when Karvi is offline (graceful degradation)', async () => {
+      const offlineBridge = new KarviBridge(db, 'http://localhost:19999');
+      const caps = await offlineBridge.getCapabilities();
+      expect(caps).toBeNull();
+    });
+
+    it('returns null when response fails Zod validation', async () => {
+      // runtimes should be an array, not a string
+      mockResponses.set('GET /api/capabilities', {
+        status: 200,
+        body: { runtimes: 'invalid', skills: [] },
+      });
+      startMockKarvi(MOCK_PORT);
+
+      const caps = await bridge.getCapabilities();
+      expect(caps).toBeNull();
+    });
+  });
+
   describe('getTaskProgress', () => {
     it('returns progress data on success', async () => {
       const progressData = {

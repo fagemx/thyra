@@ -115,3 +115,31 @@ export interface KarviTaskProgress {
   startedAt?: string;
   [key: string]: unknown;
 }
+
+// === Karvi Discovery API Response Types ===
+
+/** Karvi GET /api/runtimes 回傳的單一 runtime 資訊 */
+export const KarviRuntimeSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  version: z.string().optional(),
+  status: z.enum(['available', 'degraded', 'unavailable']).optional(),
+}).passthrough();
+
+/** Karvi GET /api/skills 回傳的單一 skill 資訊 */
+export const KarviRemoteSkillSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  runtime: z.string().optional(),
+  description: z.string().optional(),
+}).passthrough();
+
+/** Karvi GET /api/capabilities 聚合回傳 */
+export const KarviCapabilitiesSchema = z.object({
+  runtimes: z.array(KarviRuntimeSchema).default([]),
+  skills: z.array(KarviRemoteSkillSchema).default([]),
+}).passthrough();
+
+export type KarviRuntime = z.infer<typeof KarviRuntimeSchema>;
+export type KarviRemoteSkill = z.infer<typeof KarviRemoteSkillSchema>;
+export type KarviCapabilities = z.infer<typeof KarviCapabilitiesSchema>;
