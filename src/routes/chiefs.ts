@@ -1,11 +1,16 @@
 import { Hono } from 'hono';
 import { CreateChiefInput, UpdateChiefInput } from '../schemas/chief';
 import type { ChiefEngine } from '../chief-engine';
-import { buildChiefPrompt } from '../chief-engine';
+import { buildChiefPrompt, listProfiles } from '../chief-engine';
 import type { SkillRegistry } from '../skill-registry';
 
 export function chiefRoutes(engine: ChiefEngine, skillRegistry: SkillRegistry): Hono {
   const app = new Hono();
+
+  // 列出所有可用的 personality profiles
+  app.get('/api/chiefs/profiles', (_c) => {
+    return _c.json({ ok: true, data: listProfiles() });
+  });
 
   app.get('/api/villages/:vid/chiefs', (c) => {
     const status = c.req.query('status') || undefined;

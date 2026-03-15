@@ -141,6 +141,7 @@ function deserializeChief(row: Record<string, unknown>): Chief {
     permissions: JSON.parse((row.permissions as string) || '[]') as Chief['permissions'],
     personality: JSON.parse((row.personality as string) || '{}') as Chief['personality'],
     constraints: JSON.parse((row.constraints as string) || '[]') as Chief['constraints'],
+    profile: (row.profile as Chief['profile']) ?? null,
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
   };

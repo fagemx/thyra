@@ -91,6 +91,7 @@ export function initSchema(db: Database): void {
       permissions TEXT NOT NULL DEFAULT '[]',
       personality TEXT NOT NULL DEFAULT '{}',
       constraints TEXT NOT NULL DEFAULT '[]',
+      profile TEXT DEFAULT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
