@@ -32,3 +32,47 @@ export const ApproveAgreementInput = z.object({
 export type ShareSkillInputRaw = z.input<typeof ShareSkillInput>;
 export type ShareSkillInput = z.infer<typeof ShareSkillInput>;
 export type ApproveAgreementInput = z.infer<typeof ApproveAgreementInput>;
+
+// === Territory Policy ===
+
+export const CreateTerritoryPolicyInput = z.object({
+  name: z.string().min(1).max(200),
+  description: z.string().default(''),
+  enforcement: z.enum(['hard', 'soft']).default('soft'),
+  scope: z.array(z.string().min(1)).default(['*']),
+});
+
+export type CreateTerritoryPolicyInputRaw = z.input<typeof CreateTerritoryPolicyInput>;
+export type CreateTerritoryPolicyInput = z.infer<typeof CreateTerritoryPolicyInput>;
+
+// === Territory Metrics Query ===
+
+export const TerritoryMetricsQueryInput = z.object({
+  from: z.string().optional(),
+  to: z.string().optional(),
+  limit: z.number().int().min(1).max(100).default(50),
+});
+
+export type TerritoryMetricsQueryInput = z.infer<typeof TerritoryMetricsQueryInput>;
+
+// === Territory Audit Query ===
+
+export const TerritoryAuditQueryInput = z.object({
+  action: z.string().optional(),
+  actor: z.string().optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+  limit: z.number().int().min(1).max(200).default(50),
+  offset: z.number().int().min(0).default(0),
+});
+
+export type TerritoryAuditQueryInput = z.infer<typeof TerritoryAuditQueryInput>;
+
+// === Add/Remove Village ===
+
+export const AddVillageInput = z.object({
+  village_id: z.string().min(1),
+});
+
+export type AddVillageInputRaw = z.input<typeof AddVillageInput>;
+export type AddVillageInput = z.infer<typeof AddVillageInput>;
