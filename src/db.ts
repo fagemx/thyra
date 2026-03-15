@@ -198,6 +198,24 @@ export function initSchema(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_board_mapping_village
       ON board_mappings(village_id);
 
+    CREATE TABLE IF NOT EXISTS territory_policies (
+      id TEXT PRIMARY KEY,
+      territory_id TEXT NOT NULL REFERENCES territories(id),
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      enforcement TEXT NOT NULL DEFAULT 'soft'
+        CHECK(enforcement IN ('hard','soft')),
+      scope TEXT NOT NULL DEFAULT '["*"]',
+      status TEXT NOT NULL DEFAULT 'active'
+        CHECK(status IN ('active','revoked')),
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_territory_policy
+      ON territory_policies(territory_id, status);
+
     CREATE TABLE IF NOT EXISTS world_snapshots (
       id TEXT PRIMARY KEY,
       village_id TEXT NOT NULL REFERENCES villages(id),
