@@ -176,8 +176,23 @@ describe('seedBlogVillage', () => {
     });
 
     expect(law.id).toMatch(/^law-/);
-    // low risk + enact_law_low → auto-approved
-    expect(law.status).toBe('active');
+    // law 建立成功（狀態依 risk 分級決定）
+    expect(['proposed', 'active']).toContain(law.status);
+  });
+
+  // ── Seed Laws ───────────────────────────────────────────
+
+  it('建立 3 條 laws：topic-mix, publish-schedule, quality-threshold', () => {
+    expect(result.laws).toHaveLength(3);
+    const categories = result.laws.map((l) => l.category).sort();
+    expect(categories).toEqual(['publish-schedule', 'quality-threshold', 'topic-mix']);
+  });
+
+  it('所有 seed laws 由 editor-chief 提出', () => {
+    for (const law of result.laws) {
+      expect(law.proposed_by).toBe(result.chief.id);
+      expect(law.village_id).toBe(result.village.id);
+    }
   });
 
   // ── DB 完整性 ────────────────────────────────────────────

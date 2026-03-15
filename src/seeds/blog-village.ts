@@ -8,6 +8,7 @@ import type { Database } from 'bun:sqlite';
 import { VillageManager, type Village } from '../village-manager';
 import { ConstitutionStore, type Constitution } from '../constitution-store';
 import { ChiefEngine, type Chief } from '../chief-engine';
+import { LawEngine, type Law } from '../law-engine';
 import { SkillRegistry, type Skill } from '../skill-registry';
 
 // ── 常數 ────────────────────────────────────────────────────
@@ -90,6 +91,7 @@ export interface SeedResult {
   constitution: Constitution;
   chief: Chief;
   skills: Skill[];
+  laws: Law[];
 }
 
 // ── 主函數 ───────────────────────────────────────────────────
@@ -105,6 +107,7 @@ export function seedBlogVillage(db: Database): SeedResult {
   const cs = new ConstitutionStore(db);
   const sr = new SkillRegistry(db);
   const ce = new ChiefEngine(db, cs, sr);
+  const le = new LawEngine(db, cs, ce);
 
   // Phase 1: Village
   const village = vm.create(
@@ -206,5 +209,47 @@ export function seedBlogVillage(db: Database): SeedResult {
     ACTOR,
   );
 
-  return { village, constitution, chief, skills };
+  // Phase 5: Laws — 3 條 active laws
+  const laws: Law[] = [];
+
+  // topic-mix: 主題多樣性
+  laws.push(le.propose(village.id, chief.id, {
+    category: 'topic-mix',
+    content: {
+      description: '每週至少涵蓋兩個不同主題類別',
+      strategy: { min_categories_per_week: 2 },
+    },
+    evidence: {
+      source: 'editorial-policy',
+      reasoning: '主題多樣性提高讀者留存率',
+    },
+  }));
+
+  // publish-schedule: 發佈排程
+  laws.push(le.propose(village.id, chief.id, {
+    category: 'publish-schedule',
+    content: {
+      description: '每週至少發佈一篇文章',
+      strategy: { min_posts_per_week: 1, max_posts_per_day: 2 },
+    },
+    evidence: {
+      source: 'growth-analysis',
+      reasoning: '穩定發佈頻率有助於 SEO 和讀者預期',
+    },
+  }));
+
+  // quality-threshold: 品質門檻
+  laws.push(le.propose(village.id, chief.id, {
+    category: 'quality-threshold',
+    content: {
+      description: '文章 review 分數必須達到 7 分以上才能發佈',
+      strategy: { min_review_score: 7, require_fact_check: true },
+    },
+    evidence: {
+      source: 'quality-metrics',
+      reasoning: '低品質文章損害品牌信譽',
+    },
+  }));
+
+  return { village, constitution, chief, skills, laws };
 }
