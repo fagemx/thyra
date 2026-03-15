@@ -2,7 +2,7 @@ import type { Database } from 'bun:sqlite';
 import { randomUUID } from 'crypto';
 import { appendAudit } from './db';
 import { CreateChiefInput as CreateChiefSchema } from './schemas/chief';
-import type { CreateChiefInputRaw, UpdateChiefInput, ChiefPersonality, ChiefProfile, ChiefProfileName } from './schemas/chief';
+import type { CreateChiefInputRaw, UpdateChiefInput, ChiefPersonality, ChiefProfile, ChiefProfileName, GovernanceActionInput } from './schemas/chief';
 import type { ConstitutionStore } from './constitution-store';
 import type { SkillRegistry } from './skill-registry';
 import { buildSkillPrompt } from './skill-registry';
@@ -298,6 +298,46 @@ export class ChiefEngine {
     }
 
     return { personality, constraints: mergedConstraints };
+  }
+
+  /**
+   * 驗證 Chief 是否有權執行治理動作（T2 governance action）
+   * - Chief 必須 active
+   * - Chief 必須有 dispatch_task 權限
+   * - Constitution 必須 active
+   * 回傳驗證後的 Chief + Constitution（供 route 層做 risk assessment）
+   */
+  validateGovernanceAction(chiefId: string, action: GovernanceActionInput): {
+    chief: Chief;
+    constitution: import('./constitution-store').Constitution;
+  } {
+    const chief = this.get(chiefId);
+    if (!chief) throw new Error('Chief not found');
+    if (chief.status !== 'active') throw new Error('CHIEF_INACTIVE: chief must be active to execute governance actions');
+
+    if (!chief.permissions.includes('dispatch_task')) {
+      throw new Error('PERMISSION_DENIED: chief lacks dispatch_task permission for governance actions');
+    }
+
+    const constitution = this.constitutionStore.getActive(chief.village_id);
+    if (!constitution) throw new Error('No active constitution');
+
+    // create_project 需要 project payload
+    if (action.action_type === 'create_project' && !action.project) {
+      throw new Error('VALIDATION: create_project action requires project payload');
+    }
+
+    // cancel_task / adjust_priority 需要 task_id
+    if ((action.action_type === 'cancel_task' || action.action_type === 'adjust_priority') && !action.task_id) {
+      throw new Error('VALIDATION: cancel_task and adjust_priority actions require task_id');
+    }
+
+    // adjust_priority 需要 priority
+    if (action.action_type === 'adjust_priority' && action.priority === undefined) {
+      throw new Error('VALIDATION: adjust_priority action requires priority');
+    }
+
+    return { chief, constitution };
   }
 
   private validateSkillBindings(bindings: SkillBindingType[], villageId: string): void {

@@ -5,6 +5,7 @@ import { VillageManager } from './village-manager';
 import { ConstitutionStore } from './constitution-store';
 import { SkillRegistry } from './skill-registry';
 import { ChiefEngine, buildChiefPrompt, CHIEF_PROFILES, resolveProfile, listProfiles } from './chief-engine';
+import { GovernanceActionInput } from './schemas/chief';
 
 const SKILL_DEF = {
   description: 'Review code',
@@ -375,5 +376,206 @@ describe('ChiefProfile system', () => {
     expect(fetched).not.toBeNull();
     expect(fetched?.profile).toBe('aggressive');
     expect(fetched?.personality.risk_tolerance).toBe('aggressive');
+  });
+});
+
+describe('GovernanceActionInput schema', () => {
+  it('parses valid create_project action', () => {
+    const result = GovernanceActionInput.safeParse({
+      action_type: 'create_project',
+      description: 'Create a code review project',
+      estimated_cost: 2,
+      rollback_plan: 'Cancel the project via Karvi',
+      project: { title: 'Review PR #42', tasks: [{ title: 'Review changes' }] },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('parses valid cancel_task action', () => {
+    const result = GovernanceActionInput.safeParse({
+      action_type: 'cancel_task',
+      description: 'Cancel stale task',
+      rollback_plan: 'Re-dispatch the task',
+      task_id: 'task-123',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('parses valid adjust_priority action', () => {
+    const result = GovernanceActionInput.safeParse({
+      action_type: 'adjust_priority',
+      description: 'Raise priority of critical fix',
+      rollback_plan: 'Revert priority',
+      task_id: 'task-456',
+      priority: 90,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects invalid action_type', () => {
+    const result = GovernanceActionInput.safeParse({
+      action_type: 'nuke_everything',
+      description: 'test',
+      rollback_plan: 'undo',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('defaults estimated_cost to 1', () => {
+    const result = GovernanceActionInput.parse({
+      action_type: 'cancel_task',
+      description: 'Cancel task',
+      rollback_plan: 'Re-dispatch',
+      task_id: 't-1',
+    });
+    expect(result.estimated_cost).toBe(1);
+  });
+});
+
+describe('ChiefEngine.validateGovernanceAction', () => {
+  let db: Database;
+  let chiefEngine: ChiefEngine;
+  let constitutionStore: ConstitutionStore;
+  let skillRegistry: SkillRegistry;
+  let villageId: string;
+
+  beforeEach(() => {
+    db = createDb(':memory:');
+    initSchema(db);
+    const villageMgr = new VillageManager(db);
+    villageId = villageMgr.create({ name: 'test', target_repo: 'r' }, 'u').id;
+    constitutionStore = new ConstitutionStore(db);
+    skillRegistry = new SkillRegistry(db);
+    chiefEngine = new ChiefEngine(db, constitutionStore, skillRegistry);
+
+    constitutionStore.create(villageId, {
+      rules: [{ description: 'must review', enforcement: 'hard', scope: ['*'] }],
+      allowed_permissions: ['dispatch_task', 'propose_law'],
+      budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+    }, 'human');
+  });
+
+  it('validates chief with dispatch_task permission', () => {
+    const chief = chiefEngine.create(villageId, {
+      name: 'Gov Chief', role: 'governor', permissions: ['dispatch_task'],
+    }, 'human');
+
+    const action = GovernanceActionInput.parse({
+      action_type: 'cancel_task',
+      description: 'Cancel stale task',
+      rollback_plan: 'Re-dispatch',
+      task_id: 'task-1',
+    });
+
+    const result = chiefEngine.validateGovernanceAction(chief.id, action);
+    expect(result.chief.id).toBe(chief.id);
+    expect(result.constitution).toBeDefined();
+  });
+
+  it('rejects chief without dispatch_task permission', () => {
+    const chief = chiefEngine.create(villageId, {
+      name: 'Law Chief', role: 'legislator', permissions: ['propose_law'],
+    }, 'human');
+
+    const action = GovernanceActionInput.parse({
+      action_type: 'cancel_task',
+      description: 'Cancel stale task',
+      rollback_plan: 'Re-dispatch',
+      task_id: 'task-1',
+    });
+
+    expect(() => chiefEngine.validateGovernanceAction(chief.id, action))
+      .toThrow('PERMISSION_DENIED');
+  });
+
+  it('rejects inactive chief', () => {
+    const chief = chiefEngine.create(villageId, {
+      name: 'Old Chief', role: 'retired', permissions: ['dispatch_task'],
+    }, 'human');
+    chiefEngine.deactivate(chief.id, 'human');
+
+    const action = GovernanceActionInput.parse({
+      action_type: 'cancel_task',
+      description: 'test',
+      rollback_plan: 'undo',
+      task_id: 'task-1',
+    });
+
+    expect(() => chiefEngine.validateGovernanceAction(chief.id, action))
+      .toThrow('CHIEF_INACTIVE');
+  });
+
+  it('rejects nonexistent chief', () => {
+    const action = GovernanceActionInput.parse({
+      action_type: 'cancel_task',
+      description: 'test',
+      rollback_plan: 'undo',
+      task_id: 'task-1',
+    });
+
+    expect(() => chiefEngine.validateGovernanceAction('chief-nonexistent', action))
+      .toThrow('Chief not found');
+  });
+
+  it('rejects create_project without project payload', () => {
+    const chief = chiefEngine.create(villageId, {
+      name: 'Gov', role: 'gov', permissions: ['dispatch_task'],
+    }, 'human');
+
+    const action = GovernanceActionInput.parse({
+      action_type: 'create_project',
+      description: 'Create project',
+      rollback_plan: 'Cancel project',
+    });
+
+    expect(() => chiefEngine.validateGovernanceAction(chief.id, action))
+      .toThrow('VALIDATION: create_project action requires project payload');
+  });
+
+  it('rejects cancel_task without task_id', () => {
+    const chief = chiefEngine.create(villageId, {
+      name: 'Gov', role: 'gov', permissions: ['dispatch_task'],
+    }, 'human');
+
+    const action = GovernanceActionInput.parse({
+      action_type: 'cancel_task',
+      description: 'Cancel',
+      rollback_plan: 'Re-dispatch',
+    });
+
+    expect(() => chiefEngine.validateGovernanceAction(chief.id, action))
+      .toThrow('VALIDATION: cancel_task and adjust_priority actions require task_id');
+  });
+
+  it('rejects adjust_priority without priority', () => {
+    const chief = chiefEngine.create(villageId, {
+      name: 'Gov', role: 'gov', permissions: ['dispatch_task'],
+    }, 'human');
+
+    const action = GovernanceActionInput.parse({
+      action_type: 'adjust_priority',
+      description: 'Adjust',
+      rollback_plan: 'Revert',
+      task_id: 'task-1',
+    });
+
+    expect(() => chiefEngine.validateGovernanceAction(chief.id, action))
+      .toThrow('VALIDATION: adjust_priority action requires priority');
+  });
+
+  it('validates create_project with valid project payload', () => {
+    const chief = chiefEngine.create(villageId, {
+      name: 'Gov', role: 'gov', permissions: ['dispatch_task'],
+    }, 'human');
+
+    const action = GovernanceActionInput.parse({
+      action_type: 'create_project',
+      description: 'Create review project',
+      rollback_plan: 'Cancel project',
+      project: { title: 'Review PR', tasks: [{ title: 'Review code' }] },
+    });
+
+    const result = chiefEngine.validateGovernanceAction(chief.id, action);
+    expect(result.chief.permissions).toContain('dispatch_task');
   });
 });
