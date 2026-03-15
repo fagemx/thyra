@@ -1,10 +1,66 @@
 import { z } from 'zod';
 
+// ---------------------------------------------------------------------------
+// PlanState v1 — 多步計畫型別
+// ---------------------------------------------------------------------------
+
+/** 計畫步驟狀態 */
+export const PlannedStepStatusSchema = z.enum([
+  'pending',      // 尚未執行
+  'in_progress',  // 正在執行
+  'blocked',      // 被阻擋（需要 repair）
+  'skipped',      // 被 repair 跳過
+]);
+
+/** 計畫中的單一步驟 */
+export const PlannedStepSchema = z.object({
+  task_key: z.string().min(1),
+  estimated_cost: z.number().min(0),
+  reason: z.string().min(1),
+  depends_on: z.array(z.string()).optional(),
+  status: PlannedStepStatusSchema.default('pending'),
+});
+export type PlannedStep = z.infer<typeof PlannedStepSchema>;
+
+/** 已完成的步驟（擴展 PlannedStep） */
+export const CompletedStepSchema = PlannedStepSchema.extend({
+  actual_cost: z.number().min(0),
+  result: z.string(),
+  completed_at: z.string(),
+});
+export type CompletedStep = z.infer<typeof CompletedStepSchema>;
+
+/** Fallback 策略 */
+export const FallbackStrategySchema = z.enum([
+  'retry',         // 重試相同步驟
+  'skip',          // 跳過並繼續
+  'replan',        // 觸發 LLM 重新規劃
+  'abort',         // 中止整個計畫
+]);
+
+/** PlanState v1 — 完整的多步計畫狀態 */
+export const PlanStateSchema = z.object({
+  version: z.literal('v1').default('v1'),
+  objective: z.string().min(1),
+  planned_steps: z.array(PlannedStepSchema).min(1),
+  completed_steps: z.array(CompletedStepSchema).default([]),
+  fallback: FallbackStrategySchema.default('replan'),
+  success_criteria: z.string().min(1),
+  stop_criteria: z.string().min(1),
+});
+export type PlanState = z.infer<typeof PlanStateSchema>;
+
+// ---------------------------------------------------------------------------
+// CycleIntent — 向後相容（支援 legacy + plan-based）
+// ---------------------------------------------------------------------------
+
 export const CycleIntentSchema = z.object({
   goal_kind: z.string(),
   stage_hint: z.string(),
   origin_reason: z.string(),
   last_decision_summary: z.string(),
+  // PlanState v1 可選欄位 — 有 plan 時為 plan-based flow
+  plan: PlanStateSchema.optional(),
 });
 
 export type CycleIntent = z.infer<typeof CycleIntentSchema>;

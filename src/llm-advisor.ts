@@ -2,6 +2,8 @@ import { z } from 'zod';
 import type { Database } from 'bun:sqlite';
 import { appendAudit } from './db';
 import type { DecideContext, ActionIntent } from './decision-engine';
+import { PlanStateSchema } from './schemas/loop';
+import type { PlanState } from './schemas/loop';
 
 // ---------------------------------------------------------------------------
 // LLM 客戶端介面 — 外部注入的 LLM 呼叫能力
@@ -101,6 +103,12 @@ export interface LlmAdvisor {
 
   /** 產生 LLM 候選意圖草案（最多 3 個），需經過確定性過濾 */
   generateCandidates(context: DecideContext): Promise<CandidateIntentDraft[]>;
+
+  /**
+   * 修復計畫 — 當步驟被阻擋或結果不佳時，LLM 重新規劃。
+   * 修復後的計畫仍需通過確定性過濾（filterCandidates）。
+   */
+  repairPlan(context: DecideContext, currentPlan: PlanState, blockingReason: string): Promise<PlanState>;
 }
 
 // ---------------------------------------------------------------------------
@@ -209,6 +217,27 @@ export class DefaultLlmAdvisor implements LlmAdvisor {
       const msg = err instanceof Error ? err.message : String(err);
       this.logFallback('generateCandidates', 'llm_error', msg);
       return [];
+    }
+  }
+
+  async repairPlan(context: DecideContext, currentPlan: PlanState, blockingReason: string): Promise<PlanState> {
+    const prompt = this.buildRepairPlanPrompt(context, currentPlan, blockingReason);
+
+    try {
+      const raw = await this.client.complete(prompt);
+      const parsed = this.parseJson(raw);
+      const result = PlanStateSchema.safeParse(parsed);
+
+      if (!result.success) {
+        this.logFallback('repairPlan', 'zod_validation_failed', result.error.message);
+        return currentPlan; // fallback: 回傳原計畫
+      }
+
+      return result.data;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logFallback('repairPlan', 'llm_error', msg);
+      return currentPlan; // fallback: 回傳原計畫
     }
   }
 
@@ -322,6 +351,49 @@ Return JSON:
 Return empty candidates array if no tasks needed.`;
   }
 
+  /** 建立 plan repair prompt */
+  private buildRepairPlanPrompt(context: DecideContext, currentPlan: PlanState, blockingReason: string): string {
+    const completedList = currentPlan.completed_steps
+      .map(s => `- [DONE] ${s.task_key}: ${s.result} (cost: ${s.actual_cost})`)
+      .join('\n');
+    const pendingList = currentPlan.planned_steps
+      .map(s => `- [${s.status.toUpperCase()}] ${s.task_key}: ${s.reason} (est: ${s.estimated_cost})`)
+      .join('\n');
+    const skillList = context.chief_skills
+      .map(s => `- ${s.name} (v${s.version})`)
+      .join('\n');
+
+    return `You are a governance advisor. A plan step was blocked and needs repair.
+
+Objective: ${currentPlan.objective}
+Blocking reason: ${blockingReason}
+
+Completed steps:
+${completedList || '(none)'}
+
+Current planned steps:
+${pendingList}
+
+Available skills:
+${skillList || '(none)'}
+
+Budget remaining: ${(context.budget.per_day_limit * context.budget_ratio).toFixed(2)}
+Success criteria: ${currentPlan.success_criteria}
+Stop criteria: ${currentPlan.stop_criteria}
+
+Revise the plan to work around the blocker. Keep completed steps unchanged.
+Return JSON matching PlanState v1:
+{
+  "version": "v1",
+  "objective": "...",
+  "planned_steps": [{"task_key": "...", "estimated_cost": 0, "reason": "...", "status": "pending"}],
+  "completed_steps": [<keep existing>],
+  "fallback": "replan",
+  "success_criteria": "...",
+  "stop_criteria": "..."
+}`;
+  }
+
   /** 建立 law proposal suggestion prompt */
   private buildLawProposalPrompt(context: DecideContext): string {
     return `You are a governance advisor. Suggest law proposals based on current context.
@@ -393,6 +465,7 @@ export function createMockLlmAdvisor(opts: {
   reasoningResult?: ReasoningEnrichment;
   lawSuggestions?: LawProposalSuggestion[];
   candidateDrafts?: CandidateIntentDraft[];
+  repairPlanResult?: PlanState;
 } = {}): LlmAdvisor {
   return {
     advise: (_context: DecideContext, candidates: ActionIntent[]) => {
@@ -418,6 +491,9 @@ export function createMockLlmAdvisor(opts: {
     },
     generateCandidates: async () => {
       return opts.candidateDrafts ?? [];
+    },
+    repairPlan: async (_context: DecideContext, currentPlan: PlanState, _blockingReason: string) => {
+      return opts.repairPlanResult ?? currentPlan;
     },
   };
 }
