@@ -1,6 +1,7 @@
 import type { Database } from 'bun:sqlite';
 import { appendAudit } from './db';
 import type { KarviEventNormalized } from './schemas/karvi-event';
+import { KarviWebhookPayloadSchema, normalizeKarviEvent } from './schemas/karvi-event';
 import { DispatchProjectInput } from './schemas/karvi-dispatch';
 import type { DispatchProjectInputRaw, KarviProjectResponse, KarviSingleDispatchResponse, KarviBudgetExceededError, KarviBoard, KarviStatus, KarviTaskProgress, KarviCapabilities } from './schemas/karvi-dispatch';
 import { KarviCapabilitiesSchema } from './schemas/karvi-dispatch';
@@ -8,12 +9,27 @@ import { KarviCapabilitiesSchema } from './schemas/karvi-dispatch';
 export type { KarviEventNormalized } from './schemas/karvi-event';
 export type { DispatchProjectInputRaw, KarviProjectResponse, KarviSingleDispatchResponse, KarviBoard, KarviStatus, KarviTaskProgress, KarviCapabilities, KarviRuntime, KarviRemoteSkill } from './schemas/karvi-dispatch';
 
+/** SSE 訂閱控制介面 */
+export interface SseSubscription {
+  /** 關閉 SSE 連線並停止自動重連 */
+  close(): void;
+  /** 當前連線狀態 */
+  readonly connected: boolean;
+  /** 累計重連次數 */
+  readonly reconnectCount: number;
+}
+
 export interface TaskStatus {
   id: string;
   title: string;
   status: string;
   [key: string]: unknown;
 }
+
+/** SSE 重連 backoff 設定 */
+const SSE_INITIAL_BACKOFF_MS = 1_000;
+const SSE_MAX_BACKOFF_MS = 30_000;
+const SSE_BACKOFF_MULTIPLIER = 2;
 
 export class KarviBridge {
   private healthy = false;
@@ -394,5 +410,179 @@ export class KarviBridge {
 
   getRegisteredWebhookUrl(): string | null {
     return this.webhookUrl;
+  }
+
+  /**
+   * 訂閱 Karvi SSE 事件流（GET /api/events）。
+   * 收到事件後自動 normalize + ingestEvent 寫入 audit_log。
+   * 連線斷開時自動以 exponential backoff 重連。
+   * Karvi 離線時不 crash（graceful degradation — THY-06）。
+   *
+   * @param onEvent 每筆事件觸發的 callback（ingest 之後呼叫）
+   * @returns SseSubscription 控制物件，呼叫 close() 停止訂閱
+   */
+  subscribeEvents(onEvent: (event: KarviEventNormalized) => void): SseSubscription {
+    // 使用 state object 讓 ESLint 追蹤跨 closure 的可變性
+    const state = { closed: false, connected: false, reconnectCount: 0 };
+    let abortController: AbortController | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const connect = (): void => {
+      if (state.closed) return;
+
+      abortController = new AbortController();
+      const ac = abortController;
+
+      void (async () => {
+        try {
+          const res = await fetch(`${this.karviUrl}/api/events`, {
+            headers: { Accept: 'text/event-stream' },
+            signal: ac.signal,
+          });
+
+          if (!res.ok || !res.body) {
+            appendAudit(this.db, 'karvi', 'global', 'sse_connect_failed', { status: res.status }, 'system');
+            scheduleReconnect();
+            return;
+          }
+
+          state.connected = true;
+          appendAudit(this.db, 'karvi', 'global', 'sse_connected', { reconnectCount: state.reconnectCount }, 'system');
+
+          await this.consumeSseStream(res.body, onEvent, ac.signal);
+
+          // Stream ended normally（server closed）
+          state.connected = false;
+          if (!state.closed) {
+            appendAudit(this.db, 'karvi', 'global', 'sse_disconnected', { reason: 'stream_ended' }, 'system');
+            scheduleReconnect();
+          }
+        } catch (err) {
+          state.connected = false;
+          if (state.closed || ac.signal.aborted) return;
+          const message = err instanceof Error ? err.message : 'unknown';
+          appendAudit(this.db, 'karvi', 'global', 'sse_error', { error: message }, 'system');
+          scheduleReconnect();
+        }
+      })();
+    };
+
+    const scheduleReconnect = (): void => {
+      if (state.closed) return;
+      state.reconnectCount++;
+      const backoff = Math.min(
+        SSE_INITIAL_BACKOFF_MS * Math.pow(SSE_BACKOFF_MULTIPLIER, state.reconnectCount - 1),
+        SSE_MAX_BACKOFF_MS,
+      );
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, backoff);
+    };
+
+    // 啟動首次連線
+    connect();
+
+    return {
+      close() {
+        state.closed = true;
+        state.connected = false;
+        if (abortController) abortController.abort();
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+      },
+      get connected() {
+        return state.connected;
+      },
+      get reconnectCount() {
+        return state.reconnectCount;
+      },
+    };
+  }
+
+  /**
+   * 消費 SSE ReadableStream，解析事件並呼叫 ingestEvent + callback。
+   * SSE 格式: "data: {json}\n\n"，heartbeat 以 ":heartbeat\n\n" 形式。
+   */
+  private async consumeSseStream(
+    body: ReadableStream<Uint8Array>,
+    onEvent: (event: KarviEventNormalized) => void,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const decoder = new TextDecoder();
+    const reader = body.getReader();
+    let buffer = '';
+
+    try {
+      while (!signal.aborted) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // SSE 事件以雙換行分隔
+        let boundary = buffer.indexOf('\n\n');
+        while (boundary !== -1) {
+          const chunk = buffer.slice(0, boundary).trim();
+          buffer = buffer.slice(boundary + 2);
+
+          if (chunk.length > 0) {
+            this.processSseChunk(chunk, onEvent);
+          }
+
+          boundary = buffer.indexOf('\n\n');
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
+  /**
+   * 處理單一 SSE chunk（可能含多行 data:）。
+   * 忽略 heartbeat（以 : 開頭的 comment）。
+   */
+  private processSseChunk(
+    chunk: string,
+    onEvent: (event: KarviEventNormalized) => void,
+  ): void {
+    const lines = chunk.split('\n');
+    let dataLines = '';
+
+    for (const line of lines) {
+      // SSE comment（heartbeat）
+      if (line.startsWith(':')) continue;
+
+      if (line.startsWith('data:')) {
+        dataLines += line.slice(5).trim();
+      }
+    }
+
+    if (!dataLines) return;
+
+    try {
+      const parsed: unknown = JSON.parse(dataLines);
+      const result = KarviWebhookPayloadSchema.safeParse(parsed);
+      if (!result.success) {
+        // 無法解析的事件格式，記錄但不 crash
+        appendAudit(this.db, 'karvi', 'global', 'sse_parse_error', {
+          error: result.error.message,
+          raw: dataLines.slice(0, 200),
+        }, 'system');
+        return;
+      }
+
+      const normalized = normalizeKarviEvent(result.data);
+      const { ingested } = this.ingestEvent(normalized);
+
+      // 不管是否 ingested（可能重複），都呼叫 callback 讓上層知道
+      if (ingested) {
+        onEvent(normalized);
+      }
+    } catch {
+      // JSON parse 失敗，忽略（可能是部分資料）
+    }
   }
 }

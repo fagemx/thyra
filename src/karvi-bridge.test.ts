@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
 import { Database } from 'bun:sqlite';
 import { createDb, initSchema } from './db';
 import { KarviBridge } from './karvi-bridge';
+import type { SseSubscription } from './karvi-bridge';
 
 import { KarviWebhookPayloadSchema, normalizeKarviEvent } from './schemas/karvi-event';
 import type { KarviWebhookPayload } from './schemas/karvi-event';
@@ -12,11 +13,39 @@ let lastRequest: { method: string; url: string; search?: string; body?: unknown 
 let allRequests: { method: string; url: string; search?: string; body?: unknown }[] = [];
 let mockResponses: Map<string, { status: number; body: unknown }> = new Map();
 
+// SSE 相關狀態
+let sseController: ReadableStreamDefaultController<Uint8Array> | null = null;
+let sseEnabled = false;
+
 function startMockKarvi(port: number) {
   mockServer = Bun.serve({
     port,
     async fetch(req) {
       const url = new URL(req.url);
+
+      // SSE endpoint
+      if (url.pathname === '/api/events' && req.method === 'GET' && sseEnabled) {
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            sseController = controller;
+            // 立即發送初始 comment，讓 fetch response 立刻 resolve
+            controller.enqueue(encoder.encode(':ok\n\n'));
+          },
+          cancel() {
+            sseController = null;
+          },
+        });
+        return new Response(stream, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+          },
+        });
+      }
+
       let body: unknown = undefined;
       if (req.method === 'POST' && req.body) {
         body = await req.json();
@@ -36,6 +65,30 @@ function startMockKarvi(port: number) {
       return new Response(JSON.stringify({ ok: false }), { status: 404 });
     },
   });
+}
+
+/** 透過 SSE stream 發送事件 */
+function sendSseEvent(data: Record<string, unknown>): void {
+  if (sseController) {
+    const encoder = new TextEncoder();
+    sseController.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+  }
+}
+
+/** 發送 SSE heartbeat */
+function sendSseHeartbeat(): void {
+  if (sseController) {
+    const encoder = new TextEncoder();
+    sseController.enqueue(encoder.encode(':heartbeat\n\n'));
+  }
+}
+
+/** 關閉 SSE stream */
+function closeSseStream(): void {
+  if (sseController) {
+    try { sseController.close(); } catch { /* already closed */ }
+    sseController = null;
+  }
 }
 
 /** Helper: build a Karvi v1 webhook payload matching step-worker.js output */
@@ -66,6 +119,8 @@ describe('KarviBridge', () => {
     lastRequest = null;
     allRequests = [];
     mockResponses = new Map();
+    sseEnabled = false;
+    sseController = null;
     bridge = new KarviBridge(db, MOCK_URL);
   });
 
@@ -894,6 +949,261 @@ describe('KarviBridge', () => {
     it('returns null when Karvi is offline', async () => {
       const progress = await bridge.getTaskProgress('THYRA-v1-123');
       expect(progress).toBeNull();
+    });
+  });
+
+  describe('subscribeEvents (SSE)', () => {
+    let sub: SseSubscription | null = null;
+
+    afterEach(() => {
+      if (sub) {
+        sub.close();
+        sub = null;
+      }
+      closeSseStream();
+    });
+
+    /** 建立 SSE mock event payload */
+    function makeSsePayload(overrides: Partial<KarviWebhookPayload> = {}): Record<string, unknown> {
+      const now = new Date().toISOString();
+      return {
+        version: 'karvi.event.v1',
+        event_id: `evt_sse-${crypto.randomUUID().slice(0, 8)}`,
+        event_type: 'step_completed',
+        occurred_at: now,
+        event: 'step_completed',
+        ts: now,
+        taskId: 'THYRA-v1-200',
+        stepId: 'step_sse1',
+        ...overrides,
+      };
+    }
+
+    it('receives SSE event and ingests into audit_log', async () => {
+      sseEnabled = true;
+      startMockKarvi(MOCK_PORT);
+
+      const received: { event_id: string; task_id: string }[] = [];
+      sub = bridge.subscribeEvents((evt) => {
+        received.push({ event_id: evt.event_id, task_id: evt.task_id });
+      });
+
+      // 等待連線建立
+      await new Promise((r) => setTimeout(r, 100));
+
+      const payload = makeSsePayload({ event_id: 'evt_sse-001', taskId: 'T-SSE-1' });
+      sendSseEvent(payload);
+
+      // 等待事件處理
+      await new Promise((r) => setTimeout(r, 200));
+
+      expect(received).toHaveLength(1);
+      expect(received[0].event_id).toBe('evt_sse-001');
+      expect(received[0].task_id).toBe('T-SSE-1');
+
+      // 驗證寫入 audit_log
+      const logs = db.prepare(
+        "SELECT * FROM audit_log WHERE entity_type = 'karvi_event' AND event_id = 'evt_sse-001'"
+      ).all();
+      expect(logs).toHaveLength(1);
+    });
+
+    it('receives multiple SSE events in sequence', async () => {
+      sseEnabled = true;
+      startMockKarvi(MOCK_PORT);
+
+      const received: string[] = [];
+      sub = bridge.subscribeEvents((evt) => {
+        received.push(evt.event_id);
+      });
+
+      await new Promise((r) => setTimeout(r, 100));
+
+      sendSseEvent(makeSsePayload({ event_id: 'evt_sse-a1' }));
+      sendSseEvent(makeSsePayload({ event_id: 'evt_sse-a2' }));
+      sendSseEvent(makeSsePayload({ event_id: 'evt_sse-a3' }));
+
+      await new Promise((r) => setTimeout(r, 300));
+
+      expect(received).toHaveLength(3);
+      expect(received).toContain('evt_sse-a1');
+      expect(received).toContain('evt_sse-a2');
+      expect(received).toContain('evt_sse-a3');
+    });
+
+    it('ignores heartbeat comments', async () => {
+      sseEnabled = true;
+      startMockKarvi(MOCK_PORT);
+
+      const received: string[] = [];
+      sub = bridge.subscribeEvents((evt) => {
+        received.push(evt.event_id);
+      });
+
+      await new Promise((r) => setTimeout(r, 100));
+
+      sendSseHeartbeat();
+      sendSseEvent(makeSsePayload({ event_id: 'evt_sse-hb1' }));
+      sendSseHeartbeat();
+
+      await new Promise((r) => setTimeout(r, 200));
+
+      // 只收到實際事件，heartbeat 被忽略
+      expect(received).toHaveLength(1);
+      expect(received[0]).toBe('evt_sse-hb1');
+    });
+
+    it('deduplicates events via ingestEvent idempotency', async () => {
+      sseEnabled = true;
+      startMockKarvi(MOCK_PORT);
+
+      const received: string[] = [];
+      sub = bridge.subscribeEvents((evt) => {
+        received.push(evt.event_id);
+      });
+
+      await new Promise((r) => setTimeout(r, 100));
+
+      // 發送兩次相同 event_id
+      const payload = makeSsePayload({ event_id: 'evt_sse-dup1' });
+      sendSseEvent(payload);
+      await new Promise((r) => setTimeout(r, 100));
+      sendSseEvent(payload);
+
+      await new Promise((r) => setTimeout(r, 200));
+
+      // callback 只對首次 ingested 呼叫
+      expect(received).toHaveLength(1);
+
+      // audit_log 只有一筆
+      const logs = db.prepare(
+        "SELECT * FROM audit_log WHERE entity_type = 'karvi_event' AND event_id = 'evt_sse-dup1'"
+      ).all();
+      expect(logs).toHaveLength(1);
+    });
+
+    it('close() stops receiving events', async () => {
+      sseEnabled = true;
+      startMockKarvi(MOCK_PORT);
+
+      const received: string[] = [];
+      sub = bridge.subscribeEvents((evt) => {
+        received.push(evt.event_id);
+      });
+
+      await new Promise((r) => setTimeout(r, 100));
+
+      sendSseEvent(makeSsePayload({ event_id: 'evt_sse-close1' }));
+      await new Promise((r) => setTimeout(r, 100));
+
+      sub.close();
+
+      sendSseEvent(makeSsePayload({ event_id: 'evt_sse-close2' }));
+      await new Promise((r) => setTimeout(r, 100));
+
+      // 只收到 close 之前的事件
+      expect(received).toHaveLength(1);
+      expect(received[0]).toBe('evt_sse-close1');
+    });
+
+    it('connected reflects actual connection state', async () => {
+      sseEnabled = true;
+      startMockKarvi(MOCK_PORT);
+
+      sub = bridge.subscribeEvents(() => {});
+
+      // 等待連線建立
+      await new Promise((r) => setTimeout(r, 300));
+      expect(sub.connected).toBe(true);
+
+      sub.close();
+      expect(sub.connected).toBe(false);
+    });
+
+    it('records sse_connected audit log on successful connect', async () => {
+      sseEnabled = true;
+      startMockKarvi(MOCK_PORT);
+
+      sub = bridge.subscribeEvents(() => {});
+
+      await new Promise((r) => setTimeout(r, 300));
+
+      const logs = db.prepare(
+        "SELECT * FROM audit_log WHERE entity_type = 'karvi' AND action = 'sse_connected'"
+      ).all();
+      expect(logs).toHaveLength(1);
+    });
+
+    it('skips events that fail Zod validation', async () => {
+      sseEnabled = true;
+      startMockKarvi(MOCK_PORT);
+
+      const received: string[] = [];
+      sub = bridge.subscribeEvents((evt) => {
+        received.push(evt.event_id);
+      });
+
+      await new Promise((r) => setTimeout(r, 100));
+
+      // 送一個無效的 payload（缺少 version）
+      sendSseEvent({ bad: 'data', taskId: 'T1' });
+
+      // 再送一個有效的
+      sendSseEvent(makeSsePayload({ event_id: 'evt_sse-valid' }));
+
+      await new Promise((r) => setTimeout(r, 200));
+
+      // 只收到有效事件
+      expect(received).toHaveLength(1);
+      expect(received[0]).toBe('evt_sse-valid');
+
+      // 無效事件有 parse_error audit
+      const errors = db.prepare(
+        "SELECT * FROM audit_log WHERE action = 'sse_parse_error'"
+      ).all();
+      expect(errors).toHaveLength(1);
+    });
+
+    it('graceful degradation when Karvi is offline (no crash)', async () => {
+      // 使用不存在的 port
+      const offlineBridge = new KarviBridge(db, 'http://localhost:19999');
+
+      const received: string[] = [];
+      sub = offlineBridge.subscribeEvents((evt) => {
+        received.push(evt.event_id);
+      });
+
+      // 等待足夠時間確認沒有 crash
+      await new Promise((r) => setTimeout(r, 200));
+
+      expect(received).toHaveLength(0);
+      // 應該有 error audit 或 connect_failed
+      expect(sub.connected).toBe(false);
+      expect(sub.reconnectCount).toBeGreaterThanOrEqual(1);
+    });
+
+    it('reconnects after stream ends with incrementing reconnectCount', async () => {
+      sseEnabled = true;
+      startMockKarvi(MOCK_PORT);
+
+      sub = bridge.subscribeEvents(() => {});
+
+      await new Promise((r) => setTimeout(r, 300));
+      expect(sub.connected).toBe(true);
+
+      // 關閉 stream 觸發重連
+      closeSseStream();
+
+      await new Promise((r) => setTimeout(r, 200));
+
+      // 重連次數應增加
+      expect(sub.reconnectCount).toBeGreaterThanOrEqual(1);
+
+      // 記錄了 disconnected audit
+      const logs = db.prepare(
+        "SELECT * FROM audit_log WHERE action = 'sse_disconnected'"
+      ).all();
+      expect(logs).toHaveLength(1);
     });
   });
 });
