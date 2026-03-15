@@ -1,0 +1,17 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "src/index.ts",
+    "src/pack/cli.ts",
+    "src/schemas/*.ts",
+    "src/**/*.test.ts"
+  ],
+  "project": ["src/**/*.ts"],
+  "ignoreDependencies": [
+    "bun-types",
+    "@hono/node-server",
+    "better-sqlite3",
+    "@types/better-sqlite3"
+  ],
+  "ignoreExportsUsedInFile": true
+}
