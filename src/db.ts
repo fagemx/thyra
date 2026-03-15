@@ -5,13 +5,13 @@ export type { Database } from 'bun:sqlite';
 
 export function createDb(dbPath?: string): Database {
   const db = new Database(dbPath ?? path.join(process.cwd(), 'thyra.db'));
-  db.exec('PRAGMA journal_mode = WAL');
-  db.exec('PRAGMA foreign_keys = ON');
+  db.run('PRAGMA journal_mode = WAL');
+  db.run('PRAGMA foreign_keys = ON');
   return db;
 }
 
 export function initSchema(db: Database): void {
-  db.exec(`
+  db.run(`
     CREATE TABLE IF NOT EXISTS villages (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -198,7 +198,7 @@ export function initSchema(db: Database): void {
 
   // ALTER TABLE 新增 intent 欄位（冪等：column 已存在就忽略）
   try {
-    db.exec('ALTER TABLE loop_cycles ADD COLUMN intent TEXT DEFAULT NULL');
+    db.run('ALTER TABLE loop_cycles ADD COLUMN intent TEXT DEFAULT NULL');
   } catch {
     // "duplicate column name: intent" — 安全忽略
   }

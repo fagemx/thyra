@@ -77,8 +77,8 @@ interface BootstrapResult {
 
 function bootstrap(dbPath: string): BootstrapResult {
   const db = new Database(dbPath);
-  db.exec('PRAGMA journal_mode = WAL');
-  db.exec('PRAGMA foreign_keys = ON');
+  db.run('PRAGMA journal_mode = WAL');
+  db.run('PRAGMA foreign_keys = ON');
   initSchema(db);
 
   const villageMgr = new VillageManager(db);

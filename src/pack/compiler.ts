@@ -537,13 +537,33 @@ export class VillagePackCompiler {
     }
 
     // Propose new
-    for (const pl of diff.toPropose) {
+    this.compileLawsPropose(ctx, diff.toPropose, chiefId!, dryRun, entries);
+
+    // Revoke removed
+    this.compileLawsRevoke(ctx, diff.toRevoke, actor, dryRun, entries);
+
+    // Replace changed
+    this.compileLawsReplace(ctx, diff.toReplace, chiefId!, actor, dryRun, entries);
+
+    ctx.law_entries = entries;
+    ctx.completed_phases = 5;
+  }
+
+  /** 處理 law propose 操作 */
+  private compileLawsPropose(
+    ctx: CompileContext,
+    toPropose: PackLaw[],
+    chiefId: string,
+    dryRun: boolean,
+    entries: LawPhaseEntry[],
+  ): void {
+    for (const pl of toPropose) {
       if (dryRun) {
         entries.push({ category: pl.category, action: 'propose', detail: `would propose law "${pl.category}"` });
         continue;
       }
       try {
-        const law = this.lawEngine.propose(ctx.village_id, chiefId!, {
+        const law = this.lawEngine.propose(ctx.village_id, chiefId, {
           category: pl.category,
           content: { description: pl.description, strategy: pl.strategy },
           evidence: pl.evidence,
@@ -553,12 +573,19 @@ export class VillagePackCompiler {
         const msg = err instanceof Error ? err.message : String(err);
         entries.push({ category: pl.category, action: 'propose', error: msg });
         ctx.errors.push(`Law propose failed (${pl.category}): ${msg}`);
-        // Non-fatal — continue
       }
     }
+  }
 
-    // Revoke removed
-    for (const law of diff.toRevoke) {
+  /** 處理 law revoke 操作 */
+  private compileLawsRevoke(
+    ctx: CompileContext,
+    toRevoke: Law[],
+    actor: string,
+    dryRun: boolean,
+    entries: LawPhaseEntry[],
+  ): void {
+    for (const law of toRevoke) {
       if (dryRun) {
         entries.push({ category: law.category, action: 'revoke', law_id: law.id, detail: `would revoke law "${law.category}"` });
         continue;
@@ -572,25 +599,32 @@ export class VillagePackCompiler {
         ctx.warnings.push(`Law revoke warning (${law.category}): ${msg}`);
       }
     }
+  }
 
-    // Replace changed
-    for (const { old: oldLaw, updated: pl } of diff.toReplace) {
+  /** 處理 law replace 操作（revoke old + propose new） */
+  private compileLawsReplace(
+    ctx: CompileContext,
+    toReplace: Array<{ old: Law; updated: PackLaw }>,
+    chiefId: string,
+    actor: string,
+    dryRun: boolean,
+    entries: LawPhaseEntry[],
+  ): void {
+    for (const { old: oldLaw, updated: pl } of toReplace) {
       if (dryRun) {
         entries.push({ category: pl.category, action: 'replace', law_id: oldLaw.id, detail: `would replace law "${pl.category}"` });
         continue;
       }
-      // Revoke old
       try {
         this.lawEngine.revoke(oldLaw.id, actor);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         entries.push({ category: pl.category, action: 'replace', error: `revoke failed: ${msg}` });
         ctx.errors.push(`Law replace revoke failed (${pl.category}): ${msg}`);
-        continue; // Don't propose if revoke failed
+        continue;
       }
-      // Propose new
       try {
-        const law = this.lawEngine.propose(ctx.village_id, chiefId!, {
+        const law = this.lawEngine.propose(ctx.village_id, chiefId, {
           category: pl.category,
           content: { description: pl.description, strategy: pl.strategy },
           evidence: pl.evidence,
@@ -602,9 +636,6 @@ export class VillagePackCompiler {
         ctx.errors.push(`Law replace propose failed (${pl.category}): ${msg}`);
       }
     }
-
-    ctx.law_entries = entries;
-    ctx.completed_phases = 5;
   }
 
   // ── Helpers ────────────────────────────────────────────────

@@ -263,6 +263,51 @@ export class DecisionEngine {
     const lawConsiderations: string[] = [];
     const precedentNotes: string[] = [];
 
+    // 收集基礎推理因素
+    this.collectReasoningFactors(context, factors, lawConsiderations, precedentNotes);
+
+    // Chief personality + 約束
+    let personalityEffect = this.buildPersonalityEffect(context);
+    const riskTolerance = context.chief.personality?.risk_tolerance ?? 'moderate';
+
+    // --- Pipeline ---
+    const candidates = this.generateCandidates(context);
+    let action = this.selectBest(candidates, context);
+    let lawProposals = this.checkLawProposals(context);
+
+    // --- LLM Advisor 增強（可選） ---
+    if (this.llmAdvisor) {
+      const llmResult = await this.applyLlmAdvisor(context, candidates, action, factors);
+      action = llmResult.action;
+      const llmLawProposals = llmResult.lawProposals;
+      if (llmLawProposals.length > 0) {
+        lawProposals = [...lawProposals, ...llmLawProposals];
+      }
+    }
+
+    // 計算 confidence + personality 調整
+    let confidence = action?.confidence ?? 1.0;
+    if (action) {
+      const adjustment = this.applyPersonalityConfidence(action, context, riskTolerance);
+      confidence = Math.max(0, Math.min(1, confidence + adjustment));
+      if (adjustment !== 0) {
+        personalityEffect += ` — ${riskTolerance} adjustment: ${adjustment > 0 ? '+' : ''}${adjustment.toFixed(2)}`;
+      }
+    }
+
+    // 組裝最終結果
+    return this.buildDecideResult(action, lawProposals, factors, lawConsiderations, precedentNotes, personalityEffect, confidence, context);
+  }
+
+  /**
+   * 收集基礎推理因素：憲法、法律、觀測、Edda 歷史、預算。
+   */
+  private collectReasoningFactors(
+    context: DecideContext,
+    factors: string[],
+    lawConsiderations: string[],
+    precedentNotes: string[],
+  ): void {
     // 憲法約束
     factors.push(`Active constitution v${context.constitution.version} with ${context.constitution.rules.length} rules`);
 
@@ -281,34 +326,48 @@ export class DecisionEngine {
 
     // 歷史決策 — 分類為正面/負面，加入摘要
     if (context.edda_precedents.length > 0) {
-      const activePrecedents = context.edda_precedents.filter(p => p.is_active);
-      const positivePrecedents = activePrecedents.filter(p =>
-        /effective|success/i.test(p.value),
-      );
-      const negativePrecedents = activePrecedents.filter(p =>
-        /harmful|rollback|failed/i.test(p.value),
-      );
-
-      factors.push(`${context.edda_precedents.length} precedent(s) from Edda`);
-
-      // 正面/負面摘要
-      if (positivePrecedents.length > 0) {
-        precedentNotes.push(`${positivePrecedents.length} positive precedent(s): ${positivePrecedents.map(p => p.key).join(', ')}`);
-      }
-      if (negativePrecedents.length > 0) {
-        precedentNotes.push(`${negativePrecedents.length} negative precedent(s): ${negativePrecedents.map(p => p.key).join(', ')}`);
-      }
-
-      for (const p of context.edda_precedents) {
-        precedentNotes.push(`${p.key}: ${p.value}${p.is_active ? '' : ' (superseded)'}`);
-      }
+      this.collectPrecedentNotes(context, factors, precedentNotes);
     }
 
     // 預算狀態
     const budgetUsedPct = Math.round((1 - context.budget_ratio) * 100);
     factors.push(`Daily budget ${budgetUsedPct}% used (${context.budget.spent_today}/${context.budget.per_day_limit})`);
+  }
 
-    // Chief personality + 約束
+  /**
+   * 收集 Edda 歷史決策的正面/負面摘要。
+   */
+  private collectPrecedentNotes(
+    context: DecideContext,
+    factors: string[],
+    precedentNotes: string[],
+  ): void {
+    const activePrecedents = context.edda_precedents.filter(p => p.is_active);
+    const positivePrecedents = activePrecedents.filter(p =>
+      /effective|success/i.test(p.value),
+    );
+    const negativePrecedents = activePrecedents.filter(p =>
+      /harmful|rollback|failed/i.test(p.value),
+    );
+
+    factors.push(`${context.edda_precedents.length} precedent(s) from Edda`);
+
+    if (positivePrecedents.length > 0) {
+      precedentNotes.push(`${positivePrecedents.length} positive precedent(s): ${positivePrecedents.map(p => p.key).join(', ')}`);
+    }
+    if (negativePrecedents.length > 0) {
+      precedentNotes.push(`${negativePrecedents.length} negative precedent(s): ${negativePrecedents.map(p => p.key).join(', ')}`);
+    }
+
+    for (const p of context.edda_precedents) {
+      precedentNotes.push(`${p.key}: ${p.value}${p.is_active ? '' : ' (superseded)'}`);
+    }
+  }
+
+  /**
+   * 組裝 Chief personality 描述字串。
+   */
+  private buildPersonalityEffect(context: DecideContext): string {
     let personalityEffect = `Chief ${context.chief.name} (${context.chief.role})`;
     const riskTolerance = context.chief.personality?.risk_tolerance ?? 'moderate';
     personalityEffect += ` [${riskTolerance}]`;
@@ -319,54 +378,64 @@ export class DecisionEngine {
     if (constraintDescs.length > 0) {
       personalityEffect += ` — constraints: ${constraintDescs.join('; ')}`;
     }
+    return personalityEffect;
+  }
 
-    // --- Pipeline ---
-    const candidates = this.generateCandidates(context);
-    let action = this.selectBest(candidates, context);
-    let lawProposals = this.checkLawProposals(context);
+  /**
+   * LLM Advisor 增強：重排候選、推理增強、law 建議。
+   * 全部在 try/catch 內，失敗時 fallback 到 rule-based。
+   */
+  private async applyLlmAdvisor(
+    context: DecideContext,
+    candidates: ActionIntent[],
+    action: ActionIntent | null,
+    factors: string[],
+  ): Promise<{ action: ActionIntent | null; lawProposals: LawProposalDraft[] }> {
+    const advisor = this.llmAdvisor!;
+    let currentAction = action;
+    const lawProposals: LawProposalDraft[] = [];
 
-    // --- LLM Advisor 增強（可選） ---
-    if (this.llmAdvisor) {
-      // LLM 重排候選
-      if (candidates.length > 0) {
-        try {
-          const advisorResult = await this.llmAdvisor.advise(context, candidates);
-          if (advisorResult.selected_index >= 0 && advisorResult.selected_index < candidates.length) {
-            action = candidates[advisorResult.selected_index];
-            factors.push(`LLM advisor re-ranked: selected candidate ${advisorResult.selected_index}`);
-          }
-          if (advisorResult.overall_reasoning) {
-            factors.push(`LLM advisor: ${advisorResult.overall_reasoning}`);
-          }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          appendAudit(this.db, 'llm_advisor', context.cycle_id, 'advise_fallback', {
-            error: msg.slice(0, 500),
-          }, 'system');
-        }
-      }
-
-      // LLM 推理增強
+    // LLM 重排候選
+    if (candidates.length > 0) {
       try {
-        const enrichment = await this.llmAdvisor.generateReasoning(context, action);
-        if (enrichment.enriched_summary) {
-          factors.push(`LLM reasoning: ${enrichment.enriched_summary}`);
+        const advisorResult = await advisor.advise(context, candidates);
+        if (advisorResult.selected_index >= 0 && advisorResult.selected_index < candidates.length) {
+          currentAction = candidates[advisorResult.selected_index];
+          factors.push(`LLM advisor re-ranked: selected candidate ${advisorResult.selected_index}`);
         }
-        if (enrichment.additional_factors.length > 0) {
-          factors.push(...enrichment.additional_factors);
+        if (advisorResult.overall_reasoning) {
+          factors.push(`LLM advisor: ${advisorResult.overall_reasoning}`);
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        appendAudit(this.db, 'llm_advisor', context.cycle_id, 'reasoning_fallback', {
+        appendAudit(this.db, 'llm_advisor', context.cycle_id, 'advise_fallback', {
           error: msg.slice(0, 500),
         }, 'system');
       }
+    }
 
-      // LLM law proposal 建議
-      try {
-        const suggestions = await this.llmAdvisor.suggestLawProposals(context);
-        if (suggestions.length > 0) {
-          const llmProposals: import('./decision-engine').LawProposalDraft[] = suggestions.map(s => ({
+    // LLM 推理增強
+    try {
+      const enrichment = await advisor.generateReasoning(context, currentAction);
+      if (enrichment.enriched_summary) {
+        factors.push(`LLM reasoning: ${enrichment.enriched_summary}`);
+      }
+      if (enrichment.additional_factors.length > 0) {
+        factors.push(...enrichment.additional_factors);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendAudit(this.db, 'llm_advisor', context.cycle_id, 'reasoning_fallback', {
+        error: msg.slice(0, 500),
+      }, 'system');
+    }
+
+    // LLM law proposal 建議
+    try {
+      const suggestions = await advisor.suggestLawProposals(context);
+      if (suggestions.length > 0) {
+        for (const s of suggestions) {
+          lawProposals.push({
             category: s.category,
             content: { description: s.description, strategy: s.strategy },
             evidence: {
@@ -375,29 +444,32 @@ export class DecisionEngine {
               edda_refs: [],
             },
             trigger: s.trigger,
-          }));
-          lawProposals = [...lawProposals, ...llmProposals];
+          });
         }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        appendAudit(this.db, 'llm_advisor', context.cycle_id, 'law_suggest_fallback', {
-          error: msg.slice(0, 500),
-        }, 'system');
       }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendAudit(this.db, 'llm_advisor', context.cycle_id, 'law_suggest_fallback', {
+        error: msg.slice(0, 500),
+      }, 'system');
     }
 
-    // 計算 confidence
-    let confidence = action?.confidence ?? 1.0;
+    return { action: currentAction, lawProposals };
+  }
 
-    // 人格影響 confidence
-    if (action) {
-      const adjustment = this.applyPersonalityConfidence(action, context, riskTolerance);
-      confidence = Math.max(0, Math.min(1, confidence + adjustment));
-      if (adjustment !== 0) {
-        personalityEffect += ` — ${riskTolerance} adjustment: ${adjustment > 0 ? '+' : ''}${adjustment.toFixed(2)}`;
-      }
-    }
-
+  /**
+   * 組裝最終 DecideResult。
+   */
+  private buildDecideResult(
+    action: ActionIntent | null,
+    lawProposals: LawProposalDraft[],
+    factors: string[],
+    lawConsiderations: string[],
+    precedentNotes: string[],
+    personalityEffect: string,
+    confidence: number,
+    context: DecideContext,
+  ): DecideResult {
     // 組裝 updated_intent
     let updatedIntent: CycleIntent | null = null;
     if (action && action.kind === 'dispatch_task' && action.task_key) {
@@ -410,17 +482,7 @@ export class DecisionEngine {
     }
 
     // 決策摘要
-    let summary: string;
-    if (!action) {
-      summary = 'No action needed. Cycle completed — no active laws or intent to execute.';
-    } else if (action.kind === 'complete_cycle') {
-      summary = `Cycle completed: ${action.reason}`;
-    } else if (action.kind === 'wait') {
-      summary = `Waiting: ${action.reason}`;
-    } else {
-      summary = `Action: ${action.kind}${action.task_key ? `(${action.task_key})` : ''} — ${action.reason}`;
-    }
-
+    const summary = this.buildDecisionSummary(action);
     const finalAction = action ? { ...action, confidence } : null;
 
     const reasoning: DecisionReasoning = {
@@ -438,6 +500,22 @@ export class DecisionEngine {
       reasoning,
       updated_intent: updatedIntent,
     };
+  }
+
+  /**
+   * 產生決策摘要字串。
+   */
+  private buildDecisionSummary(action: ActionIntent | null): string {
+    if (!action) {
+      return 'No action needed. Cycle completed — no active laws or intent to execute.';
+    }
+    if (action.kind === 'complete_cycle') {
+      return `Cycle completed: ${action.reason}`;
+    }
+    if (action.kind === 'wait') {
+      return `Waiting: ${action.reason}`;
+    }
+    return `Action: ${action.kind}${action.task_key ? `(${action.task_key})` : ''} — ${action.reason}`;
   }
 
   // ---------------------------------------------------------------------------
