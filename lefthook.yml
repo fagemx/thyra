@@ -1,0 +1,14 @@
+pre-commit:
+  parallel: true
+  commands:
+    build:
+      run: bun run build
+      fail_text: "TypeScript build failed. Fix errors before committing."
+    lint:
+      run: bun run lint
+      fail_text: "ESLint found issues. Run 'bun run lint' to see details."
+
+commit-msg:
+  commands:
+    conventional:
+      run: 'head -1 "{1}" | grep -qE "^(feat|fix|docs|style|refactor|test|chore|ci|perf|build|revert)" || (echo "ERROR - Commit message must follow conventional commits" && exit 1)'
