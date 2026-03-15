@@ -28,16 +28,16 @@ export type GovernancePatch = z.infer<typeof GovernancePatchSchema>;
  * 建立一個合法的 governance patch event，自動產生 event_id 和 timestamp
  */
 export function createGovernancePatch(
-  source_village_id: string,
-  patch_type: PatchType,
+  sourceVillageId: string,
+  patchType: PatchType,
   payload: Record<string, unknown> = {},
 ): GovernancePatch {
   return {
     version: 'governance.patch.v1',
     event_id: generateEventId(),
     occurred_at: new Date().toISOString(),
-    source_village_id,
-    patch_type,
+    source_village_id: sourceVillageId,
+    patch_type: patchType,
     payload,
   };
 }

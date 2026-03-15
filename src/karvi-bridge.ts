@@ -286,7 +286,7 @@ export class KarviBridge {
   startMonitor(intervalMs = 30_000): void {
     if (this.monitorInterval) return;
     this.monitorInterval = setInterval(() => {
-      this.getHealth();
+      void this.getHealth();
     }, intervalMs);
   }
 

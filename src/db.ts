@@ -199,7 +199,7 @@ export function initSchema(db: Database): void {
   // ALTER TABLE 新增 intent 欄位（冪等：column 已存在就忽略）
   try {
     db.exec('ALTER TABLE loop_cycles ADD COLUMN intent TEXT DEFAULT NULL');
-  } catch (_) {
+  } catch {
     // "duplicate column name: intent" — 安全忽略
   }
 }
