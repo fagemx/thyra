@@ -10,6 +10,7 @@ import type { SkillRegistry } from './skill-registry';
 import type { DecisionEngine, ActionIntent, DecideResult } from './decision-engine';
 
 import { CycleMetricsCollector } from './cycle-metrics';
+import { snapshotWorldState } from './world/snapshot';
 import { StartCycleInput as StartCycleSchema } from './schemas/loop';
 import type { StartCycleInputRaw, LoopAction, CycleIntent } from './schemas/loop';
 
@@ -631,6 +632,19 @@ export class LoopRunner {
     if (finishedCycle) {
       const metrics = CycleMetricsCollector.collect(finishedCycle);
       CycleMetricsCollector.record(this.db, cycleId, metrics);
+
+      // Snapshot world state at cycle boundary（issue #187）
+      try {
+        const snapshotId = snapshotWorldState(this.db, finishedCycle.village_id, 'cycle_end');
+        appendAudit(this.db, 'world_snapshot', snapshotId, 'cycle_snapshot', {
+          cycle_id: cycleId,
+          snapshot_id: snapshotId,
+          cycle_status: status,
+          reason,
+        }, 'system');
+      } catch {
+        // Snapshot 失敗不影響 cycle 結束（graceful degradation）
+      }
     }
 
     this.abortControllers.delete(cycleId);
