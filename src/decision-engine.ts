@@ -8,10 +8,11 @@ import type { EddaBridge, EddaDecisionHit } from './edda-bridge';
 import type { RiskAssessor } from './risk-assessor';
 import type { LlmAdvisor } from './llm-advisor';
 import { filterCandidates } from './candidate-filter';
-import type { LoopAction } from './schemas/loop';
+import type { LoopAction, PlanState, PlannedStep, CompletedStep } from './schemas/loop';
 
 // Re-export CycleIntent from schemas/loop (single source of truth)
 export type { CycleIntent } from './schemas/loop';
+export type { PlanState, PlannedStep, CompletedStep } from './schemas/loop';
 import type { CycleIntent } from './schemas/loop';
 
 // ---------------------------------------------------------------------------
@@ -257,8 +258,15 @@ export class DecisionEngine {
    * 三步 pipeline: generateCandidates → selectBest → checkLawProposals
    * 如果有 LlmAdvisor，額外執行 LLM 重排 + 推理增強 + law 建議。
    * LLM 呼叫全部在 try/catch 內，失敗時 fallback 到 rule-based。
+   *
+   * 若 intent 包含 plan（PlanState v1），使用 plan-based flow。
    */
   async decide(context: DecideContext): Promise<DecideResult> {
+    // 檢查是否為 plan-based flow
+    if (context.intent?.plan) {
+      return this.decidePlanBased(context);
+    }
+
     // 組裝推理因素（SI-2: 所有決策必須有可追溯的理由鏈）
     const factors: string[] = [];
     const lawConsiderations: string[] = [];
@@ -541,6 +549,354 @@ export class DecisionEngine {
       return `Waiting: ${action.reason}`;
     }
     return `Action: ${action.kind}${action.task_key ? `(${action.task_key})` : ''} — ${action.reason}`;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Plan-based decision flow — PlanState v1
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Plan-based 決策流程。
+   *
+   * 1. 從 plan.planned_steps 找下一個 pending 步驟
+   * 2. 檢查依賴是否都已完成
+   * 3. 如果步驟被阻擋 → 觸發 plan repair（LLM）
+   * 4. Plan repair 結果經過確定性過濾
+   * 5. 所有步驟完成 → complete_cycle
+   */
+  private async decidePlanBased(context: DecideContext): Promise<DecideResult> {
+    const plan = context.intent!.plan!;
+    const factors: string[] = [];
+    const lawConsiderations: string[] = [];
+    const precedentNotes: string[] = [];
+
+    this.collectReasoningFactors(context, factors, lawConsiderations, precedentNotes);
+    factors.push(`Plan-based flow: "${plan.objective}" (${plan.planned_steps.length} steps, ${plan.completed_steps.length} completed)`);
+
+    const personalityEffect = this.buildPersonalityEffect(context);
+    const eddaRefs = context.edda_precedents
+      .filter(p => p.is_active)
+      .map(p => p.event_id);
+
+    // 檢查停止條件：所有步驟完成
+    const pendingSteps = plan.planned_steps.filter(s => s.status === 'pending');
+    if (pendingSteps.length === 0) {
+      factors.push('All planned steps completed');
+      const action: ActionIntent = {
+        kind: 'complete_cycle',
+        estimated_cost: 0,
+        rollback_plan: 'none',
+        reason: `Plan completed: ${plan.objective}`,
+        evidence_refs: eddaRefs,
+        confidence: 1.0,
+      };
+      return this.buildDecideResult(
+        action, [], factors, lawConsiderations, precedentNotes,
+        personalityEffect, 1.0, context,
+      );
+    }
+
+    // 找到下一個可執行的步驟（依賴已完成）
+    const completedKeys = new Set(plan.completed_steps.map(s => s.task_key));
+    const nextStep = pendingSteps.find(step => {
+      if (!step.depends_on || step.depends_on.length === 0) return true;
+      return step.depends_on.every(dep => completedKeys.has(dep));
+    });
+
+    if (!nextStep) {
+      // 所有 pending 步驟都有未滿足的依賴 → 嘗試 plan repair
+      factors.push('All pending steps have unmet dependencies');
+      return this.handlePlanRepair(
+        context, plan, 'All pending steps have unmet dependencies',
+        factors, lawConsiderations, precedentNotes, personalityEffect, eddaRefs,
+      );
+    }
+
+    // 檢查上一個 action 是否被 blocked（觸發 repair）
+    if (context.last_action?.status === 'blocked' &&
+        context.last_action.type === nextStep.task_key) {
+      const blockReason = context.last_action.blocked_reasons?.join('; ') ?? 'Unknown block reason';
+      factors.push(`Step "${nextStep.task_key}" was blocked: ${blockReason}`);
+      return this.handlePlanRepair(
+        context, plan, `Step "${nextStep.task_key}" blocked: ${blockReason}`,
+        factors, lawConsiderations, precedentNotes, personalityEffect, eddaRefs,
+      );
+    }
+
+    // 建立 dispatch 候選
+    const candidates = this.buildDispatchCandidate(
+      nextStep.task_key, context, eddaRefs,
+      `Plan step: ${nextStep.reason}`,
+    );
+
+    if (candidates.length === 0) {
+      // Skill 不存在 → 嘗試 plan repair
+      factors.push(`No skill found for planned step "${nextStep.task_key}"`);
+      return this.handlePlanRepair(
+        context, plan, `No verified skill for task_key "${nextStep.task_key}"`,
+        factors, lawConsiderations, precedentNotes, personalityEffect, eddaRefs,
+      );
+    }
+
+    // 用候選的 estimated_cost 覆寫 plan step 的值
+    const action = candidates[0];
+    action.estimated_cost = nextStep.estimated_cost;
+    factors.push(`Executing plan step: ${nextStep.task_key}`);
+
+    const lawProposals = this.checkLawProposals(context);
+    const confidence = action.confidence;
+
+    return this.buildPlanDecideResult(
+      action, lawProposals, factors, lawConsiderations, precedentNotes,
+      personalityEffect, confidence, context, plan, nextStep.task_key,
+    );
+  }
+
+  /**
+   * 處理 plan repair — 阻擋或缺少 skill 時觸發。
+   * 如果有 LlmAdvisor 且 fallback=replan → 呼叫 repairPlan。
+   * Repair 結果的每個新步驟經過確定性過濾。
+   * 沒有 LlmAdvisor 或 fallback=abort → complete_cycle。
+   */
+  private async handlePlanRepair(
+    context: DecideContext,
+    plan: PlanState,
+    blockingReason: string,
+    factors: string[],
+    lawConsiderations: string[],
+    precedentNotes: string[],
+    personalityEffect: string,
+    eddaRefs: string[],
+  ): Promise<DecideResult> {
+    // 依照 fallback 策略處理
+    if (plan.fallback === 'abort') {
+      factors.push('Plan fallback=abort, completing cycle');
+      const action: ActionIntent = {
+        kind: 'complete_cycle',
+        estimated_cost: 0,
+        rollback_plan: 'none',
+        reason: `Plan aborted: ${blockingReason}`,
+        evidence_refs: eddaRefs,
+        confidence: 1.0,
+      };
+      return this.buildDecideResult(
+        action, [], factors, lawConsiderations, precedentNotes,
+        personalityEffect, 1.0, context,
+      );
+    }
+
+    if (plan.fallback === 'skip') {
+      // 跳過被阻擋的步驟，標記為 skipped
+      factors.push('Plan fallback=skip, skipping blocked step');
+      const repairedPlan = this.skipBlockedStep(plan, blockingReason);
+      return this.buildPlanRepairResult(
+        context, repairedPlan, factors, lawConsiderations, precedentNotes,
+        personalityEffect, eddaRefs,
+      );
+    }
+
+    if (plan.fallback === 'retry') {
+      // retry: 重試被阻擋的步驟（回到 pending，下次 iteration 會重新嘗試）
+      factors.push('Plan fallback=retry, retrying blocked step');
+      const retrPlan = this.retryBlockedStep(plan);
+      return this.buildPlanRepairResult(
+        context, retrPlan, factors, lawConsiderations, precedentNotes,
+        personalityEffect, eddaRefs,
+      );
+    }
+
+    if (plan.fallback === 'replan' && this.llmAdvisor) {
+      // LLM plan repair
+      try {
+        const repairedPlan = await this.llmAdvisor.repairPlan(context, plan, blockingReason);
+        // 驗證 repaired plan 的每個新 pending 步驟
+        const validatedPlan = this.validateRepairedPlan(repairedPlan, context);
+        factors.push(`Plan repaired by LLM: ${validatedPlan.planned_steps.length} steps`);
+
+        appendAudit(this.db, 'plan_repair', context.cycle_id, 'repair', {
+          blocking_reason: blockingReason,
+          original_steps: plan.planned_steps.length,
+          repaired_steps: validatedPlan.planned_steps.length,
+        }, 'system');
+
+        return this.buildPlanRepairResult(
+          context, validatedPlan, factors, lawConsiderations, precedentNotes,
+          personalityEffect, eddaRefs,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        factors.push(`Plan repair failed: ${msg}`);
+        appendAudit(this.db, 'plan_repair', context.cycle_id, 'repair_failed', {
+          error: msg.slice(0, 500),
+        }, 'system');
+      }
+    }
+
+    // Fallback: 完成 cycle
+    factors.push('Plan repair unavailable, completing cycle');
+    const action: ActionIntent = {
+      kind: 'complete_cycle',
+      estimated_cost: 0,
+      rollback_plan: 'none',
+      reason: `Plan stuck: ${blockingReason}`,
+      evidence_refs: eddaRefs,
+      confidence: 0.5,
+    };
+    return this.buildDecideResult(
+      action, [], factors, lawConsiderations, precedentNotes,
+      personalityEffect, 0.5, context,
+    );
+  }
+
+  /**
+   * 跳過被阻擋的步驟（fallback=skip）。
+   * 優先跳過 in_progress 的步驟，否則跳過第一個 pending。
+   */
+  private skipBlockedStep(plan: PlanState, _blockingReason: string): PlanState {
+    // 被阻擋的步驟通常是 in_progress 的那個
+    const blockedStep = plan.planned_steps.find(s => s.status === 'in_progress')
+      ?? plan.planned_steps.find(s => s.status === 'pending');
+    if (!blockedStep) return plan;
+
+    const updatedSteps = plan.planned_steps.map(s =>
+      s === blockedStep ? { ...s, status: 'skipped' as const } : s,
+    );
+
+    return { ...plan, planned_steps: updatedSteps };
+  }
+
+  /**
+   * 重試被阻擋的步驟（fallback=retry）。
+   * 將 in_progress 步驟重設為 pending 以便下次 iteration 重試。
+   */
+  private retryBlockedStep(plan: PlanState): PlanState {
+    const updatedSteps = plan.planned_steps.map(s =>
+      s.status === 'in_progress' ? { ...s, status: 'pending' as const } : s,
+    );
+    return { ...plan, planned_steps: updatedSteps };
+  }
+
+  /**
+   * 驗證 repaired plan — 確保新步驟引用的 task_key 在 SkillRegistry 中存在。
+   * 無效步驟標記為 skipped。
+   */
+  private validateRepairedPlan(plan: PlanState, context: DecideContext): PlanState {
+    const validatedSteps = plan.planned_steps.map(step => {
+      if (step.status !== 'pending') return step;
+
+      // 檢查 task_key 是否存在於 SkillRegistry
+      const skill = this.skillRegistry.resolveForIntent(step.task_key, context.village_id);
+      if (!skill) {
+        return { ...step, status: 'skipped' as const };
+      }
+
+      // 檢查預算
+      const budgetRemaining = context.budget.per_day_limit * context.budget_ratio;
+      if (step.estimated_cost > budgetRemaining || step.estimated_cost > context.budget.per_action_limit) {
+        return { ...step, status: 'skipped' as const };
+      }
+
+      return step;
+    });
+
+    return { ...plan, planned_steps: validatedSteps };
+  }
+
+  /**
+   * 組裝 plan-based 決策結果。
+   */
+  private buildPlanDecideResult(
+    action: ActionIntent | null,
+    lawProposals: LawProposalDraft[],
+    factors: string[],
+    lawConsiderations: string[],
+    precedentNotes: string[],
+    personalityEffect: string,
+    confidence: number,
+    context: DecideContext,
+    plan: PlanState,
+    currentTaskKey: string,
+  ): DecideResult {
+    const updatedIntent: CycleIntent = {
+      goal_kind: context.intent?.goal_kind ?? 'plan_execution',
+      stage_hint: currentTaskKey,
+      origin_reason: context.intent?.origin_reason ?? plan.objective,
+      last_decision_summary: action?.reason ?? 'plan step',
+      plan,
+    };
+
+    const summary = this.buildDecisionSummary(action);
+    const finalAction = action ? { ...action, confidence } : null;
+
+    const reasoning: DecisionReasoning = {
+      summary,
+      factors,
+      precedent_notes: precedentNotes,
+      law_considerations: lawConsiderations,
+      personality_effect: personalityEffect,
+      confidence,
+    };
+
+    return {
+      action: finalAction,
+      law_proposals: lawProposals,
+      reasoning,
+      updated_intent: updatedIntent,
+    };
+  }
+
+  /**
+   * 組裝 plan repair 後的結果（重新找下一步驟）。
+   */
+  private buildPlanRepairResult(
+    context: DecideContext,
+    repairedPlan: PlanState,
+    factors: string[],
+    lawConsiderations: string[],
+    precedentNotes: string[],
+    personalityEffect: string,
+    eddaRefs: string[],
+  ): DecideResult {
+    // 找 repaired plan 的下一個 pending 步驟
+    const completedKeys = new Set(repairedPlan.completed_steps.map(s => s.task_key));
+    const pendingSteps = repairedPlan.planned_steps.filter(s => s.status === 'pending');
+    const nextStep = pendingSteps.find(step => {
+      if (!step.depends_on || step.depends_on.length === 0) return true;
+      return step.depends_on.every(dep => completedKeys.has(dep));
+    });
+
+    if (!nextStep) {
+      // Repaired plan 也沒有可執行步驟 → complete
+      const action: ActionIntent = {
+        kind: 'complete_cycle',
+        estimated_cost: 0,
+        rollback_plan: 'none',
+        reason: 'Repaired plan has no executable steps',
+        evidence_refs: eddaRefs,
+        confidence: 0.5,
+      };
+      return this.buildDecideResult(
+        action, [], factors, lawConsiderations, precedentNotes,
+        personalityEffect, 0.5, context,
+      );
+    }
+
+    // 建立 dispatch 候選
+    const candidates = this.buildDispatchCandidate(
+      nextStep.task_key, context, eddaRefs,
+      `Repaired plan step: ${nextStep.reason}`,
+    );
+
+    const action = candidates.length > 0 ? candidates[0] : null;
+    if (action) {
+      action.estimated_cost = nextStep.estimated_cost;
+    }
+
+    return this.buildPlanDecideResult(
+      action, [], factors, lawConsiderations, precedentNotes,
+      personalityEffect, action?.confidence ?? 0.5, context,
+      repairedPlan, nextStep.task_key,
+    );
   }
 
   // ---------------------------------------------------------------------------
