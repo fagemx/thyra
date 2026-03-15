@@ -6,8 +6,6 @@ import type { Village } from '../village-manager';
 import type { Constitution } from '../constitution-store';
 import type { Chief } from '../chief-engine';
 import type { Law } from '../law-engine';
-import type { Skill } from '../skill-registry';
-import type { LoopCycle } from '../loop-runner';
 
 // ---------------------------------------------------------------------------
 // Test helpers — 與 diff.test.ts 一致的 pattern

@@ -83,9 +83,12 @@ chief-engine + law-engine + risk-assessor + constitution-store → loop-runner
 ### TypeScript 嚴格模式
 
 - `strict: true` — 不允許 `any`
+- `noUnusedLocals: true` — 不允許未使用的變數和 import
+- `noUnusedParameters: true` — 不允許未使用的參數（用 `_` 前綴標記刻意忽略的參數）
 - `noEmit: false` — 必須能編譯
 - Zod 做 runtime validation，TypeScript 做 compile-time safety
 - 不使用 `as any` 或 `@ts-ignore`
+- 不使用 `!` non-null assertion — 用 guard clause + throw 替代
 
 **`any` 的替代方案：**
 

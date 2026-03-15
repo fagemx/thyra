@@ -69,7 +69,7 @@ describe('SkillRegistry', () => {
     const local = registry.create({ name: 'local-skill', village_id: villageId, definition: SKILL_DEF }, 'u');
     registry.verify(local.id, 'u');
 
-    const draft = registry.create({ name: 'draft-skill', definition: SKILL_DEF }, 'u');
+    registry.create({ name: 'draft-skill', definition: SKILL_DEF }, 'u');
 
     const other = villageMgr.create({ name: 'other', target_repo: 'r2' }, 'u');
     const otherSkill = registry.create({ name: 'other-skill', village_id: other.id, definition: SKILL_DEF }, 'u');

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Database } from 'bun:sqlite';
 import { Hono } from 'hono';
-import { createDb, initSchema, appendAudit } from './db';
+import { createDb, initSchema } from './db';
 import { AuditQuery } from './audit-query';
 import { auditRoutes } from './routes/audit';
 

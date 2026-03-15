@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
 import { Database } from 'bun:sqlite';
 import { createDb, initSchema } from './db';
 import { KarviBridge } from './karvi-bridge';
-import type { KarviEventNormalized } from './karvi-bridge';
+
 import { KarviWebhookPayloadSchema, normalizeKarviEvent } from './schemas/karvi-event';
 import type { KarviWebhookPayload } from './schemas/karvi-event';
 

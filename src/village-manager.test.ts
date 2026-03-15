@@ -97,9 +97,7 @@ describe('VillageManager', () => {
     db.prepare('UPDATE villages SET version = 99 WHERE id = ?').run(v.id);
     // mgr.update will: get() → sees version=99, then UPDATE WHERE version=99 → matches, succeeds
     // To get a real conflict, we use a trigger-like approach:
-    // 1. Create a second VillageManager pointing to the same DB
-    const mgr2 = new VillageManager(db);
-    // 2. First manager reads and updates
+    // 1. First manager reads and updates
     mgr.update(v.id, { name: 'updated-by-mgr1' }, 'u'); // version 99→100
     // 3. Second manager tries to update, but the version changed between 99→100
     //    mgr2.update will get() → sees version=100, succeeds normally.

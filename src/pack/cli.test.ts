@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { writeFileSync, unlinkSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import yaml from 'js-yaml';
 import { parseArgs, runCli, formatResult } from './cli';
-import type { CliOptions } from './cli';
+
 import type { CompileResult } from './compiler';
 import { Database } from 'bun:sqlite';
 import { initSchema } from '../db';

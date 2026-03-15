@@ -8,7 +8,7 @@ import { ChiefEngine } from './chief-engine';
 import { LawEngine } from './law-engine';
 import { RiskAssessor } from './risk-assessor';
 import { DecisionEngine } from './decision-engine';
-import type { CycleState, DecideContext } from './decision-engine';
+import type { CycleState } from './decision-engine';
 import {
   AdvisorSelectionSchema,
   ReasoningEnrichmentSchema,
@@ -17,7 +17,7 @@ import {
   createMockLlmAdvisor,
   createMockLlmClient,
 } from './llm-advisor';
-import type { LlmAdvisor, LlmClient } from './llm-advisor';
+import type { LlmClient } from './llm-advisor';
 
 describe('LlmAdvisor', () => {
   let db: Database;

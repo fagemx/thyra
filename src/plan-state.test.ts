@@ -8,7 +8,7 @@ import { ChiefEngine } from './chief-engine';
 import { LawEngine } from './law-engine';
 import { RiskAssessor } from './risk-assessor';
 import { DecisionEngine } from './decision-engine';
-import type { CycleState, DecideContext } from './decision-engine';
+import type { DecideContext } from './decision-engine';
 import type { LoopAction, PlanState, CycleIntent } from './schemas/loop';
 import {
   PlanStateSchema,

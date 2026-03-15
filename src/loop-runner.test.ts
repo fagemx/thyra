@@ -897,10 +897,6 @@ describe('LoopRunner', () => {
       await waitFor(() => v1Runner.get(cycle.id)?.status === 'completed');
 
       // Check audit_log for decision entries
-      const entries = db.prepare(
-        "SELECT * FROM audit_log WHERE entity_type = 'loop' AND entity_id = ? AND action = 'decision'"
-      ).all(cycle.id) as Record<string, unknown>[];
-
       // V1 flow should record at least one decision entry (even if action is null → completed)
       // The first iteration produces a decision entry only if action is not null
       // When action is null, it calls finishCycle which records 'completed' in audit

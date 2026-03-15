@@ -2,14 +2,14 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { Database } from 'bun:sqlite';
 import { createDb, initSchema } from '../db';
 import { assembleWorldState } from './state';
-import type { WorldState } from './state';
+
 import { VillageManager } from '../village-manager';
 import { ConstitutionStore } from '../constitution-store';
 import { ChiefEngine } from '../chief-engine';
 import { LawEngine } from '../law-engine';
 import { SkillRegistry } from '../skill-registry';
 import { TerritoryCoordinator } from '../territory';
-import { RiskAssessor } from '../risk-assessor';
+
 
 describe('assembleWorldState', () => {
   let db: Database;
@@ -18,7 +18,6 @@ describe('assembleWorldState', () => {
   let chiefEngine: ChiefEngine;
   let lawEngine: LawEngine;
   let skillRegistry: SkillRegistry;
-  let riskAssessor: RiskAssessor;
 
   beforeEach(() => {
     db = createDb(':memory:');
@@ -28,7 +27,7 @@ describe('assembleWorldState', () => {
     skillRegistry = new SkillRegistry(db);
     chiefEngine = new ChiefEngine(db, constitutionStore, skillRegistry);
     lawEngine = new LawEngine(db, constitutionStore, chiefEngine);
-    riskAssessor = new RiskAssessor(db);
+
   });
 
   // --- Helper: 建立最小 constitution ---

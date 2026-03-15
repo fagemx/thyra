@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Hono } from 'hono';
-import { Database } from 'bun:sqlite';
 import { createDb, initSchema } from '../db';
 import { VillageManager } from '../village-manager';
 import { ConstitutionStore } from '../constitution-store';
@@ -223,7 +222,6 @@ describe('Constitutions routes', () => {
 describe('Chiefs routes', () => {
   let app: Hono;
   let villageId: string;
-  let constitutionId: string;
 
   beforeEach(async () => {
     ({ app } = buildApp());
@@ -231,11 +229,10 @@ describe('Chiefs routes', () => {
     const vRes = await app.request('/api/villages', json(VALID_VILLAGE));
     villageId = (await vRes.json()).data.id;
     // Create constitution (required for chief creation)
-    const cRes = await app.request(
+    await app.request(
       `/api/villages/${villageId}/constitutions`,
       json(VALID_CONSTITUTION),
     );
-    constitutionId = (await cRes.json()).data.id;
   });
 
   it('POST /api/villages/:vid/chiefs → 201', async () => {

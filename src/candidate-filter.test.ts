@@ -8,7 +8,7 @@ import { ChiefEngine } from './chief-engine';
 import { LawEngine } from './law-engine';
 import { RiskAssessor } from './risk-assessor';
 import { DecisionEngine } from './decision-engine';
-import type { CycleState, ActionIntent, DecideContext } from './decision-engine';
+import type { CycleState, ActionIntent } from './decision-engine';
 import { filterCandidates } from './candidate-filter';
 import type { CandidateIntentDraft } from './llm-advisor';
 import {
