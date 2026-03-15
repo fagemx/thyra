@@ -1,10 +1,12 @@
 import type { Database } from 'bun:sqlite';
+import { appendAudit } from './db';
 import type { ConstitutionStore, Constitution } from './constitution-store';
 import type { ChiefEngine, Chief } from './chief-engine';
 import type { LawEngine, Law } from './law-engine';
 import type { SkillRegistry, Skill } from './skill-registry';
 import type { EddaBridge, EddaDecisionHit } from './edda-bridge';
 import type { RiskAssessor } from './risk-assessor';
+import type { LlmAdvisor } from './llm-advisor';
 import type { LoopAction } from './schemas/loop';
 
 // Re-export CycleIntent from schemas/loop (single source of truth)
@@ -146,6 +148,7 @@ export class DecisionEngine {
     private skillRegistry: SkillRegistry,
     private riskAssessor: RiskAssessor,
     private eddaBridge: EddaBridge | null,
+    private llmAdvisor?: LlmAdvisor,
   ) {}
 
   /**
@@ -256,10 +259,12 @@ export class DecisionEngine {
   }
 
   /**
-   * Phase 1: rule-based 決策引擎。
+   * 決策引擎主流程。
    * 三步 pipeline: generateCandidates → selectBest → checkLawProposals
+   * 如果有 LlmAdvisor，額外執行 LLM 重排 + 推理增強 + law 建議。
+   * LLM 呼叫全部在 try/catch 內，失敗時 fallback 到 rule-based。
    */
-  decide(context: DecideContext): DecideResult {
+  async decide(context: DecideContext): Promise<DecideResult> {
     // 組裝推理因素（SI-2: 所有決策必須有可追溯的理由鏈）
     const factors: string[] = [];
     const lawConsiderations: string[] = [];
@@ -324,8 +329,69 @@ export class DecisionEngine {
 
     // --- Pipeline ---
     const candidates = this.generateCandidates(context);
-    const action = this.selectBest(candidates, context);
-    const lawProposals = this.checkLawProposals(context);
+    let action = this.selectBest(candidates, context);
+    let lawProposals = this.checkLawProposals(context);
+
+    // --- LLM Advisor 增強（可選） ---
+    if (this.llmAdvisor) {
+      // LLM 重排候選
+      if (candidates.length > 0) {
+        try {
+          const advisorResult = await this.llmAdvisor.advise(context, candidates);
+          if (advisorResult.selected_index >= 0 && advisorResult.selected_index < candidates.length) {
+            action = candidates[advisorResult.selected_index];
+            factors.push(`LLM advisor re-ranked: selected candidate ${advisorResult.selected_index}`);
+          }
+          if (advisorResult.overall_reasoning) {
+            factors.push(`LLM advisor: ${advisorResult.overall_reasoning}`);
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          appendAudit(this.db, 'llm_advisor', context.cycle_id, 'advise_fallback', {
+            error: msg.slice(0, 500),
+          }, 'system');
+        }
+      }
+
+      // LLM 推理增強
+      try {
+        const enrichment = await this.llmAdvisor.generateReasoning(context, action);
+        if (enrichment.enriched_summary) {
+          factors.push(`LLM reasoning: ${enrichment.enriched_summary}`);
+        }
+        if (enrichment.additional_factors.length > 0) {
+          factors.push(...enrichment.additional_factors);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        appendAudit(this.db, 'llm_advisor', context.cycle_id, 'reasoning_fallback', {
+          error: msg.slice(0, 500),
+        }, 'system');
+      }
+
+      // LLM law proposal 建議
+      try {
+        const suggestions = await this.llmAdvisor.suggestLawProposals(context);
+        if (suggestions.length > 0) {
+          const llmProposals: import('./decision-engine').LawProposalDraft[] = suggestions.map(s => ({
+            category: s.category,
+            content: { description: s.description, strategy: s.strategy },
+            evidence: {
+              source: 'llm_advisor',
+              reasoning: s.reasoning,
+              edda_refs: [],
+            },
+            trigger: s.trigger,
+          }));
+          lawProposals = [...lawProposals, ...llmProposals];
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        appendAudit(this.db, 'llm_advisor', context.cycle_id, 'law_suggest_fallback', {
+          error: msg.slice(0, 500),
+        }, 'system');
+      }
+    }
 
     // 計算 confidence
     let confidence = action?.confidence ?? 1.0;
