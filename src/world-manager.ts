@@ -66,8 +66,6 @@ export interface ChangeProposal {
 
 export class WorldManager {
   private readonly db: Database;
-  // Bridge 為可選 DI，prepare for #185, #186
-  // 目前未使用，以 getter 暴露供子類或後續 Phase 存取
   readonly eddaBridge: EddaBridge | undefined;
   readonly karviBridge: KarviBridge | undefined;
 
@@ -75,6 +73,19 @@ export class WorldManager {
     this.db = db;
     this.eddaBridge = eddaBridge;
     this.karviBridge = karviBridge;
+  }
+
+  /** Fire-and-forget: 記錄 world change 事件到 Edda ledger (THY-06 graceful degradation) */
+  private recordToEdda(aspect: string, value: string, reason: string): void {
+    if (!this.eddaBridge) return;
+    void this.eddaBridge.recordDecision({
+      domain: 'world',
+      aspect,
+      value,
+      reason,
+    }).catch((err: unknown) => {
+      console.warn('Edda record failed (non-blocking)', err);
+    });
   }
 
   /**
@@ -148,6 +159,13 @@ export class WorldManager {
       reason,
     }, 'system');
 
+    // 7. fire-and-forget Edda precedent recording (#185)
+    this.recordToEdda(
+      `${villageId}.change`,
+      change.type,
+      `applied: ${change.type}, snapshot=${snapshotBefore}, has_changes=${diff.has_changes}${reason ? `, reason=${reason}` : ''}`,
+    );
+
     return {
       applied: true,
       judge_result: judgeResult,
@@ -162,7 +180,16 @@ export class WorldManager {
    * 委派給 rollbackChange()（已含 audit 寫入）。
    */
   rollback(villageId: string, snapshotId: string, reason: string): RollbackResult {
-    return rollbackChange(this.db, villageId, snapshotId, reason);
+    const result = rollbackChange(this.db, villageId, snapshotId, reason);
+
+    // fire-and-forget Edda precedent recording (#185)
+    this.recordToEdda(
+      `${villageId}.rollback`,
+      snapshotId,
+      `rollback: snapshot=${snapshotId}, reason=${reason}`,
+    );
+
+    return result;
   }
 
   /**
