@@ -60,13 +60,6 @@ export interface DecideContext {
   intent: CycleIntent | null;
 }
 
-/** 推理因素 */
-export interface ReasoningFactor {
-  source: 'constitution' | 'law' | 'precedent' | 'observation' | 'budget' | 'chief_constraint';
-  description: string;
-  weight: 'high' | 'medium' | 'low';
-}
-
 /** 推理鏈 — v0.1 Section 2.4 (SI-2: 所有決策必須有可追溯的理由鏈) */
 export interface DecisionReasoning {
   summary: string;
