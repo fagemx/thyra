@@ -7,6 +7,9 @@ import type { DecideContext, ActionIntent } from './decision-engine';
 // LLM 客戶端介面 — 外部注入的 LLM 呼叫能力
 // ---------------------------------------------------------------------------
 
+/** LLM 候選數量硬限制 */
+export const MAX_LLM_CANDIDATES = 3;
+
 /** LLM 完成介面 — 使用者實作此介面以連接任意 LLM */
 export interface LlmClient {
   complete(prompt: string): Promise<string>;
@@ -47,6 +50,20 @@ export const LawProposalSuggestionsSchema = z.object({
   suggestions: z.array(LawProposalSuggestionSchema),
 });
 
+/** LLM 產生的候選意圖草案 */
+export const CandidateIntentDraftSchema = z.object({
+  task_key: z.string().min(1),
+  payload: z.record(z.unknown()).default({}),
+  estimated_cost: z.number().min(0),
+  reason: z.string().min(1),
+});
+export type CandidateIntentDraft = z.infer<typeof CandidateIntentDraftSchema>;
+
+/** LLM 產生的候選意圖草案列表（最多 3 個） */
+export const CandidateIntentDraftsSchema = z.object({
+  candidates: z.array(CandidateIntentDraftSchema).max(3),
+});
+
 /** LLM 推理增強結果 */
 export const ReasoningEnrichmentSchema = z.object({
   enriched_summary: z.string(),
@@ -81,6 +98,9 @@ export interface LlmAdvisor {
 
   /** 根據上下文建議新的 law proposals */
   suggestLawProposals(context: DecideContext): Promise<LawProposalSuggestion[]>;
+
+  /** 產生 LLM 候選意圖草案（最多 3 個），需經過確定性過濾 */
+  generateCandidates(context: DecideContext): Promise<CandidateIntentDraft[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -170,6 +190,28 @@ export class DefaultLlmAdvisor implements LlmAdvisor {
     }
   }
 
+  async generateCandidates(context: DecideContext): Promise<CandidateIntentDraft[]> {
+    const prompt = this.buildGenerateCandidatesPrompt(context);
+
+    try {
+      const raw = await this.client.complete(prompt);
+      const parsed = this.parseJson(raw);
+      const result = CandidateIntentDraftsSchema.safeParse(parsed);
+
+      if (!result.success) {
+        this.logFallback('generateCandidates', 'zod_validation_failed', result.error.message);
+        return [];
+      }
+
+      // 硬限制：最多 3 個候選
+      return result.data.candidates.slice(0, MAX_LLM_CANDIDATES);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logFallback('generateCandidates', 'llm_error', msg);
+      return [];
+    }
+  }
+
   // --- 內部方法 ---
 
   /** 從 LLM 回傳文字中提取 JSON */
@@ -239,6 +281,45 @@ Return JSON:
   "additional_factors": ["..."],
   "confidence_adjustment": <-0.5 to 0.5>
 }`;
+  }
+
+  /** 建立 generateCandidates prompt */
+  private buildGenerateCandidatesPrompt(context: DecideContext): string {
+    const skillList = context.chief_skills
+      .map(s => `- ${s.name} (v${s.version})`)
+      .join('\n');
+
+    const budgetRemaining = context.budget.per_day_limit * context.budget_ratio;
+
+    return `You are a governance advisor for an AI agent village.
+
+Context:
+- Village: ${context.village_id}
+- Cycle: ${context.cycle_id}, iteration ${context.iteration}/${context.max_iterations}
+- Budget remaining: ${budgetRemaining.toFixed(2)} (per-action limit: ${context.budget.per_action_limit})
+- Chief: ${context.chief.name} (${context.chief.role})
+- Active laws: ${context.active_laws.length}
+- Observations: ${context.observations.length}
+
+Available verified skills:
+${skillList || '(none)'}
+
+Chief constraints:
+${context.chief.constraints.map(c => `- ${c.type}: ${c.description}`).join('\n') || '(none)'}
+
+Generate up to ${MAX_LLM_CANDIDATES} candidate task intents. Each must reference an available skill by name as task_key.
+Return JSON:
+{
+  "candidates": [
+    {
+      "task_key": "<skill name>",
+      "payload": {},
+      "estimated_cost": <number within budget>,
+      "reason": "<why this task>"
+    }
+  ]
+}
+Return empty candidates array if no tasks needed.`;
   }
 
   /** 建立 law proposal suggestion prompt */
@@ -311,6 +392,7 @@ export function createMockLlmAdvisor(opts: {
   adviseResult?: AdvisorResult;
   reasoningResult?: ReasoningEnrichment;
   lawSuggestions?: LawProposalSuggestion[];
+  candidateDrafts?: CandidateIntentDraft[];
 } = {}): LlmAdvisor {
   return {
     advise: (_context: DecideContext, candidates: ActionIntent[]) => {
@@ -333,6 +415,9 @@ export function createMockLlmAdvisor(opts: {
     },
     suggestLawProposals: () => {
       return Promise.resolve(opts.lawSuggestions ?? []);
+    },
+    generateCandidates: async () => {
+      return opts.candidateDrafts ?? [];
     },
   };
 }
