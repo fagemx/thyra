@@ -767,6 +767,99 @@ describe('KarviBridge', () => {
     });
   });
 
+  describe('dispatchToBoard', () => {
+    const PROJECT_RESPONSE = {
+      ok: true,
+      title: 'Scoped task',
+      taskCount: 1,
+      project: {
+        id: 'PROJ-scoped',
+        title: 'Scoped task',
+        repo: 'org/repo',
+        status: 'executing',
+        concurrency: 1,
+        completionTrigger: 'pr_merged',
+        taskIds: ['task-s1'],
+        createdAt: '2026-03-15T00:00:00Z',
+      },
+    };
+
+    it('dispatches with board_namespace in request body', async () => {
+      mockResponses.set('POST /api/projects', { status: 201, body: PROJECT_RESPONSE });
+      startMockKarvi(MOCK_PORT);
+
+      const result = await bridge.dispatchToBoard('board-alpha', {
+        title: 'Scoped task',
+        tasks: [{ title: 'a' }],
+      });
+
+      expect(result).not.toBeNull();
+      expect(result?.project?.id).toBe('PROJ-scoped');
+      expect(lastRequest?.body).toHaveProperty('board_namespace', 'board-alpha');
+    });
+
+    it('records audit with board_namespace on success', async () => {
+      mockResponses.set('POST /api/projects', { status: 201, body: PROJECT_RESPONSE });
+      startMockKarvi(MOCK_PORT);
+
+      await bridge.dispatchToBoard('board-beta', {
+        title: 'test',
+        tasks: [{ title: 'a' }],
+      });
+
+      const logs = db.prepare(
+        "SELECT * FROM audit_log WHERE entity_type = 'karvi' AND action = 'dispatch_to_board'"
+      ).all() as Record<string, unknown>[];
+      expect(logs).toHaveLength(1);
+      const payload = JSON.parse(logs[0].payload as string);
+      expect(payload.board_namespace).toBe('board-beta');
+    });
+
+    it('returns null when Karvi unreachable (graceful degradation)', async () => {
+      const offlineBridge = new KarviBridge(db, 'http://localhost:19999');
+      const result = await offlineBridge.dispatchToBoard('board-x', {
+        title: 'test',
+        tasks: [{ title: 'a' }],
+      });
+      expect(result).toBeNull();
+    });
+
+    it('throws on Karvi error response', async () => {
+      mockResponses.set('POST /api/projects', { status: 500, body: { error: 'fail' } });
+      startMockKarvi(MOCK_PORT);
+
+      await expect(bridge.dispatchToBoard('board-x', {
+        title: 'test',
+        tasks: [{ title: 'a' }],
+      })).rejects.toThrow('Karvi dispatch failed: 500');
+    });
+  });
+
+  describe('getBoard with namespace', () => {
+    it('passes namespace as query parameter', async () => {
+      mockResponses.set('GET /api/board', {
+        status: 200,
+        body: { taskPlan: { tasks: [] } },
+      });
+      startMockKarvi(MOCK_PORT);
+
+      await bridge.getBoard('board-alpha');
+      expect(lastRequest?.search).toContain('namespace=board-alpha');
+    });
+
+    it('works without namespace (backward compatible)', async () => {
+      mockResponses.set('GET /api/board', {
+        status: 200,
+        body: { taskPlan: { tasks: [] } },
+      });
+      startMockKarvi(MOCK_PORT);
+
+      const board = await bridge.getBoard();
+      expect(board).not.toBeNull();
+      expect(lastRequest?.search).toBe('');
+    });
+  });
+
   describe('getTaskProgress', () => {
     it('returns progress data on success', async () => {
       const progressData = {

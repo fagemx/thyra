@@ -108,4 +108,118 @@ describe('VillageManager', () => {
     ).run(v.id, 1); // version is 100 now, passing 1 should fail
     expect((result as { changes: number }).changes).toBe(0);
   });
+
+  describe('Board Mapping', () => {
+    it('setBoardMapping creates mapping with correct fields', () => {
+      const v = mgr.create({ name: 'test', target_repo: 'r' }, 'u');
+      const mapping = mgr.setBoardMapping(v.id, { board_namespace: 'board-alpha' }, 'u');
+      expect(mapping.id).toMatch(/^bmap-/);
+      expect(mapping.village_id).toBe(v.id);
+      expect(mapping.board_namespace).toBe('board-alpha');
+      expect(mapping.karvi_url).toBeNull();
+      expect(mapping.version).toBe(1);
+    });
+
+    it('setBoardMapping with karvi_url stores it', () => {
+      const v = mgr.create({ name: 'test', target_repo: 'r' }, 'u');
+      const mapping = mgr.setBoardMapping(v.id, {
+        board_namespace: 'board-beta',
+        karvi_url: 'http://karvi-2:3000',
+      }, 'u');
+      expect(mapping.karvi_url).toBe('http://karvi-2:3000');
+    });
+
+    it('setBoardMapping updates existing mapping (version +1)', () => {
+      const v = mgr.create({ name: 'test', target_repo: 'r' }, 'u');
+      const m1 = mgr.setBoardMapping(v.id, { board_namespace: 'ns-1' }, 'u');
+      const m2 = mgr.setBoardMapping(v.id, { board_namespace: 'ns-2' }, 'u');
+      expect(m2.id).toBe(m1.id);
+      expect(m2.board_namespace).toBe('ns-2');
+      expect(m2.version).toBe(2);
+    });
+
+    it('setBoardMapping throws on non-existent village', () => {
+      expect(() => mgr.setBoardMapping('xxx', { board_namespace: 'ns' }, 'u')).toThrow('Village not found');
+    });
+
+    it('getBoardMapping returns null for unmapped village', () => {
+      const v = mgr.create({ name: 'test', target_repo: 'r' }, 'u');
+      expect(mgr.getBoardMapping(v.id)).toBeNull();
+    });
+
+    it('getBoardMapping returns mapping after set', () => {
+      const v = mgr.create({ name: 'test', target_repo: 'r' }, 'u');
+      mgr.setBoardMapping(v.id, { board_namespace: 'ns-abc' }, 'u');
+      const mapping = mgr.getBoardMapping(v.id);
+      expect(mapping).not.toBeNull();
+      expect(mapping?.board_namespace).toBe('ns-abc');
+    });
+
+    it('removeBoardMapping returns true and deletes mapping', () => {
+      const v = mgr.create({ name: 'test', target_repo: 'r' }, 'u');
+      mgr.setBoardMapping(v.id, { board_namespace: 'ns' }, 'u');
+      const removed = mgr.removeBoardMapping(v.id, 'u');
+      expect(removed).toBe(true);
+      expect(mgr.getBoardMapping(v.id)).toBeNull();
+    });
+
+    it('removeBoardMapping returns false when no mapping exists', () => {
+      const v = mgr.create({ name: 'test', target_repo: 'r' }, 'u');
+      expect(mgr.removeBoardMapping(v.id, 'u')).toBe(false);
+    });
+
+    it('listBoardMappings returns all mappings', () => {
+      const v1 = mgr.create({ name: 'a', target_repo: 'r1' }, 'u');
+      const v2 = mgr.create({ name: 'b', target_repo: 'r2' }, 'u');
+      mgr.setBoardMapping(v1.id, { board_namespace: 'ns-1' }, 'u');
+      mgr.setBoardMapping(v2.id, { board_namespace: 'ns-2' }, 'u');
+      const mappings = mgr.listBoardMappings();
+      expect(mappings).toHaveLength(2);
+    });
+
+    it('audit log written on setBoardMapping create', () => {
+      const v = mgr.create({ name: 'test', target_repo: 'r' }, 'u');
+      mgr.setBoardMapping(v.id, { board_namespace: 'ns' }, 'actor1');
+      const logs = db.prepare(
+        "SELECT * FROM audit_log WHERE entity_type = 'board_mapping' AND action = 'create'"
+      ).all() as Record<string, unknown>[];
+      expect(logs).toHaveLength(1);
+      expect(logs[0].actor).toBe('actor1');
+    });
+
+    it('audit log written on setBoardMapping update', () => {
+      const v = mgr.create({ name: 'test', target_repo: 'r' }, 'u');
+      mgr.setBoardMapping(v.id, { board_namespace: 'ns-1' }, 'u');
+      mgr.setBoardMapping(v.id, { board_namespace: 'ns-2' }, 'u');
+      const logs = db.prepare(
+        "SELECT * FROM audit_log WHERE entity_type = 'board_mapping' AND action = 'update'"
+      ).all() as Record<string, unknown>[];
+      expect(logs).toHaveLength(1);
+    });
+
+    it('audit log written on removeBoardMapping', () => {
+      const v = mgr.create({ name: 'test', target_repo: 'r' }, 'u');
+      mgr.setBoardMapping(v.id, { board_namespace: 'ns' }, 'u');
+      mgr.removeBoardMapping(v.id, 'u');
+      const logs = db.prepare(
+        "SELECT * FROM audit_log WHERE entity_type = 'board_mapping' AND action = 'remove'"
+      ).all() as Record<string, unknown>[];
+      expect(logs).toHaveLength(1);
+    });
+
+    it('setBoardMapping validates input with Zod (rejects empty namespace)', () => {
+      const v = mgr.create({ name: 'test', target_repo: 'r' }, 'u');
+      expect(() => mgr.setBoardMapping(v.id, { board_namespace: '' }, 'u')).toThrow();
+    });
+
+    it('one village can only have one board mapping (UNIQUE constraint)', () => {
+      const v = mgr.create({ name: 'test', target_repo: 'r' }, 'u');
+      mgr.setBoardMapping(v.id, { board_namespace: 'ns-1' }, 'u');
+      // Second set should update, not create duplicate
+      const m2 = mgr.setBoardMapping(v.id, { board_namespace: 'ns-2' }, 'u');
+      expect(m2.board_namespace).toBe('ns-2');
+      const all = mgr.listBoardMappings();
+      expect(all).toHaveLength(1);
+    });
+  });
 });

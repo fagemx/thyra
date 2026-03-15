@@ -184,6 +184,19 @@ export function initSchema(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_skill_shares_territory
       ON skill_shares(territory_id, status);
 
+    CREATE TABLE IF NOT EXISTS board_mappings (
+      id TEXT PRIMARY KEY,
+      village_id TEXT NOT NULL UNIQUE REFERENCES villages(id),
+      board_namespace TEXT NOT NULL,
+      karvi_url TEXT,
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_board_mapping_village
+      ON board_mappings(village_id);
+
     CREATE TABLE IF NOT EXISTS world_snapshots (
       id TEXT PRIMARY KEY,
       village_id TEXT NOT NULL REFERENCES villages(id),
