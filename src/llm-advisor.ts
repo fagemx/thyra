@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { Database } from 'bun:sqlite';
 import { appendAudit } from './db';
-import type { DecideContext, ActionIntent, LawProposalDraft, DecideResult } from './decision-engine';
+import type { DecideContext, ActionIntent } from './decision-engine';
 
 // ---------------------------------------------------------------------------
 // LLM 客戶端介面 — 外部注入的 LLM 呼叫能力
@@ -313,8 +313,8 @@ export function createMockLlmAdvisor(opts: {
   lawSuggestions?: LawProposalSuggestion[];
 } = {}): LlmAdvisor {
   return {
-    advise: async (_context: DecideContext, candidates: ActionIntent[]) => {
-      return opts.adviseResult ?? {
+    advise: (_context: DecideContext, candidates: ActionIntent[]) => {
+      return Promise.resolve(opts.adviseResult ?? {
         selected_index: -1,
         scores: candidates.map((_, i) => ({
           index: i,
@@ -322,17 +322,17 @@ export function createMockLlmAdvisor(opts: {
           reasoning: 'mock score',
         })),
         overall_reasoning: 'mock reasoning',
-      };
+      });
     },
-    generateReasoning: async () => {
-      return opts.reasoningResult ?? {
+    generateReasoning: () => {
+      return Promise.resolve(opts.reasoningResult ?? {
         enriched_summary: 'mock enriched summary',
         additional_factors: ['mock factor'],
         confidence_adjustment: 0,
-      };
+      });
     },
-    suggestLawProposals: async () => {
-      return opts.lawSuggestions ?? [];
+    suggestLawProposals: () => {
+      return Promise.resolve(opts.lawSuggestions ?? []);
     },
   };
 }
@@ -343,11 +343,11 @@ export function createMockLlmAdvisor(opts: {
  */
 export function createMockLlmClient(responses: Record<string, string>): LlmClient {
   return {
-    complete: async (prompt: string) => {
+    complete: (prompt: string) => {
       for (const [key, value] of Object.entries(responses)) {
-        if (prompt.includes(key)) return value;
+        if (prompt.includes(key)) return Promise.resolve(value);
       }
-      throw new Error('No mock response for prompt');
+      return Promise.reject(new Error('No mock response for prompt'));
     },
   };
 }

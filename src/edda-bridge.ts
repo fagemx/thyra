@@ -145,12 +145,12 @@ export class EddaBridge {
       if (!res.ok) return emptyResult(q);
       const data = await res.json() as EddaQueryResult;
       return {
-        query: data.query ?? q,
-        input_type: data.input_type ?? 'overview',
-        decisions: data.decisions ?? [],
-        timeline: data.timeline ?? [],
-        related_commits: data.related_commits ?? [],
-        related_notes: data.related_notes ?? [],
+        query: data.query,
+        input_type: data.input_type,
+        decisions: data.decisions,
+        timeline: data.timeline,
+        related_commits: data.related_commits,
+        related_notes: data.related_notes,
       };
     } catch {
       // Graceful degradation: Edda offline → empty results

@@ -369,7 +369,7 @@ export class DecisionEngine {
    */
   private buildPersonalityEffect(context: DecideContext): string {
     let personalityEffect = `Chief ${context.chief.name} (${context.chief.role})`;
-    const riskTolerance = context.chief.personality?.risk_tolerance ?? 'moderate';
+    const riskTolerance = context.chief.personality.risk_tolerance;
     personalityEffect += ` [${riskTolerance}]`;
     const constraintDescs: string[] = [];
     for (const constraint of context.chief.constraints) {
@@ -585,7 +585,8 @@ export class DecisionEngine {
    * 規則 2: 根據 stage_hint 推進流水線到下一步。
    */
   private advancePipeline(ctx: DecideContext, eddaRefs: string[]): ActionIntent[] {
-    const stage = ctx.intent!.stage_hint;
+    if (!ctx.intent) throw new Error('Expected intent in advancePipeline');
+    const stage = ctx.intent.stage_hint;
     const lastExecuted = ctx.last_action?.status === 'executed';
 
     // 流水線階段映射
@@ -699,7 +700,7 @@ export class DecisionEngine {
       return adj !== 0 ? { ...c, confidence: Math.max(0, Math.min(1, c.confidence + adj)) } : c;
     });
 
-    const riskTolerance = ctx.chief.personality?.risk_tolerance ?? 'moderate';
+    const riskTolerance = ctx.chief.personality.risk_tolerance;
 
     // conservative: budget_ratio < 0.3 → 傾向 complete_cycle
     if (riskTolerance === 'conservative' && ctx.budget_ratio < 0.3) {

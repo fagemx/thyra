@@ -330,11 +330,12 @@ export class VillagePackCompiler {
         ctx.village_result = { action: 'create', entity_id: v.id };
       }
     } else if (action === 'update') {
+      if (!existing) throw new Error('Expected existing village for update');
       if (dryRun) {
-        ctx.village_result = { action: 'update', entity_id: existing!.id, detail: `would update village "${pack.name}"` };
+        ctx.village_result = { action: 'update', entity_id: existing.id, detail: `would update village "${pack.name}"` };
       } else {
         const v = this.villageMgr.update(
-          existing!.id,
+          existing.id,
           { description: pack.description, target_repo: pack.target_repo, metadata: pack.metadata },
           actor,
         );
@@ -342,8 +343,9 @@ export class VillagePackCompiler {
         ctx.village_result = { action: 'update', entity_id: v.id };
       }
     } else {
-      ctx.village_id = existing!.id;
-      ctx.village_result = { action: 'skip', entity_id: existing!.id };
+      if (!existing) throw new Error('Expected existing village for skip');
+      ctx.village_id = existing.id;
+      ctx.village_result = { action: 'skip', entity_id: existing.id };
     }
 
     ctx.completed_phases = 1;
@@ -381,16 +383,18 @@ export class VillagePackCompiler {
         ctx.constitution_result = { action: 'create', entity_id: c.id };
       }
     } else if (action === 'supersede') {
+      if (!current) throw new Error('Expected current constitution for supersede');
       if (dryRun) {
-        ctx.constitution_result = { action: 'supersede', entity_id: current!.id, detail: 'would supersede constitution' };
+        ctx.constitution_result = { action: 'supersede', entity_id: current.id, detail: 'would supersede constitution' };
       } else {
-        const c = this.constitutionStore.supersede(current!.id, inputRaw, actor);
+        const c = this.constitutionStore.supersede(current.id, inputRaw, actor);
         ctx.constitution = c;
         ctx.constitution_result = { action: 'supersede', entity_id: c.id };
       }
     } else {
+      if (!current) throw new Error('Expected current constitution for skip');
       ctx.constitution = current;
-      ctx.constitution_result = { action: 'skip', entity_id: current!.id };
+      ctx.constitution_result = { action: 'skip', entity_id: current.id };
     }
 
     ctx.completed_phases = 2;
@@ -463,7 +467,7 @@ export class VillagePackCompiler {
     const chiefs = dryRun && !ctx.village_id
       ? []
       : this.chiefEngine.list(ctx.village_id, { status: 'active' });
-    const current = chiefs[0] ?? null;
+    const current = (chiefs[0] as Chief | undefined) ?? null;
     const action = diffChief(pack, current, bindings);
 
     if (action === 'create') {
@@ -483,6 +487,7 @@ export class VillagePackCompiler {
         ctx.chief_result = { action: 'create', entity_id: c.id };
       }
     } else if (action === 'update') {
+      if (!current) throw new Error('Expected current chief for update');
       const input = {
         name: pack.name,
         role: pack.role,
@@ -496,15 +501,16 @@ export class VillagePackCompiler {
         skills: bindings,
       };
       if (dryRun) {
-        ctx.chief_result = { action: 'update', entity_id: current!.id, detail: `would update chief "${pack.name}"` };
+        ctx.chief_result = { action: 'update', entity_id: current.id, detail: `would update chief "${pack.name}"` };
       } else {
-        const c = this.chiefEngine.update(current!.id, input, actor);
+        const c = this.chiefEngine.update(current.id, input, actor);
         ctx.chief = c;
         ctx.chief_result = { action: 'update', entity_id: c.id };
       }
     } else {
+      if (!current) throw new Error('Expected current chief for skip');
       ctx.chief = current;
-      ctx.chief_result = { action: 'skip', entity_id: current!.id };
+      ctx.chief_result = { action: 'skip', entity_id: current.id };
     }
 
     ctx.completed_phases = 4;
@@ -518,8 +524,8 @@ export class VillagePackCompiler {
     actor: string,
     dryRun: boolean,
   ): void {
-    const chiefId = ctx.chief?.id;
-    if (!chiefId && !dryRun) {
+    const chiefId: string | undefined = ctx.chief?.id;
+    if (!dryRun && !chiefId) {
       ctx.errors.push('No chief available for law proposals — aborting');
       ctx.aborted = true;
       return;
@@ -563,7 +569,7 @@ export class VillagePackCompiler {
         continue;
       }
       try {
-        const law = this.lawEngine.propose(ctx.village_id, chiefId, {
+        const law = this.lawEngine.propose(ctx.village_id, chiefId as string, {
           category: pl.category,
           content: { description: pl.description, strategy: pl.strategy },
           evidence: pl.evidence,
@@ -624,7 +630,7 @@ export class VillagePackCompiler {
         continue;
       }
       try {
-        const law = this.lawEngine.propose(ctx.village_id, chiefId, {
+        const law = this.lawEngine.propose(ctx.village_id, chiefId as string, {
           category: pl.category,
           content: { description: pl.description, strategy: pl.strategy },
           evidence: pl.evidence,

@@ -97,7 +97,7 @@ export class SkillRegistry {
       status: 'draft',
       village_id: existing.village_id,
       definition: input.definition
-        ? { ...existing.definition, ...Object.fromEntries(Object.entries(input.definition).filter(([_, v]) => v !== undefined)) }
+        ? { ...existing.definition, ...input.definition }
         : existing.definition,
       created_at: now,
       updated_at: now,
