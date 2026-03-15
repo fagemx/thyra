@@ -87,6 +87,68 @@ chief-engine + law-engine + risk-assessor + constitution-store → loop-runner
 - Zod 做 runtime validation，TypeScript 做 compile-time safety
 - 不使用 `as any` 或 `@ts-ignore`
 
+**`any` 的替代方案：**
+
+```typescript
+// ❌ Bad
+const data: any = row;
+(row as any).field;
+
+// ✅ Good — Zod parse（Thyra 首選）
+const data = VillageSchema.parse(row);
+
+// ✅ Good — unknown + narrowing
+const data: unknown = row;
+if (typeof data === 'object' && data !== null && 'id' in data) { ... }
+
+// ✅ Good — explicit interface cast
+const data = row as Village;
+```
+
+### Promise 處理
+
+非同步操作必須明確處理，不允許 floating promise。
+
+```typescript
+// ❌ Bad — floating promise，沒有 await 也沒有 catch
+someAsyncFunction();
+
+// ✅ Good — await
+await someAsyncFunction();
+
+// ✅ Good — fire-and-forget 明確標記（Bridge 常用模式）
+void someAsyncFunction().catch(console.error);
+
+// ❌ Bad — Promise 當 boolean（永遠是 truthy）
+if (someAsyncFunction()) { ... }
+```
+
+### Defensive Programming 邊界
+
+不是所有地方都需要 try/catch。只在特定邊界處理錯誤：
+
+```typescript
+// ❌ Bad — 不需要的 try/catch，吞掉錯誤
+try {
+  const village = villageManager.get(id);
+} catch (e) {
+  console.error(e);
+  return null;
+}
+
+// ✅ Good — 讓 error 自然傳播，Hono onError 會接住
+
+// ✅ OK — Bridge 呼叫可以 catch（graceful degradation — THY-06）
+try {
+  await eddaBridge.recordDecision(data);
+} catch {
+  // Edda 斷線不影響主流程
+}
+
+// ✅ OK — LLM 呼叫 catch（非確定性輸出，需要 fallback）
+// ✅ OK — SQLite transaction rollback（確保 atomicity）
+```
+
 ### 資料完整性
 
 - SQLite 是 single source of truth
