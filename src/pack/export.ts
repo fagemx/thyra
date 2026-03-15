@@ -4,7 +4,7 @@
  */
 import type { VillageManager } from '../village-manager';
 import type { ConstitutionStore } from '../constitution-store';
-import type { ChiefEngine } from '../chief-engine';
+import type { ChiefEngine, Chief } from '../chief-engine';
 import type { LawEngine } from '../law-engine';
 import type { SkillRegistry } from '../skill-registry';
 
@@ -102,7 +102,7 @@ export function exportVillage(villageId: string, deps: ExportDeps): ExportResult
 
   // 3. Chief (optional)
   const chiefs = deps.chiefEngine.list(villageId, { status: 'active' });
-  const chief = chiefs[0] ?? null;
+  const chief = (chiefs[0] as Chief | undefined) ?? null;
   if (!chief) {
     warnings.push({ section: 'chief', message: 'No active chief found' });
   }

@@ -250,7 +250,7 @@ export class RiskAssessor {
       SELECT COALESCE(SUM(json_extract(payload, '$.cost')), 0) as total
       FROM audit_log WHERE entity_type = 'budget' AND entity_id = ? AND created_at >= ?
     `).get(villageId, today + 'T00:00:00.000Z') as Record<string, unknown> | null;
-    return (row?.total as number) ?? 0;
+    return (row?.total as number | undefined) ?? 0;
   }
 
   getSpentInLoop(villageId: string, loopId: string): number {
@@ -259,7 +259,7 @@ export class RiskAssessor {
       FROM audit_log WHERE entity_type = 'budget' AND entity_id = ?
         AND json_extract(payload, '$.loop_id') = ?
     `).get(villageId, loopId) as Record<string, unknown> | null;
-    return (row?.total as number) ?? 0;
+    return (row?.total as number | undefined) ?? 0;
   }
 
   recordSpend(villageId: string, loopId: string | null, amount: number): void {

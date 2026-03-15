@@ -25,7 +25,7 @@ export class CycleMetricsCollector {
    * 純計算，無副作用
    */
   static collect(cycle: LoopCycle): CycleMetrics {
-    const actions = cycle.actions ?? [];
+    const actions = cycle.actions;
 
     const actionsExecuted = actions.filter(a => a.status === 'executed').length;
     const actionsBlocked = actions.filter(a => a.status === 'blocked').length;

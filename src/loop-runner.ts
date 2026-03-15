@@ -217,7 +217,8 @@ export class LoopRunner {
     constitution: Constitution,
     signal: AbortSignal,
   ): Promise<void> {
-    const de = this.decisionEngine!;
+    if (!this.decisionEngine) throw new Error('DecisionEngine required for V1 loop');
+    const de = this.decisionEngine;
 
     // Yield to let startCycle return before loop begins
     await new Promise((resolve) => setTimeout(resolve, 0));

@@ -165,18 +165,20 @@ function diffConstitutionState(
     };
   }
 
-  // 兩邊都有 — 判斷是否相同
-  const fpBefore = safeConstitutionFingerprint(before!);
-  const fpAfter = safeConstitutionFingerprint(after!);
+  // 兩邊都有 — 判斷是否相同（上面已排除 null 情況）
+  if (!before || !after) return null;
 
-  if (before!.id === after!.id && fpBefore === fpAfter) {
+  const fpBefore = safeConstitutionFingerprint(before);
+  const fpAfter = safeConstitutionFingerprint(after);
+
+  if (before.id === after.id && fpBefore === fpAfter) {
     return null; // 完全相同
   }
 
   return {
     action: 'superseded',
-    before_id: before!.id,
-    after_id: after!.id,
+    before_id: before.id,
+    after_id: after.id,
     fingerprint_before: fpBefore,
     fingerprint_after: fpAfter,
   };
