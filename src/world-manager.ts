@@ -12,7 +12,8 @@
  *   5. audit_log
  *   6. return ApplyResult
  *
- * EddaBridge / KarviBridge 為可選 DI，prepare for #185, #186。
+ * EddaBridge / KarviBridge 為可選 DI。
+ * KarviBridge 在 apply() 成功後，對特定 change types 觸發 fire-and-forget dispatch（#186）。
  */
 
 import type { Database } from 'bun:sqlite';
@@ -63,6 +64,12 @@ export interface ChangeProposal {
 // ---------------------------------------------------------------------------
 // WorldManager class
 // ---------------------------------------------------------------------------
+
+/** 需要 Karvi 執行的 change types */
+const EXECUTABLE_CHANGE_TYPES: ReadonlySet<string> = new Set([
+  'law.propose',
+  'cycle.start',
+]);
 
 export class WorldManager {
   private readonly db: Database;
@@ -166,6 +173,11 @@ export class WorldManager {
       `applied: ${change.type}, snapshot=${snapshotBefore}, has_changes=${diff.has_changes}${reason ? `, reason=${reason}` : ''}`,
     );
 
+    // 8. 若需要 Karvi 執行，fire-and-forget dispatch（THY-06 graceful degradation）
+    if (this.karviBridge && this.needsExecution(change)) {
+      this.dispatchToKarvi(villageId, change);
+    }
+
     return {
       applied: true,
       judge_result: judgeResult,
@@ -173,6 +185,32 @@ export class WorldManager {
       diff,
       state_after: stateAfter,
     };
+  }
+
+  /**
+   * 判斷變更是否需要 Karvi 執行。
+   * law.propose → dispatch 為 Karvi task
+   * cycle.start → dispatch cycle execution
+   * 其他 → local apply only
+   */
+  private needsExecution(change: WorldChange): boolean {
+    return EXECUTABLE_CHANGE_TYPES.has(change.type);
+  }
+
+  /**
+   * Fire-and-forget dispatch 到 Karvi（THY-06）。
+   * Karvi 斷線不影響 apply 主流程。
+   */
+  private dispatchToKarvi(villageId: string, change: WorldChange): void {
+    const taskId = `${villageId}:${change.type}:${Date.now()}`;
+    void this.karviBridge?.dispatchSingleTask(taskId).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : 'unknown';
+      appendAudit(this.db, 'world', villageId, 'karvi_dispatch_failed', {
+        change_type: change.type,
+        task_id: taskId,
+        error: message,
+      }, 'system');
+    });
   }
 
   /**

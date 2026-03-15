@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { Database } from 'bun:sqlite';
 import { initSchema } from './db';
 import { WorldManager } from './world-manager';
@@ -9,6 +9,7 @@ import { SkillRegistry } from './skill-registry';
 import type { WorldChange } from './schemas/world-change';
 import type { Village } from './village-manager';
 import type { EddaBridge } from './edda-bridge';
+import type { KarviBridge } from './karvi-bridge';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -444,6 +445,150 @@ describe('WorldManager', () => {
       const result = wmWithEdda.apply(village.id, change);
       expect(result.applied).toBe(false);
       expect(mockEdda.recordDecision).not.toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Karvi dispatch integration (#186)
+  // -------------------------------------------------------------------------
+
+  describe('Karvi dispatch', () => {
+    /** 等待 microtask queue flush（fire-and-forget 完成） */
+    const flushMicrotasks = () => new Promise<void>((r) => setTimeout(r, 10));
+
+    function makeMockKarviBridge(): KarviBridge {
+      return {
+        dispatchSingleTask: vi.fn().mockResolvedValue({ dispatched: true, planId: 'plan-1' }),
+      } as unknown as KarviBridge;
+    }
+
+    function createChiefForVillage(villageId: string) {
+      const sr2 = new SkillRegistry(db);
+      const ce2 = new ChiefEngine(db, cs, sr2);
+      return ce2.create(villageId, {
+        name: 'TestChief',
+        role: 'operator',
+        permissions: ['dispatch_task'],
+        skills: [],
+      }, 'test-actor');
+    }
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('should dispatch law.propose to Karvi after successful apply', async () => {
+      const mockBridge = makeMockKarviBridge();
+      const wmWithKarvi = new WorldManager(db, undefined, mockBridge);
+      const village = createVillage(vm);
+      createConstitution(cs, village.id);
+      const chief = createChiefForVillage(village.id);
+
+      const change: WorldChange = {
+        type: 'law.propose',
+        proposed_by: chief.id,
+        category: 'operational',
+        content: { rule: 'test' },
+        risk_level: 'low',
+      };
+
+      const result = wmWithKarvi.apply(village.id, change);
+      expect(result.applied).toBe(true);
+
+      await flushMicrotasks();
+      expect(mockBridge.dispatchSingleTask).toHaveBeenCalledTimes(1);
+
+      const call = (mockBridge.dispatchSingleTask as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(call[0]).toContain('law.propose');
+    });
+
+    it('should dispatch cycle.start to Karvi after successful apply', async () => {
+      const mockBridge = makeMockKarviBridge();
+      const wmWithKarvi = new WorldManager(db, undefined, mockBridge);
+      const village = createVillage(vm);
+      createConstitution(cs, village.id);
+      const chief = createChiefForVillage(village.id);
+
+      const change: WorldChange = {
+        type: 'cycle.start',
+        chief_id: chief.id,
+        trigger: 'manual',
+        max_iterations: 5,
+        timeout_ms: 10000,
+      };
+
+      const result = wmWithKarvi.apply(village.id, change);
+      expect(result.applied).toBe(true);
+
+      await flushMicrotasks();
+      expect(mockBridge.dispatchSingleTask).toHaveBeenCalledTimes(1);
+
+      const call = (mockBridge.dispatchSingleTask as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(call[0]).toContain('cycle.start');
+    });
+
+    it('should NOT dispatch for non-executable change types', () => {
+      const mockBridge = makeMockKarviBridge();
+      const wmWithKarvi = new WorldManager(db, undefined, mockBridge);
+      const village = createVillage(vm);
+
+      // constitution.supersede 不需要 Karvi 執行
+      wmWithKarvi.apply(village.id, makeConstitutionChange());
+      expect(mockBridge.dispatchSingleTask).not.toHaveBeenCalled();
+    });
+
+    it('should work without KarviBridge (no dispatch)', () => {
+      const wmNoKarvi = new WorldManager(db);
+      const village = createVillage(vm);
+      createConstitution(cs, village.id);
+      const chief = createChiefForVillage(village.id);
+
+      const change: WorldChange = {
+        type: 'law.propose',
+        proposed_by: chief.id,
+        category: 'operational',
+        content: { rule: 'test' },
+        risk_level: 'low',
+      };
+
+      // 沒有 KarviBridge，不應 crash
+      const result = wmNoKarvi.apply(village.id, change);
+      expect(result.applied).toBe(true);
+    });
+
+    it('should not crash when Karvi dispatch fails (THY-06 graceful degradation)', async () => {
+      const failingBridge = {
+        dispatchSingleTask: vi.fn().mockRejectedValue(new Error('Karvi unreachable')),
+      } as unknown as KarviBridge;
+      const wmFailing = new WorldManager(db, undefined, failingBridge);
+      const village = createVillage(vm);
+      createConstitution(cs, village.id);
+      const chief = createChiefForVillage(village.id);
+
+      const change: WorldChange = {
+        type: 'law.propose',
+        proposed_by: chief.id,
+        category: 'operational',
+        content: { rule: 'test' },
+        risk_level: 'low',
+      };
+
+      // apply 不應 throw
+      const result = wmFailing.apply(village.id, change);
+      expect(result.applied).toBe(true);
+
+      // 等 fire-and-forget 完成
+      await flushMicrotasks();
+      expect(failingBridge.dispatchSingleTask).toHaveBeenCalledTimes(1);
+
+      // 應寫入 karvi_dispatch_failed audit log
+      const logs = db.prepare(
+        "SELECT * FROM audit_log WHERE entity_type = 'world' AND action = 'karvi_dispatch_failed'"
+      ).all() as { payload: string }[];
+      expect(logs.length).toBeGreaterThanOrEqual(1);
+      const payload = JSON.parse(logs[0].payload);
+      expect(payload.change_type).toBe('law.propose');
+      expect(payload.error).toBe('Karvi unreachable');
     });
   });
 });
