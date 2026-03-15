@@ -134,15 +134,18 @@ export class ChiefEngine {
       updated_at: now,
     };
 
-    this.db.prepare(`
+    const result = this.db.prepare(`
       UPDATE chiefs SET name=?, role=?, version=?, skills=?, permissions=?,
-        personality=?, constraints=?, updated_at=? WHERE id=?
+        personality=?, constraints=?, updated_at=? WHERE id=? AND version=?
     `).run(
       updated.name, updated.role, updated.version,
       JSON.stringify(updated.skills), JSON.stringify(updated.permissions),
       JSON.stringify(updated.personality), JSON.stringify(updated.constraints),
-      now, id,
+      now, id, existing.version,
     );
+    if ((result as { changes: number }).changes === 0) {
+      throw new Error('CONCURRENCY_CONFLICT: version mismatch');
+    }
 
     appendAudit(this.db, 'chief', id, 'update', { before: existing, after: updated }, actor);
     return updated;
@@ -151,8 +154,11 @@ export class ChiefEngine {
   deactivate(id: string, actor: string): void {
     const chief = this.get(id);
     if (!chief) throw new Error('Chief not found');
-    this.db.prepare('UPDATE chiefs SET status = ?, updated_at = ? WHERE id = ?')
-      .run('inactive', new Date().toISOString(), id);
+    const result = this.db.prepare('UPDATE chiefs SET status = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?')
+      .run('inactive', new Date().toISOString(), id, chief.version);
+    if ((result as { changes: number }).changes === 0) {
+      throw new Error('CONCURRENCY_CONFLICT: version mismatch');
+    }
     appendAudit(this.db, 'chief', id, 'deactivate', { previous_status: chief.status }, actor);
   }
 

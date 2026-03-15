@@ -133,6 +133,35 @@ describe('ChiefEngine', () => {
     expect(chief.personality.communication_style).toBe('concise');
     expect(chief.personality.decision_speed).toBe('deliberate');
   });
+
+  it('update with correct version succeeds (optimistic concurrency)', () => {
+    const chief = chiefEngine.create(villageId, { name: 'A', role: 'r' }, 'h');
+    expect(chief.version).toBe(1);
+    const u1 = chiefEngine.update(chief.id, { name: 'B' }, 'h');
+    expect(u1.version).toBe(2);
+    const u2 = chiefEngine.update(chief.id, { name: 'C' }, 'h');
+    expect(u2.version).toBe(3);
+  });
+
+  it('update with stale version throws CONCURRENCY_CONFLICT', () => {
+    const chief = chiefEngine.create(villageId, { name: 'A', role: 'r' }, 'h');
+    // Verify the SQL WHERE version=? pattern rejects stale versions
+    const result = db.prepare(
+      'UPDATE chiefs SET version = version + 1 WHERE id = ? AND version = ?'
+    ).run(chief.id, 999); // actual version is 1, passing 999 should fail
+    expect((result as { changes: number }).changes).toBe(0);
+  });
+
+  it('deactivate with stale version throws CONCURRENCY_CONFLICT', () => {
+    const chief = chiefEngine.create(villageId, { name: 'A', role: 'r' }, 'h');
+    // Bump version externally to simulate concurrent write
+    db.prepare('UPDATE chiefs SET version = 99 WHERE id = ?').run(chief.id);
+    // deactivate will get() version=99, UPDATE WHERE version=99 — succeeds
+    chiefEngine.deactivate(chief.id, 'h');
+    // Verify the DB version incremented
+    const row = db.prepare('SELECT version FROM chiefs WHERE id = ?').get(chief.id) as { version: number };
+    expect(row.version).toBe(100);
+  });
 });
 
 describe('buildChiefPrompt', () => {

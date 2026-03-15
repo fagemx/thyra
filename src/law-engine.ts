@@ -92,44 +92,56 @@ export class LawEngine {
     const law = this.get(id);
     if (!law || law.status !== 'proposed') throw new Error('Law not found or not proposed');
     const now = new Date().toISOString();
-    this.db.prepare('UPDATE laws SET status = ?, approved_by = ?, updated_at = ? WHERE id = ?')
-      .run('active', actor, now, id);
+    const result = this.db.prepare('UPDATE laws SET status = ?, approved_by = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?')
+      .run('active', actor, now, id, law.version);
+    if ((result as { changes: number }).changes === 0) {
+      throw new Error('CONCURRENCY_CONFLICT: version mismatch');
+    }
     appendAudit(this.db, 'law', id, 'approved', {}, actor);
     this.recordToEdda(id, 'status', 'approved', `approved by ${actor}`);
-    return { ...law, status: 'active', approved_by: actor, updated_at: now };
+    return { ...law, status: 'active', approved_by: actor, version: law.version + 1, updated_at: now };
   }
 
   reject(id: string, actor: string, reason?: string): Law {
     const law = this.get(id);
     if (!law || law.status !== 'proposed') throw new Error('Law not found or not proposed');
     const now = new Date().toISOString();
-    this.db.prepare('UPDATE laws SET status = ?, updated_at = ? WHERE id = ?')
-      .run('rejected', now, id);
+    const result = this.db.prepare('UPDATE laws SET status = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?')
+      .run('rejected', now, id, law.version);
+    if ((result as { changes: number }).changes === 0) {
+      throw new Error('CONCURRENCY_CONFLICT: version mismatch');
+    }
     appendAudit(this.db, 'law', id, 'rejected', { reason }, actor);
     this.recordToEdda(id, 'status', 'rejected', `rejected by ${actor}: ${reason ?? 'no reason'}`);
-    return { ...law, status: 'rejected', updated_at: now };
+    return { ...law, status: 'rejected', version: law.version + 1, updated_at: now };
   }
 
   revoke(id: string, actor: string): Law {
     const law = this.get(id);
     if (!law || law.status !== 'active') throw new Error('Law not found or not active');
     const now = new Date().toISOString();
-    this.db.prepare('UPDATE laws SET status = ?, updated_at = ? WHERE id = ?')
-      .run('revoked', now, id);
+    const result = this.db.prepare('UPDATE laws SET status = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?')
+      .run('revoked', now, id, law.version);
+    if ((result as { changes: number }).changes === 0) {
+      throw new Error('CONCURRENCY_CONFLICT: version mismatch');
+    }
     appendAudit(this.db, 'law', id, 'revoked', {}, actor);
     this.recordToEdda(id, 'status', 'revoked', `revoked by ${actor}`);
-    return { ...law, status: 'revoked', updated_at: now };
+    return { ...law, status: 'revoked', version: law.version + 1, updated_at: now };
   }
 
   rollback(id: string, actor: string, reason: string): Law {
     const law = this.get(id);
     if (!law || law.status !== 'active') throw new Error('Law not found or not active');
     const now = new Date().toISOString();
-    this.db.prepare('UPDATE laws SET status = ?, updated_at = ? WHERE id = ?')
-      .run('rolled_back', now, id);
+    const result = this.db.prepare('UPDATE laws SET status = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?')
+      .run('rolled_back', now, id, law.version);
+    if ((result as { changes: number }).changes === 0) {
+      throw new Error('CONCURRENCY_CONFLICT: version mismatch');
+    }
     appendAudit(this.db, 'law', id, 'rolled_back', { reason }, actor);
     this.recordToEdda(id, 'status', 'rolled_back', reason);
-    return { ...law, status: 'rolled_back', updated_at: now };
+    return { ...law, status: 'rolled_back', version: law.version + 1, updated_at: now };
   }
 
   evaluate(id: string, rawInput: EvaluateLawInput): Law {
@@ -144,19 +156,22 @@ export class LawEngine {
     };
 
     const now = new Date().toISOString();
-    this.db.prepare('UPDATE laws SET effectiveness = ?, updated_at = ? WHERE id = ?')
-      .run(JSON.stringify(effectiveness), now, id);
+    const result = this.db.prepare('UPDATE laws SET effectiveness = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?')
+      .run(JSON.stringify(effectiveness), now, id, law.version);
+    if ((result as { changes: number }).changes === 0) {
+      throw new Error('CONCURRENCY_CONFLICT: version mismatch');
+    }
 
     // Harmful + auto-approved → auto-rollback (THY-03 safety net)
     if (input.verdict === 'harmful' && law.approved_by === 'auto') {
       this.recordToEdda(id, 'safety', 'auto_rollback', 'harmful verdict on auto-approved law — triggering safety rollback');
       this.rollback(id, 'system', 'Auto-rollback: harmful verdict on auto-approved law');
-      return { ...law, effectiveness, status: 'rolled_back', updated_at: now };
+      return { ...law, effectiveness, status: 'rolled_back', version: law.version + 1, updated_at: now };
     }
 
     appendAudit(this.db, 'law', id, 'evaluated', effectiveness, 'system');
     this.recordToEdda(id, 'effectiveness', input.verdict, `metrics: ${JSON.stringify(input.metrics)}`);
-    return { ...law, effectiveness, updated_at: now };
+    return { ...law, effectiveness, version: law.version + 1, updated_at: now };
   }
 
   get(id: string): Law | null {
