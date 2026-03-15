@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
 import { Database } from 'bun:sqlite';
 import { createDb, initSchema } from './db';
 import { EddaBridge } from './edda-bridge';
-import type { EddaQueryResult, EddaDecideResult, EddaNoteResult, EddaLogEntry } from './edda-bridge';
+import type { EddaQueryResult, EddaDecideResult, EddaNoteResult, EddaLogEntry, EddaDraft } from './edda-bridge';
 
 let mockServer: ReturnType<typeof Bun.serve> | null = null;
 let mockResponses: Map<string, { status: number; body: unknown }> = new Map();
@@ -360,6 +360,57 @@ describe('EddaBridge', () => {
       startMockEdda(MOCK_PORT);
 
       const result = await bridge.recordNote({ text: 'error note' });
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('listDrafts', () => {
+    it('sends GET /api/drafts and returns EddaDraft array', async () => {
+      const drafts: EddaDraft[] = [
+        { event_id: 'evt-draft-1', key: 'law.review_policy', value: '3 approvals', reason: 'stricter review', status: 'pending', ts: '2024-06-01T00:00:00Z', branch: 'main' },
+        { event_id: 'evt-draft-2', key: 'db.backup', value: 'daily', status: 'pending', ts: '2024-06-02T00:00:00Z' },
+      ];
+      mockResponses.set('GET /api/drafts', { status: 200, body: drafts });
+      startMockEdda(MOCK_PORT);
+
+      const result = await bridge.listDrafts();
+      expect(result).not.toBeNull();
+      expect(result).toHaveLength(2);
+      expect(result?.[0].event_id).toBe('evt-draft-1');
+      expect(result?.[0].key).toBe('law.review_policy');
+      expect(result?.[0].reason).toBe('stricter review');
+      expect(result?.[0].status).toBe('pending');
+      expect(result?.[1].reason).toBeUndefined();
+      expect(lastRequest?.method).toBe('GET');
+      expect(lastRequest?.url).toBe('/api/drafts');
+    });
+
+    it('returns empty array when no drafts exist', async () => {
+      mockResponses.set('GET /api/drafts', { status: 200, body: [] });
+      startMockEdda(MOCK_PORT);
+
+      const result = await bridge.listDrafts();
+      expect(result).toEqual([]);
+    });
+
+    it('returns null when Edda is down (graceful degradation)', async () => {
+      const result = await bridge.listDrafts();
+      expect(result).toBeNull();
+    });
+
+    it('returns null on non-200 response', async () => {
+      mockResponses.set('GET /api/drafts', { status: 500, body: { error: 'fail' } });
+      startMockEdda(MOCK_PORT);
+
+      const result = await bridge.listDrafts();
+      expect(result).toBeNull();
+    });
+
+    it('returns null on malformed response (Zod validation failure)', async () => {
+      mockResponses.set('GET /api/drafts', { status: 200, body: { unexpected: true } });
+      startMockEdda(MOCK_PORT);
+
+      const result = await bridge.listDrafts();
       expect(result).toBeNull();
     });
   });
