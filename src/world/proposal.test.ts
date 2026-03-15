@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { Database } from 'bun:sqlite';
 import { createDb, initSchema } from '../db';
 import { listPendingChanges } from './proposal';
-import type { ChangeProposal } from './proposal';
+
 import { VillageManager } from '../village-manager';
 import { ConstitutionStore } from '../constitution-store';
 import { ChiefEngine } from '../chief-engine';
@@ -100,14 +100,14 @@ describe('listPendingChanges', () => {
     const { village, chief } = setupVillage();
 
     // 建立兩個 proposed laws（不同 category 確保不會是 low risk auto-approve）
-    const law1 = lawEngine.propose(village.id, chief.id, {
+    lawEngine.propose(village.id, chief.id, {
       category: 'deploy',
       content: { description: 'Deploy rule', strategy: {} },
       evidence: { source: 'ops', reasoning: 'safety' },
     });
-    // law1 是 high risk（含 deploy），不會 auto-approve
+    // deploy → high risk，不會 auto-approve
 
-    const law2 = lawEngine.propose(village.id, chief.id, {
+    lawEngine.propose(village.id, chief.id, {
       category: 'staging',
       content: { description: 'Staging rule', strategy: {} },
       evidence: { source: 'ops', reasoning: 'testing' },

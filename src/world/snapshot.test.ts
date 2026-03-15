@@ -80,7 +80,7 @@ describe('snapshotWorldState', () => {
   it('should list snapshots in reverse chronological order', () => {
     const village = createVillage(vm);
     const id1 = snapshotWorldState(db, village.id, 'manual');
-    const id2 = snapshotWorldState(db, village.id, 'cycle_end');
+    snapshotWorldState(db, village.id, 'cycle_end');
     const id3 = snapshotWorldState(db, village.id, 'pre_change');
 
     const list = listSnapshots(db, village.id);

@@ -144,7 +144,7 @@ describe('LawEngine', () => {
   it('evaluate: harmful + human-approved → stays active', () => {
     const law = lawEngine.propose(villageId, chiefWithoutEnact, LAW_INPUT);
     lawEngine.approve(law.id, 'human');
-    const evaluated = lawEngine.evaluate(law.id, { metrics: { quality: 0.3 }, verdict: 'harmful' });
+    lawEngine.evaluate(law.id, { metrics: { quality: 0.3 }, verdict: 'harmful' });
     // Should NOT be rolled back (human approved)
     const refreshed = lawEngine.get(law.id);
     expect(refreshed?.status).toBe('active');
@@ -159,7 +159,7 @@ describe('LawEngine', () => {
 
   it('getActiveLaws: only returns active', () => {
     lawEngine.propose(villageId, chiefWithEnact, LAW_INPUT);
-    const proposed = lawEngine.propose(villageId, chiefWithoutEnact, {
+    lawEngine.propose(villageId, chiefWithoutEnact, {
       ...LAW_INPUT,
       category: 'security',
       content: { description: 'security check', strategy: {} },
@@ -565,8 +565,7 @@ describe('LawEngine + Edda recording', () => {
   it('no eddaBridge → no error', () => {
     const lawEngineNoEdda = new LawEngine(db, new ConstitutionStore(db), chiefEngine);
     // Should not throw — just skips Edda recording
-    // (existing constitution from beforeEach still works)
-    const law = lawEngine.propose(villageId, chiefWithEnact, LAW_INPUT);
+    const law = lawEngineNoEdda.propose(villageId, chiefWithEnact, LAW_INPUT);
     expect(law.status).toBe('active');
   });
 

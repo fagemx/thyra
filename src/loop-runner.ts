@@ -8,7 +8,7 @@ import type { RiskAssessor, Action, AssessmentResult } from './risk-assessor';
 import type { EddaBridge, EddaDecisionHit } from './edda-bridge';
 import type { SkillRegistry } from './skill-registry';
 import type { DecisionEngine, ActionIntent, DecideResult } from './decision-engine';
-import type { LlmAdvisor } from './llm-advisor';
+
 import { CycleMetricsCollector } from './cycle-metrics';
 import { StartCycleInput as StartCycleSchema } from './schemas/loop';
 import type { StartCycleInputRaw, LoopAction, CycleIntent } from './schemas/loop';
@@ -55,7 +55,7 @@ export class LoopRunner {
     private eddaBridge?: EddaBridge,
     private skillRegistry?: SkillRegistry,
     private decisionEngine?: DecisionEngine,
-    private _llmAdvisor?: LlmAdvisor,
+    // LlmAdvisor slot reserved for Phase 1 (currently handled by DecisionEngine)
   ) {}
 
   startCycle(villageId: string, rawInput: StartCycleInputRaw): LoopCycle {
@@ -492,7 +492,7 @@ export class LoopRunner {
     return rows;
   }
 
-  async decide(chief: Chief, activeLaws: unknown[], observations: Record<string, unknown>[], villageId?: string): Promise<Decision | null> {
+  async decide(_chief: Chief, _activeLaws: unknown[], observations: Record<string, unknown>[], villageId?: string): Promise<Decision | null> {
     // Phase 0: Rule-based decision engine
     // In Phase 0, we return null (no action) after observing — the loop completes immediately
     // Phase 1 will plug in LLM-based decision making

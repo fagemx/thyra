@@ -8,7 +8,7 @@ import type { EddaBridge, EddaDecisionHit } from './edda-bridge';
 import type { RiskAssessor } from './risk-assessor';
 import type { LlmAdvisor } from './llm-advisor';
 import { filterCandidates } from './candidate-filter';
-import type { LoopAction, PlanState, PlannedStep, CompletedStep } from './schemas/loop';
+import type { LoopAction, PlanState } from './schemas/loop';
 
 // Re-export CycleIntent from schemas/loop (single source of truth)
 export type { CycleIntent } from './schemas/loop';
@@ -565,7 +565,10 @@ export class DecisionEngine {
    * 5. 所有步驟完成 → complete_cycle
    */
   private async decidePlanBased(context: DecideContext): Promise<DecideResult> {
-    const plan = context.intent!.plan!;
+    if (!context.intent?.plan) {
+      throw new Error('decidePlanBased called without intent.plan');
+    }
+    const plan = context.intent.plan;
     const factors: string[] = [];
     const lawConsiderations: string[] = [];
     const precedentNotes: string[] = [];

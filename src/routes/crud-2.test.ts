@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Hono } from 'hono';
-import { Database } from 'bun:sqlite';
 import { createDb, initSchema } from '../db';
 import { VillageManager } from '../village-manager';
 import { ConstitutionStore } from '../constitution-store';

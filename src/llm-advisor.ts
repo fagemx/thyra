@@ -489,11 +489,11 @@ export function createMockLlmAdvisor(opts: {
     suggestLawProposals: () => {
       return Promise.resolve(opts.lawSuggestions ?? []);
     },
-    generateCandidates: async () => {
-      return opts.candidateDrafts ?? [];
+    generateCandidates: () => {
+      return Promise.resolve(opts.candidateDrafts ?? []);
     },
-    repairPlan: async (_context: DecideContext, currentPlan: PlanState, _blockingReason: string) => {
-      return opts.repairPlanResult ?? currentPlan;
+    repairPlan: (_context: DecideContext, currentPlan: PlanState, _blockingReason: string) => {
+      return Promise.resolve(opts.repairPlanResult ?? currentPlan);
     },
   };
 }

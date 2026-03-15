@@ -10,7 +10,6 @@ import { RiskAssessor } from './risk-assessor';
 import { DecisionEngine } from './decision-engine';
 import type { LoopOutcome, CycleState, DecideContext } from './decision-engine';
 import type { LoopAction } from './schemas/loop';
-import type { EddaDecisionHit } from './edda-bridge';
 
 describe('DecisionEngine', () => {
   let db: Database;
