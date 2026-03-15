@@ -1,0 +1,91 @@
+# Blog Village — 內容發佈治理範例
+# 用於示範 Thyra 的完整 Village 生命週期
+pack_version: "0.1"
+
+village:
+  name: blog-village
+  description: "AI 驅動的部落格內容產出村莊"
+  target_repo: fagemx/blog
+
+constitution:
+  allowed_permissions:
+    - dispatch_task
+    - propose_law
+    - enact_law_low
+    - query_edda
+    - spend_budget
+  budget:
+    max_cost_per_action: 5
+    max_cost_per_day: 50
+    max_cost_per_loop: 25
+  rules:
+    - description: "所有內容必須經過 review 階段才能發佈"
+      enforcement: hard
+      scope: ["publish"]
+    - description: "每篇文章至少包含 500 字"
+      enforcement: soft
+      scope: ["draft", "publish"]
+    - description: "研究階段必須引用至少一個可驗證來源"
+      enforcement: hard
+      scope: ["research"]
+
+chief:
+  name: editor-chief
+  role: "內容主編：負責規劃、審核、發佈部落格文章"
+  permissions:
+    - dispatch_task
+    - propose_law
+    - enact_law_low
+    - query_edda
+    - spend_budget
+  personality:
+    risk_tolerance: conservative
+    communication_style: detailed
+    decision_speed: cautious
+  constraints:
+    - type: must
+      description: "每次發佈前必須完成品質檢查"
+    - type: must_not
+      description: "不得發佈未經事實查核的內容"
+    - type: prefer
+      description: "優先選擇有深度分析的主題"
+
+skills:
+  - research
+  - draft
+  - review
+  - publish
+
+laws:
+  - category: topic-mix
+    content:
+      description: "每週至少發佈 2 篇技術文章和 1 篇觀點文章"
+      strategy:
+        tech_per_week: 2
+        opinion_per_week: 1
+        ratio: "2:1"
+    evidence:
+      source: "content-analytics-2024"
+      reasoning: "技術文章帶來較高的 SEO 流量，觀點文章提升互動率"
+
+  - category: publish-schedule
+    content:
+      description: "文章應在週二和週四上午 10 點發佈"
+      strategy:
+        days: ["tuesday", "thursday"]
+        time: "10:00"
+        timezone: "Asia/Taipei"
+    evidence:
+      source: "engagement-report-q4"
+      reasoning: "週二和週四上午的讀者活躍度最高"
+
+  - category: quality-threshold
+    content:
+      description: "文章品質分數必須達到 7/10 以上才能發佈"
+      strategy:
+        min_score: 7
+        max_score: 10
+        auto_reject_below: 4
+    evidence:
+      source: "editorial-standards-v2"
+      reasoning: "低於 7 分的文章讀者留存率顯著下降"
