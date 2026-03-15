@@ -277,7 +277,7 @@ export class DecisionEngine {
 
     // Chief personality + 約束
     let personalityEffect = this.buildPersonalityEffect(context);
-    const riskTolerance = context.chief.personality?.risk_tolerance ?? 'moderate';
+    const riskTolerance = context.chief.personality.risk_tolerance;
 
     // --- Pipeline ---
     const candidates = this.generateCandidates(context);
@@ -400,7 +400,8 @@ export class DecisionEngine {
     action: ActionIntent | null,
     factors: string[],
   ): Promise<{ action: ActionIntent | null; lawProposals: LawProposalDraft[] }> {
-    const advisor = this.llmAdvisor!;
+    if (!this.llmAdvisor) throw new Error('applyLlmAdvisor called without llmAdvisor');
+    const advisor = this.llmAdvisor;
     let currentAction = action;
     const lawProposals: LawProposalDraft[] = [];
 
@@ -464,21 +465,29 @@ export class DecisionEngine {
     }
 
     // LLM law proposal 建議
+    await this.collectLawSuggestions(advisor, context, lawProposals);
+
+    return { action: currentAction, lawProposals };
+  }
+
+  private async collectLawSuggestions(
+    advisor: LlmAdvisor,
+    context: DecideContext,
+    lawProposals: LawProposalDraft[],
+  ): Promise<void> {
     try {
       const suggestions = await advisor.suggestLawProposals(context);
-      if (suggestions.length > 0) {
-        for (const s of suggestions) {
-          lawProposals.push({
-            category: s.category,
-            content: { description: s.description, strategy: s.strategy },
-            evidence: {
-              source: 'llm_advisor',
-              reasoning: s.reasoning,
-              edda_refs: [],
-            },
-            trigger: s.trigger,
-          });
-        }
+      for (const s of suggestions) {
+        lawProposals.push({
+          category: s.category,
+          content: { description: s.description, strategy: s.strategy },
+          evidence: {
+            source: 'llm_advisor',
+            reasoning: s.reasoning,
+            edda_refs: [],
+          },
+          trigger: s.trigger,
+        });
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -486,8 +495,6 @@ export class DecisionEngine {
         error: msg.slice(0, 500),
       }, 'system');
     }
-
-    return { action: currentAction, lawProposals };
   }
 
   /**
@@ -708,7 +715,7 @@ export class DecisionEngine {
       );
     }
 
-    if (plan.fallback === 'replan' && this.llmAdvisor) {
+    if (this.llmAdvisor) {
       // LLM plan repair
       try {
         const repairedPlan = await this.llmAdvisor.repairPlan(context, plan, blockingReason);

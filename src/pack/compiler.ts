@@ -431,20 +431,13 @@ export class VillagePackCompiler {
 
   // ── Phase 4: Chief ─────────────────────────────────────────
 
-  private compileChief(
-    ctx: CompileContext,
-    pack: PackChief,
-    actor: string,
-    dryRun: boolean,
-  ): void {
-    // Pre-validate: permissions ⊆ constitution.allowed_permissions (THY-09)
+  private validateChiefPermissions(ctx: CompileContext, pack: PackChief, dryRun: boolean): boolean {
     const constitution = ctx.constitution ?? this.constitutionStore.getActive(ctx.village_id);
     if (!constitution && !dryRun) {
       ctx.errors.push('No active constitution for chief validation — aborting');
       ctx.aborted = true;
-      return;
+      return false;
     }
-
     if (constitution) {
       for (const perm of pack.permissions) {
         if (!constitution.allowed_permissions.includes(perm)) {
@@ -453,10 +446,20 @@ export class VillagePackCompiler {
           );
           ctx.aborted = true;
           ctx.chief_result = { action: 'skip', detail: `permission violation: ${perm}` };
-          return;
+          return false;
         }
       }
     }
+    return true;
+  }
+
+  private compileChief(
+    ctx: CompileContext,
+    pack: PackChief,
+    actor: string,
+    dryRun: boolean,
+  ): void {
+    if (!this.validateChiefPermissions(ctx, pack, dryRun)) return;
 
     // Build skill bindings from resolved skills
     const bindings: SkillBinding[] = ctx.resolved_skills.map((r) => ({
@@ -542,14 +545,16 @@ export class VillagePackCompiler {
       entries.push({ category: cat, action: 'skip' });
     }
 
+    const resolvedChiefId = chiefId ?? 'dry-run-chief';
+
     // Propose new
-    this.compileLawsPropose(ctx, diff.toPropose, chiefId!, dryRun, entries);
+    this.compileLawsPropose(ctx, diff.toPropose, resolvedChiefId, dryRun, entries);
 
     // Revoke removed
     this.compileLawsRevoke(ctx, diff.toRevoke, actor, dryRun, entries);
 
     // Replace changed
-    this.compileLawsReplace(ctx, diff.toReplace, chiefId!, actor, dryRun, entries);
+    this.compileLawsReplace(ctx, diff.toReplace, resolvedChiefId, actor, dryRun, entries);
 
     ctx.law_entries = entries;
     ctx.completed_phases = 5;
@@ -569,7 +574,7 @@ export class VillagePackCompiler {
         continue;
       }
       try {
-        const law = this.lawEngine.propose(ctx.village_id, chiefId as string, {
+        const law = this.lawEngine.propose(ctx.village_id, chiefId, {
           category: pl.category,
           content: { description: pl.description, strategy: pl.strategy },
           evidence: pl.evidence,
@@ -630,7 +635,7 @@ export class VillagePackCompiler {
         continue;
       }
       try {
-        const law = this.lawEngine.propose(ctx.village_id, chiefId as string, {
+        const law = this.lawEngine.propose(ctx.village_id, chiefId, {
           category: pl.category,
           content: { description: pl.description, strategy: pl.strategy },
           evidence: pl.evidence,
