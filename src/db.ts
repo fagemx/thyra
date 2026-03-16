@@ -326,6 +326,19 @@ export function initSchema(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_goal_parent ON goals(parent_id);
     CREATE INDEX IF NOT EXISTS idx_goal_chief ON goals(owner_chief_id);
 
+    -- Chief config revisions (#227: config versioning with rollback)
+    CREATE TABLE IF NOT EXISTS chief_config_revisions (
+      id TEXT PRIMARY KEY,
+      chief_id TEXT NOT NULL REFERENCES chiefs(id),
+      version INTEGER NOT NULL,
+      config_snapshot TEXT NOT NULL,
+      changed_by TEXT,
+      change_reason TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_revision_chief
+      ON chief_config_revisions(chief_id, version);
+
     -- Cycle telemetry (#232: per-operation timing for governance cycles)
     CREATE TABLE IF NOT EXISTS cycle_telemetry (
       id TEXT PRIMARY KEY,

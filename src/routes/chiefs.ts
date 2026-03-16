@@ -204,6 +204,45 @@ export function chiefRoutes(engine: ChiefEngine, skillRegistry: SkillRegistry, d
     }
   });
 
+  // -----------------------------------------------------------------------
+  // Config revision + rollback routes (#227)
+  // -----------------------------------------------------------------------
+
+  /** 列出 chief 的版本歷史 */
+  app.get('/api/chiefs/:id/revisions', (c) => {
+    const chief = engine.get(c.req.param('id'));
+    if (!chief) return c.json({ ok: false, error: { code: 'NOT_FOUND', message: 'Chief not found' } }, 404);
+    const limit = Number(c.req.query('limit')) || 50;
+    return c.json({ ok: true, data: engine.listRevisions(c.req.param('id'), limit) });
+  });
+
+  /** 查看某版本 */
+  app.get('/api/chiefs/:id/revisions/:version', (c) => {
+    const chief = engine.get(c.req.param('id'));
+    if (!chief) return c.json({ ok: false, error: { code: 'NOT_FOUND', message: 'Chief not found' } }, 404);
+    const version = Number(c.req.param('version'));
+    if (isNaN(version)) return c.json({ ok: false, error: { code: 'VALIDATION', message: 'version must be a number' } }, 400);
+    const revision = engine.getRevision(c.req.param('id'), version);
+    if (!revision) return c.json({ ok: false, error: { code: 'NOT_FOUND', message: `Revision version ${version} not found` } }, 404);
+    return c.json({ ok: true, data: revision });
+  });
+
+  /** 回溯到某版本 */
+  app.post('/api/chiefs/:id/rollback/:version', (c) => {
+    const version = Number(c.req.param('version'));
+    if (isNaN(version)) return c.json({ ok: false, error: { code: 'VALIDATION', message: 'version must be a number' } }, 400);
+    try {
+      const chief = engine.rollbackToRevision(c.req.param('id'), version, 'human');
+      return c.json({ ok: true, data: chief });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Unknown error';
+      if (msg.includes('NOT_FOUND') || msg.includes('not found')) {
+        return c.json({ ok: false, error: { code: 'NOT_FOUND', message: msg } }, 404);
+      }
+      return c.json({ ok: false, error: { code: 'BAD_REQUEST', message: msg } }, 400);
+    }
+  });
+
   /**
    * T2 Governance Action — Chief 執行治理動作
    * 流程：validate → risk assess (medium) → dispatch via KarviBridge

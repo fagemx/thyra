@@ -754,4 +754,143 @@ describe('Worker role (#214)', () => {
     expect(fetched?.role_type).toBe('worker');
     expect(fetched?.parent_chief_id).toBe(p.id);
   });
+
+  // -----------------------------------------------------------------------
+  // Config revision + rollback tests (#227)
+  // -----------------------------------------------------------------------
+
+  describe('config revisions (#227)', () => {
+    it('update auto-saves revision with old config', () => {
+      const chief = chiefEngine.create(villageId, {
+        name: 'Rev', role: 'reviewer', permissions: ['dispatch_task'],
+      }, 'h');
+      chiefEngine.update(chief.id, { name: 'Rev-Updated' }, 'h');
+      const revisions = chiefEngine.listRevisions(chief.id);
+      expect(revisions).toHaveLength(1);
+      expect(revisions[0].version).toBe(1); // 存的是 update 前的 chief.version
+      expect(revisions[0].config_snapshot.name).toBe('Rev'); // 舊 config
+    });
+
+    it('multiple updates create revision history', () => {
+      const chief = chiefEngine.create(villageId, {
+        name: 'A', role: 'r', permissions: ['dispatch_task'],
+      }, 'h');
+      chiefEngine.update(chief.id, { name: 'B' }, 'h');
+      chiefEngine.update(chief.id, { name: 'C' }, 'h');
+      const revisions = chiefEngine.listRevisions(chief.id);
+      expect(revisions).toHaveLength(2);
+      // DESC order: version 2 first, then version 1
+      expect(revisions[0].version).toBe(2);
+      expect(revisions[0].config_snapshot.name).toBe('B');
+      expect(revisions[1].version).toBe(1);
+      expect(revisions[1].config_snapshot.name).toBe('A');
+    });
+
+    it('getRevision returns specific version', () => {
+      const chief = chiefEngine.create(villageId, {
+        name: 'A', role: 'r', permissions: ['dispatch_task'],
+      }, 'h');
+      chiefEngine.update(chief.id, { name: 'B' }, 'h');
+      chiefEngine.update(chief.id, { name: 'C' }, 'h');
+      const rev = chiefEngine.getRevision(chief.id, 1);
+      expect(rev).not.toBeNull();
+      expect(rev?.config_snapshot.name).toBe('A');
+    });
+
+    it('getRevision returns null for nonexistent version', () => {
+      const chief = chiefEngine.create(villageId, { name: 'A', role: 'r' }, 'h');
+      expect(chiefEngine.getRevision(chief.id, 999)).toBeNull();
+    });
+
+    it('rollback restores old config', () => {
+      const chief = chiefEngine.create(villageId, {
+        name: 'Original', role: 'reviewer', permissions: ['dispatch_task'],
+      }, 'h');
+      chiefEngine.update(chief.id, { permissions: ['dispatch_task', 'propose_law'] }, 'h');
+      // Now at version 2 with permissions [dispatch_task, propose_law]
+      const restored = chiefEngine.rollbackToRevision(chief.id, 1, 'human');
+      expect(restored.permissions).toEqual(['dispatch_task']); // 恢復原始
+      expect(restored.name).toBe('Original');
+    });
+
+    it('rollback to nonexistent version throws', () => {
+      const chief = chiefEngine.create(villageId, { name: 'A', role: 'r' }, 'h');
+      expect(() => chiefEngine.rollbackToRevision(chief.id, 999, 'h')).toThrow('REVISION_NOT_FOUND');
+    });
+
+    it('rollback preserves history (append-only)', () => {
+      const chief = chiefEngine.create(villageId, {
+        name: 'A', role: 'r', permissions: ['dispatch_task'],
+      }, 'h');
+      chiefEngine.update(chief.id, { name: 'B' }, 'h');
+      // Revisions so far: 1 (pre-update config A)
+      chiefEngine.rollbackToRevision(chief.id, 1, 'h');
+      // Rollback calls update(), which saves version 2 config (B) as revision
+      const revisions = chiefEngine.listRevisions(chief.id);
+      expect(revisions).toHaveLength(2);
+      // version 2 (pre-rollback: B), version 1 (pre-update: A)
+      expect(revisions[0].version).toBe(2);
+      expect(revisions[0].config_snapshot.name).toBe('B');
+      expect(revisions[1].version).toBe(1);
+      expect(revisions[1].config_snapshot.name).toBe('A');
+    });
+
+    it('revision config_snapshot excludes runtime fields', () => {
+      const chief = chiefEngine.create(villageId, {
+        name: 'A', role: 'r', permissions: ['dispatch_task'],
+      }, 'h');
+      chiefEngine.update(chief.id, { name: 'B' }, 'h');
+      const rev = chiefEngine.getRevision(chief.id, 1);
+      expect(rev).not.toBeNull();
+      const snapshot = rev?.config_snapshot as unknown as Record<string, unknown>;
+      // Runtime/identity 欄位不應出現在 snapshot 中
+      expect(snapshot).not.toHaveProperty('id');
+      expect(snapshot).not.toHaveProperty('village_id');
+      expect(snapshot).not.toHaveProperty('version');
+      expect(snapshot).not.toHaveProperty('status');
+      expect(snapshot).not.toHaveProperty('pause_reason');
+      expect(snapshot).not.toHaveProperty('paused_at');
+      expect(snapshot).not.toHaveProperty('last_heartbeat_at');
+      expect(snapshot).not.toHaveProperty('created_at');
+      expect(snapshot).not.toHaveProperty('updated_at');
+      // Config 欄位應存在
+      expect(snapshot).toHaveProperty('name');
+      expect(snapshot).toHaveProperty('permissions');
+      expect(snapshot).toHaveProperty('personality');
+    });
+
+    it('revision stores changed_by and change_reason', () => {
+      const chief = chiefEngine.create(villageId, {
+        name: 'A', role: 'r', permissions: ['dispatch_task'],
+      }, 'h');
+      chiefEngine.update(chief.id, { name: 'B' }, 'admin', 'testing reason');
+      const rev = chiefEngine.getRevision(chief.id, 1);
+      expect(rev?.changed_by).toBe('admin');
+      expect(rev?.change_reason).toBe('testing reason');
+    });
+
+    it('rollback revision has correct change_reason', () => {
+      const chief = chiefEngine.create(villageId, {
+        name: 'A', role: 'r', permissions: ['dispatch_task'],
+      }, 'h');
+      chiefEngine.update(chief.id, { name: 'B' }, 'h');
+      chiefEngine.rollbackToRevision(chief.id, 1, 'h');
+      const revisions = chiefEngine.listRevisions(chief.id);
+      // The revision saved during rollback (version 2) should have rollback reason
+      const rollbackRev = revisions.find(r => r.version === 2);
+      expect(rollbackRev?.change_reason).toBe('rollback to version 1');
+    });
+
+    it('listRevisions respects limit', () => {
+      const chief = chiefEngine.create(villageId, {
+        name: 'A', role: 'r', permissions: ['dispatch_task'],
+      }, 'h');
+      chiefEngine.update(chief.id, { name: 'B' }, 'h');
+      chiefEngine.update(chief.id, { name: 'C' }, 'h');
+      chiefEngine.update(chief.id, { name: 'D' }, 'h');
+      const revisions = chiefEngine.listRevisions(chief.id, 2);
+      expect(revisions).toHaveLength(2);
+      expect(revisions[0].version).toBe(3); // most recent first
+    });
+  });
 });
