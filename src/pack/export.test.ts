@@ -288,6 +288,77 @@ describe('exportVillage', () => {
     }
   });
 
+  it('should export llm section from village with llm_config', () => {
+    createVerifiedSkill(env.skillRegistry, 'code-review');
+    const pack = makePack({ llm: { provider: 'anthropic', preset: 'economy' } });
+    const compiled = env.compiler.compile(pack, defaultOpts);
+    expect(compiled.errors).toEqual([]);
+
+    const villageId = compiled.village.entity_id!;
+    const exported = exportVillage(villageId, env.deps);
+    expect(exported.ok).toBe(true);
+    if (!exported.ok) return;
+
+    expect(exported.data.llm).toBeDefined();
+    expect(exported.data.llm?.provider).toBe('anthropic');
+    expect(exported.data.llm?.preset).toBe('economy');
+  });
+
+  it('should omit llm section for village without llm_config', () => {
+    // Create village directly (no llm_config in metadata)
+    const village = env.villageMgr.create(
+      { name: 'no-llm', description: 'no config', target_repo: 'org/repo', metadata: {} },
+      'test',
+    );
+
+    const exported = exportVillage(village.id, env.deps);
+    expect(exported.ok).toBe(true);
+    if (!exported.ok) return;
+    expect(exported.data.llm).toBeUndefined();
+  });
+
+  it('should produce idempotent round-trip with llm config', () => {
+    createVerifiedSkill(env.skillRegistry, 'code-review');
+    const pack = makePack({ llm: { provider: 'anthropic', preset: 'performance' } });
+    const firstResult = env.compiler.compile(pack, defaultOpts);
+    expect(firstResult.errors).toEqual([]);
+
+    const villageId = firstResult.village.entity_id!;
+    const exported = exportVillage(villageId, env.deps);
+    expect(exported.ok).toBe(true);
+    if (!exported.ok) return;
+
+    // Re-compile from exported data
+    const recompilePack: VillagePack = {
+      version: '0.1',
+      village: exported.data.village,
+      constitution: {
+        allowed_permissions: exported.data.constitution.allowed_permissions as VillagePack['constitution']['allowed_permissions'],
+        budget: exported.data.constitution.budget,
+        rules: exported.data.constitution.rules,
+      },
+      chief: {
+        name: exported.data.chief.name,
+        role: exported.data.chief.role,
+        permissions: exported.data.chief.permissions as VillagePack['chief']['permissions'],
+        personality: exported.data.chief.personality as VillagePack['chief']['personality'],
+        constraints: exported.data.chief.constraints as VillagePack['chief']['constraints'],
+        skills: exported.data.skills,
+      },
+      laws: exported.data.laws.map((l) => ({
+        category: l.category,
+        description: l.content.description,
+        strategy: l.content.strategy,
+        evidence: l.evidence,
+      })),
+      llm: exported.data.llm,
+    };
+
+    const secondResult = env.compiler.compile(recompilePack, defaultOpts);
+    expect(secondResult.errors).toEqual([]);
+    expect(secondResult.village.action).toBe('skip');
+  });
+
   it('should handle village with multiple laws', () => {
     createVerifiedSkill(env.skillRegistry, 'code-review');
     const pack = makePack({

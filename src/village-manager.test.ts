@@ -109,6 +109,44 @@ describe('VillageManager', () => {
     expect((result as { changes: number }).changes).toBe(0);
   });
 
+  describe('getLlmConfig', () => {
+    it('returns null for non-existent village', () => {
+      expect(mgr.getLlmConfig('village-nonexistent')).toBeNull();
+    });
+
+    it('returns null for village without llm_config in metadata', () => {
+      const v = mgr.create({ name: 'no-llm', target_repo: 'r', metadata: {} }, 'u');
+      expect(mgr.getLlmConfig(v.id)).toBeNull();
+    });
+
+    it('returns parsed config for village with valid llm_config', () => {
+      const llmConfig = {
+        provider: 'anthropic',
+        preset: 'balanced',
+        models: {
+          chief_decision: 'claude-haiku-4-5',
+          pipeline_execute: 'claude-sonnet-4-5',
+          conversation: 'claude-sonnet-4-5',
+        },
+        resolved_at: new Date().toISOString(),
+      };
+      const v = mgr.create({
+        name: 'with-llm', target_repo: 'r', metadata: { llm_config: llmConfig },
+      }, 'u');
+      const result = mgr.getLlmConfig(v.id);
+      expect(result).not.toBeNull();
+      expect(result?.preset).toBe('balanced');
+      expect(result?.models.chief_decision).toBe('claude-haiku-4-5');
+    });
+
+    it('returns null for corrupted llm_config metadata', () => {
+      const v = mgr.create({
+        name: 'corrupt', target_repo: 'r', metadata: { llm_config: { bad: true } },
+      }, 'u');
+      expect(mgr.getLlmConfig(v.id)).toBeNull();
+    });
+  });
+
   describe('Board Mapping', () => {
     it('setBoardMapping creates mapping with correct fields', () => {
       const v = mgr.create({ name: 'test', target_repo: 'r' }, 'u');

@@ -374,7 +374,76 @@ describe('VillagePackCompiler', () => {
     expect(env.constitutionStore.list('')).toHaveLength(0);
   });
 
-  // 10. Constitution cosmetic change — fingerprint match → skip
+  // 10. LLM config: compile with llm section stores resolved config
+  it('stores resolved llm_config in village metadata', () => {
+    createVerifiedSkill(env.skillRegistry, 'code-review');
+    const pack = makePack({ llm: { provider: 'anthropic', preset: 'economy' } });
+
+    const result = env.compiler.compile(pack, defaultOpts);
+    expect(result.completed_phases).toBe(5);
+    expect(result.errors).toHaveLength(0);
+    expect(result.llm_config).toBeDefined();
+    expect(result.llm_config?.provider).toBe('anthropic');
+    expect(result.llm_config?.preset).toBe('economy');
+    expect(result.llm_config?.models.chief_decision).toBe('claude-haiku-4-5');
+    expect(result.llm_config?.models.pipeline_execute).toBe('claude-haiku-4-5');
+
+    // Verify stored in village metadata
+    const villageId = result.village.entity_id!;
+    const llm = env.villageMgr.getLlmConfig(villageId);
+    expect(llm).toBeDefined();
+    expect(llm?.preset).toBe('economy');
+  });
+
+  // 11. LLM config: default to balanced when no llm section
+  it('defaults to balanced llm_config when no llm section', () => {
+    createVerifiedSkill(env.skillRegistry, 'code-review');
+    const pack = makePack(); // no llm field
+
+    const result = env.compiler.compile(pack, defaultOpts);
+    expect(result.completed_phases).toBe(5);
+    expect(result.llm_config?.preset).toBe('balanced');
+    expect(result.llm_config?.models.chief_decision).toBe('claude-haiku-4-5');
+    expect(result.llm_config?.models.pipeline_execute).toBe('claude-sonnet-4-5');
+  });
+
+  // 12. LLM config: changing preset triggers village update
+  it('triggers village update when llm preset changes', () => {
+    createVerifiedSkill(env.skillRegistry, 'code-review');
+    const pack = makePack({ llm: { provider: 'anthropic', preset: 'economy' } });
+
+    const r1 = env.compiler.compile(pack, defaultOpts);
+    expect(r1.village.action).toBe('create');
+
+    // Change preset
+    const updated = makePack({ llm: { provider: 'anthropic', preset: 'performance' } });
+    const r2 = env.compiler.compile(updated, defaultOpts);
+    expect(r2.village.action).toBe('update');
+    expect(r2.llm_config?.preset).toBe('performance');
+  });
+
+  // 13. LLM config: same preset skips village update
+  it('skips village when llm preset is unchanged', () => {
+    createVerifiedSkill(env.skillRegistry, 'code-review');
+    const pack = makePack({ llm: { provider: 'anthropic', preset: 'economy' } });
+
+    env.compiler.compile(pack, defaultOpts);
+    const r2 = env.compiler.compile(pack, defaultOpts);
+    expect(r2.village.action).toBe('skip');
+  });
+
+  // 14. LLM config: dry-run shows llm_config
+  it('dry-run includes llm_config in result', () => {
+    createVerifiedSkill(env.skillRegistry, 'code-review');
+    const pack = makePack({ llm: { provider: 'anthropic', preset: 'performance' } });
+
+    const result = env.compiler.compile(pack, { ...defaultOpts, dry_run: true });
+    expect(result.llm_config).toBeDefined();
+    expect(result.llm_config?.preset).toBe('performance');
+    expect(result.llm_config?.models.chief_decision).toBe('claude-sonnet-4-5');
+  });
+
+  // 15. Constitution cosmetic change — fingerprint match → skip
   it('skips constitution when fingerprint matches', () => {
     createVerifiedSkill(env.skillRegistry, 'code-review');
     const pack = makePack();

@@ -18,6 +18,10 @@ export interface ExportedVillagePack {
     description: string;
     target_repo: string;
   };
+  llm?: {
+    provider: string;
+    preset: string;
+  };
   constitution: {
     rules: Array<{
       description: string;
@@ -127,9 +131,16 @@ export function exportVillage(villageId: string, deps: ExportDeps): ExportResult
     }
   }
 
-  // 6. Assemble
+  // 6. LLM config (from village metadata, emit declared form only)
+  const llmConfig = village.metadata.llm_config as { provider?: string; preset?: string } | undefined;
+  const llmSection = llmConfig?.provider && llmConfig?.preset
+    ? { provider: llmConfig.provider, preset: llmConfig.preset }
+    : undefined;
+
+  // 7. Assemble
   const pack: ExportedVillagePack = {
     pack_version: '0.1',
+    ...(llmSection ? { llm: llmSection } : {}),
     village: {
       name: village.name,
       description: village.description,
