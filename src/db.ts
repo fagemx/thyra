@@ -226,6 +226,86 @@ export function initSchema(db: Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_snapshot_village
       ON world_snapshots(village_id, created_at);
+
+    -- Market domain tables (B1)
+
+    CREATE TABLE IF NOT EXISTS zones (
+      id TEXT PRIMARY KEY,
+      village_id TEXT NOT NULL REFERENCES villages(id),
+      name TEXT NOT NULL,
+      type TEXT NOT NULL CHECK(type IN ('main_street','side_alley','stage','entrance')),
+      capacity INTEGER NOT NULL,
+      current_load INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','closed')),
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_zone_village ON zones(village_id, status);
+
+    CREATE TABLE IF NOT EXISTS stalls (
+      id TEXT PRIMARY KEY,
+      village_id TEXT NOT NULL REFERENCES villages(id),
+      zone_id TEXT NOT NULL REFERENCES zones(id),
+      name TEXT NOT NULL,
+      owner TEXT,
+      category TEXT,
+      rank INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','spotlight','closed')),
+      metadata TEXT NOT NULL DEFAULT '{}',
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_stall_village ON stalls(village_id, status);
+    CREATE INDEX IF NOT EXISTS idx_stall_zone ON stalls(zone_id);
+
+    CREATE TABLE IF NOT EXISTS event_slots (
+      id TEXT PRIMARY KEY,
+      village_id TEXT NOT NULL REFERENCES villages(id),
+      zone_id TEXT REFERENCES zones(id),
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      start_time TEXT NOT NULL,
+      end_time TEXT NOT NULL,
+      capacity INTEGER,
+      booked INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','full','active','ended')),
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_slot_village ON event_slots(village_id, status);
+
+    CREATE TABLE IF NOT EXISTS orders (
+      id TEXT PRIMARY KEY,
+      village_id TEXT NOT NULL REFERENCES villages(id),
+      stall_id TEXT REFERENCES stalls(id),
+      slot_id TEXT REFERENCES event_slots(id),
+      buyer TEXT NOT NULL,
+      type TEXT NOT NULL CHECK(type IN ('purchase','booking','commission')),
+      amount REAL NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','confirmed','completed','cancelled')),
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_order_village ON orders(village_id, status);
+
+    CREATE TABLE IF NOT EXISTS market_metrics (
+      id TEXT PRIMARY KEY,
+      village_id TEXT NOT NULL REFERENCES villages(id),
+      timestamp TEXT NOT NULL,
+      total_visitors INTEGER NOT NULL DEFAULT 0,
+      active_stalls INTEGER NOT NULL DEFAULT 0,
+      active_events INTEGER NOT NULL DEFAULT 0,
+      revenue REAL NOT NULL DEFAULT 0,
+      incidents INTEGER NOT NULL DEFAULT 0,
+      satisfaction REAL NOT NULL DEFAULT 0,
+      metadata TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_metrics_village ON market_metrics(village_id, timestamp);
   `);
 
   // ALTER TABLE 新增 intent 欄位（冪等：column 已存在就忽略）
