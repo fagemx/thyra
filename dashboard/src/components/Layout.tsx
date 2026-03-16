@@ -3,14 +3,16 @@ import styles from './Layout.module.css'
 
 interface LayoutProps {
   sidebar: ReactNode
+  nav?: ReactNode
   children: ReactNode
 }
 
-export function Layout({ sidebar, children }: LayoutProps) {
+export function Layout({ sidebar, nav, children }: LayoutProps) {
   return (
     <div className={styles.layout}>
       <header className={styles.header}>
         <h1>Thyra Dashboard</h1>
+        {nav}
       </header>
       <div className={styles.body}>
         <aside className={styles.sidebar}>{sidebar}</aside>

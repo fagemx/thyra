@@ -1,0 +1,115 @@
+.card {
+  background: #16213e;
+  border: 1px solid #0f3460;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.title {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #e94560;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.chiefCard {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.625rem 0.75rem;
+  background: #1a1a2e;
+  border-radius: 6px;
+  border: 1px solid #0f3460;
+}
+
+.chiefInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.chiefName {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #e0e0e0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chiefRole {
+  font-size: 0.7rem;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.badge {
+  font-size: 0.65rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.badgeActive {
+  background: rgba(46, 204, 113, 0.15);
+  color: #2ecc71;
+}
+
+.badgePaused {
+  background: rgba(255, 193, 7, 0.15);
+  color: #ffc107;
+}
+
+.badgeError {
+  background: rgba(233, 69, 96, 0.15);
+  color: #e94560;
+}
+
+.chiefMeta {
+  font-size: 0.7rem;
+  color: #666;
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.2rem;
+}
+
+.resumeBtn {
+  font-size: 0.7rem;
+  padding: 0.25rem 0.5rem;
+  background: #0f3460;
+  border: 1px solid #e94560;
+  color: #e94560;
+  border-radius: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.resumeBtn:hover {
+  background: #e94560;
+  color: #fff;
+}
+
+.resumeBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.empty {
+  color: #666;
+  font-size: 0.875rem;
+  font-style: italic;
+}
+
+.error {
+  color: #e94560;
+  font-size: 0.875rem;
+}

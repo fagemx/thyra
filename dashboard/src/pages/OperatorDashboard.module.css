@@ -1,0 +1,31 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.topRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.bottomRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.placeholder {
+  color: #666;
+  padding: 2rem;
+  text-align: center;
+  font-size: 0.875rem;
+}
+
+@media (max-width: 900px) {
+  .topRow,
+  .bottomRow {
+    grid-template-columns: 1fr;
+  }
+}

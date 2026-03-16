@@ -1,0 +1,134 @@
+.card {
+  background: #16213e;
+  border: 1px solid #0f3460;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #e94560;
+}
+
+.sseStatus {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.sseConnected {
+  color: #2ecc71;
+}
+
+.sseDisconnected {
+  color: #e94560;
+}
+
+.overallScore {
+  text-align: center;
+  margin-bottom: 1rem;
+}
+
+.scoreNumber {
+  font-size: 3rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.scoreLabel {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #888;
+  margin-top: 0.25rem;
+}
+
+.scoreGreen {
+  color: #2ecc71;
+}
+
+.scoreYellow {
+  color: #ffc107;
+}
+
+.scoreRed {
+  color: #e94560;
+}
+
+.bars {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.barRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.barLabel {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #888;
+  width: 80px;
+  flex-shrink: 0;
+}
+
+.barTrack {
+  flex: 1;
+  height: 6px;
+  background: #0f3460;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.barFill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.barValue {
+  font-size: 0.7rem;
+  color: #888;
+  width: 28px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.meta {
+  display: flex;
+  gap: 1.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #0f3460;
+  font-size: 0.75rem;
+  color: #888;
+}
+
+.metaItem {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.metaValue {
+  color: #e0e0e0;
+  font-weight: 500;
+}
+
+.empty {
+  color: #666;
+  font-size: 0.875rem;
+  font-style: italic;
+}

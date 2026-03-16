@@ -1,0 +1,53 @@
+.banner {
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.red {
+  background: rgba(233, 69, 96, 0.15);
+  border: 1px solid #e94560;
+  color: #e94560;
+}
+
+.yellow {
+  background: rgba(255, 193, 7, 0.15);
+  border: 1px solid #ffc107;
+  color: #ffc107;
+}
+
+.green {
+  background: rgba(46, 204, 113, 0.12);
+  border: 1px solid #2ecc71;
+  color: #2ecc71;
+}
+
+.icon {
+  font-size: 1.125rem;
+  flex-shrink: 0;
+}
+
+.messages {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.dismiss {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.6;
+  font-size: 1rem;
+  padding: 0.25rem;
+}
+
+.dismiss:hover {
+  opacity: 1;
+}

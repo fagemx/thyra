@@ -108,22 +108,179 @@ export type WorldChangeType =
   | 'cycle.end'
   | 'village.update'
 
+/**
+ * Loose WorldChange shape for JSON-based input.
+ * Backend validates against discriminated union via Zod.
+ */
 export interface WorldChange {
   type: WorldChangeType
-  payload: Record<string, unknown>
+  [key: string]: unknown
 }
 
-export interface JudgeVerdict {
+// --- Judge Result (mirrors src/world/judge.ts JudgeResult) ---
+
+export interface JudgeResult {
   allowed: boolean
-  reason: string
-  risk_level?: string
-  violations?: string[]
+  reasons: string[]
+  safety_check: boolean
+  legality_check: boolean
+  boundary_check: boolean
+  evaluator_check: boolean
+  consistency_check: boolean
+  warnings: string[]
+  requires_approval: boolean
 }
+
+// --- Apply Result (mirrors src/world-manager.ts ApplyResult) ---
 
 export interface ApplyResult {
   applied: boolean
-  change_id: string
-  snapshot_id?: string
+  judge_result: JudgeResult
+  snapshot_before: string
+  diff: WorldStateDiff | null
+  state_after: WorldState | null
+}
+
+// --- WorldStateDiff (mirrors src/world/diff.ts) ---
+
+export interface VillageDiff {
+  fields_changed: string[]
+}
+
+export interface ConstitutionDiff {
+  action: 'created' | 'superseded' | 'revoked'
+  before_id: string | null
+  after_id: string | null
+  fingerprint_before: string | null
+  fingerprint_after: string | null
+}
+
+export interface ChiefDiffEntry {
+  id: string
+  name: string
+}
+
+export interface ChiefChangedEntry extends ChiefDiffEntry {
+  fields_changed: string[]
+}
+
+export interface ChiefsDiff {
+  added: ChiefDiffEntry[]
+  removed: ChiefDiffEntry[]
+  changed: ChiefChangedEntry[]
+}
+
+export interface LawDiffEntry {
+  id: string
+  category: string
+}
+
+export interface LawChangedEntry extends LawDiffEntry {
+  fields: string[]
+}
+
+export interface LawsDiff {
+  added: LawDiffEntry[]
+  removed: LawDiffEntry[]
+  changed: LawChangedEntry[]
+}
+
+export interface SkillDiffEntry {
+  id: string
+  name: string
+}
+
+export interface SkillChangedEntry extends SkillDiffEntry {
+  fields: string[]
+}
+
+export interface SkillsDiff {
+  added: SkillDiffEntry[]
+  removed: SkillDiffEntry[]
+  changed: SkillChangedEntry[]
+}
+
+export interface LoopCyclesDiff {
+  added: string[]
+  removed: string[]
+}
+
+export interface WorldStateDiff {
+  village_id: string
+  village: VillageDiff | null
+  constitution: ConstitutionDiff | null
+  chiefs: ChiefsDiff
+  laws: LawsDiff
+  skills: SkillsDiff
+  loops: LoopCyclesDiff
+  has_changes: boolean
+}
+
+// --- WorldHealth (mirrors src/world/health.ts) ---
+
+export interface WorldHealthScores {
+  chief: number
+  constitution: number
+  law: number
+  skill: number
+  budget: number
+  freshness: number
+}
+
+export interface WorldHealth {
+  overall: number
+  chief_count: number
+  law_count: number
+  skill_count: number
+  budget_utilization: number
+  last_change_age_ms: number
+  constitution_active: boolean
+  cycle_count: number
+  scores: WorldHealthScores
+}
+
+// --- Audit Entry (mirrors audit_log row) ---
+
+export interface AuditEntry {
+  id: string
+  village_id: string
+  category: string
+  entity_id: string
+  action: string
+  details: Record<string, unknown>
+  actor: string
+  created_at: string
+}
+
+// --- Telemetry (mirrors CycleTelemetry) ---
+
+export interface TelemetryEntry {
+  id: string
+  village_id: string
+  chief_id: string
+  operation: string
+  duration_ms: number
+  status: string
+  error_message: string | null
+  created_at: string
+}
+
+export interface TelemetrySummary {
+  total_cycles: number
+  avg_duration_ms: number
+  slowest_operation: string
+  error_rate: number
+  chief_breakdown: Record<string, { avg_ms: number; cycles: number }>
+}
+
+// --- Budget (mirrors budget endpoint response) ---
+
+export interface BudgetStatus {
+  village_id: string
+  total_budget: number
+  used_budget: number
+  remaining_budget: number
+  utilization: number
 }
 
 // --- World Health ---
