@@ -89,7 +89,15 @@ export class SkillRegistry {
     return row ? this.deserialize(row) : null;
   }
 
-  list(filters?: { village_id?: string; status?: string; name?: string; scope_type?: string; source_type?: string }): Skill[] {
+  list(filters?: {
+    village_id?: string;
+    status?: string;
+    name?: string;
+    scope_type?: string;
+    source_type?: string;
+    tags?: string[];
+    search?: string;
+  }): Skill[] {
     let sql = 'SELECT * FROM skills WHERE 1=1';
     const params: string[] = [];
     if (filters?.village_id) {
@@ -112,9 +120,55 @@ export class SkillRegistry {
       sql += ' AND source_type = ?';
       params.push(filters.source_type);
     }
+    if (filters?.tags && filters.tags.length > 0) {
+      for (const tag of filters.tags) {
+        sql += ' AND tags LIKE ?';
+        params.push(`%"${tag}"%`);
+      }
+    }
+    if (filters?.search) {
+      sql += ` AND (name LIKE ? OR json_extract(definition, '$.description') LIKE ?)`;
+      params.push(`%${filters.search}%`, `%${filters.search}%`);
+    }
     sql += ' ORDER BY name, version DESC';
     const rows = this.db.prepare(sql).all(...params) as Record<string, unknown>[];
     return rows.map((r) => this.deserialize(r));
+  }
+
+  /**
+   * 根據 name 解析 skill，scope cascade：village → global。
+   * 回傳最新版本（不限 status），用於 content API。
+   */
+  getByNameWithScope(name: string, villageId?: string): Skill | null {
+    if (villageId) {
+      const villageRow = this.db.prepare(`
+        SELECT * FROM skills WHERE name = ? AND scope_type = 'village' AND village_id = ?
+        ORDER BY version DESC LIMIT 1
+      `).get(name, villageId) as Record<string, unknown> | null;
+      if (villageRow) return this.deserialize(villageRow);
+    }
+    const globalRow = this.db.prepare(`
+      SELECT * FROM skills WHERE name = ? AND scope_type = 'global'
+      ORDER BY version DESC LIMIT 1
+    `).get(name) as Record<string, unknown> | null;
+    return globalRow ? this.deserialize(globalRow) : null;
+  }
+
+  /**
+   * 就地更新 skill content（不建新版本）。
+   * Content 是文件性質，非功能變更，不需要 version bump。
+   */
+  updateContent(id: string, content: string, actor: string): Skill {
+    const skill = this.get(id);
+    if (!skill) throw new Error('Skill not found');
+
+    const now = new Date().toISOString();
+    this.db.prepare(`
+      UPDATE skills SET content = ?, updated_at = ? WHERE id = ?
+    `).run(content, now, id);
+
+    appendAudit(this.db, 'skill', id, 'update_content', { content_length: content.length }, actor);
+    return { ...skill, content, updated_at: now };
   }
 
   update(id: string, input: UpdateSkillInput, actor: string): Skill {
