@@ -16,6 +16,7 @@ export interface BudgetLimits {
   max_cost_per_action: number;
   max_cost_per_day: number;
   max_cost_per_loop: number;
+  max_cost_per_month: number;
 }
 
 export interface Constitution {
@@ -176,10 +177,13 @@ export function checkPermission(constitution: Constitution, permission: Permissi
 export function checkBudget(
   constitution: Constitution,
   amount: number,
-  type: 'per_action' | 'per_day' | 'per_loop',
+  type: 'per_action' | 'per_day' | 'per_loop' | 'per_month',
 ): boolean {
-  const key = { per_action: 'max_cost_per_action', per_day: 'max_cost_per_day', per_loop: 'max_cost_per_loop' }[type] as keyof BudgetLimits;
-  return amount <= constitution.budget_limits[key];
+  const key = { per_action: 'max_cost_per_action', per_day: 'max_cost_per_day', per_loop: 'max_cost_per_loop', per_month: 'max_cost_per_month' }[type] as keyof BudgetLimits;
+  const limit = constitution.budget_limits[key];
+  // 0 means unlimited for monthly budget
+  if (type === 'per_month' && limit === 0) return true;
+  return amount <= limit;
 }
 
 /**

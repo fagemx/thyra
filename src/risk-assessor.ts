@@ -25,6 +25,7 @@ export interface AssessmentResult {
     per_action: { limit: number; current: number; ok: boolean };
     per_day: { limit: number; spent: number; ok: boolean };
     per_loop: { limit: number; spent: number; ok: boolean };
+    per_month: { limit: number; spent: number; ok: boolean };
   };
 }
 
@@ -41,6 +42,10 @@ export interface AssessmentContext {
   recent_rollbacks: { category: string; rolled_back_at: string }[];
   chief_personality?: ChiefPersonality;
   loop_id?: string;
+  /** Chief 個人月預算上限（<= Constitution max_cost_per_month） */
+  chief_max_monthly?: number;
+  /** 每月幾號重置（1-28, default 1） */
+  budget_reset_day?: number;
 }
 
 interface SafetyInvariant {
@@ -173,6 +178,14 @@ export class RiskAssessor {
         severity: 'block',
       });
     }
+    if (!budgetCheck.per_month.ok) {
+      reasons.push({
+        source: 'constitution',
+        id: 'BUDGET-MONTH',
+        message: '月預算已超出限制',
+        severity: 'block',
+      });
+    }
 
     const blocked = reasons.some((r) => r.severity === 'block');
     const level = blocked ? 'high' : this.deriveLevel(reasons);
@@ -232,15 +245,23 @@ export class RiskAssessor {
 
   private checkBudgets(action: Action, ctx: AssessmentContext) {
     const limits: BudgetLimits = ctx.constitution?.budget_limits ?? {
-      max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50,
+      max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50, max_cost_per_month: 0,
     };
     const spentToday = this.getSpentToday(action.village_id);
     const spentLoop = ctx.loop_id ? this.getSpentInLoop(action.village_id, ctx.loop_id) : 0;
+
+    // 月預算：使用 chief 個人上限（若有），否則使用 constitution 上限
+    const resetDay = ctx.budget_reset_day ?? 1;
+    const constitutionMonthLimit = limits.max_cost_per_month;
+    const monthLimit = ctx.chief_max_monthly ?? constitutionMonthLimit;
+    const spentMonth = monthLimit > 0 ? this.getSpentMonth(action.village_id, resetDay) : 0;
+    const monthOk = monthLimit === 0 || (spentMonth + action.estimated_cost <= monthLimit);
 
     return {
       per_action: { limit: limits.max_cost_per_action, current: action.estimated_cost, ok: action.estimated_cost <= limits.max_cost_per_action },
       per_day: { limit: limits.max_cost_per_day, spent: spentToday, ok: spentToday + action.estimated_cost <= limits.max_cost_per_day },
       per_loop: { limit: limits.max_cost_per_loop, spent: spentLoop, ok: spentLoop + action.estimated_cost <= limits.max_cost_per_loop },
+      per_month: { limit: monthLimit, spent: spentMonth, ok: monthOk },
     };
   }
 
@@ -259,6 +280,28 @@ export class RiskAssessor {
       FROM audit_log WHERE entity_type = 'budget' AND entity_id = ?
         AND json_extract(payload, '$.loop_id') = ?
     `).get(villageId, loopId) as Record<string, unknown> | null;
+    return (row?.total as number | undefined) ?? 0;
+  }
+
+  /** 計算當前月份的花費累計（基於 budget_reset_day） */
+  getSpentMonth(villageId: string, resetDay: number = 1): number {
+    const now = new Date();
+    const year = now.getUTCFullYear();
+    const month = now.getUTCMonth();
+    const day = now.getUTCDate();
+
+    let startDate: Date;
+    if (day >= resetDay) {
+      startDate = new Date(Date.UTC(year, month, resetDay));
+    } else {
+      startDate = new Date(Date.UTC(year, month - 1, resetDay));
+    }
+    const startStr = startDate.toISOString();
+
+    const row = this.db.prepare(`
+      SELECT COALESCE(SUM(json_extract(payload, '$.cost')), 0) as total
+      FROM audit_log WHERE entity_type = 'budget' AND entity_id = ? AND created_at >= ?
+    `).get(villageId, startStr) as Record<string, unknown> | null;
     return (row?.total as number | undefined) ?? 0;
   }
 

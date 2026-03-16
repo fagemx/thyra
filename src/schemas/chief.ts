@@ -36,6 +36,14 @@ export const ChiefProfileSchema = z.object({
   default_constraints: z.array(ChiefConstraintInput).default([]),
 });
 
+/** Chief 月預算配置 — Chief 個人月預算上限（需 <= Constitution max_cost_per_month） */
+export const ChiefBudgetConfigInput = z.object({
+  max_monthly: z.number().min(0).optional(),
+  budget_reset_day: z.number().int().min(1).max(28).default(1),
+});
+
+export type ChiefBudgetConfig = z.infer<typeof ChiefBudgetConfigInput>;
+
 export const CreateChiefInput = z.object({
   name: z.string().min(1).max(100),
   role: z.string().min(1).max(500),
@@ -51,6 +59,7 @@ export const CreateChiefInput = z.object({
   context_mode: ContextModeEnum.default('fat'),
   /** Adapter 專屬設定（如 HTTP endpoint URL） */
   adapter_config: z.record(z.unknown()).default({}),
+  budget_config: ChiefBudgetConfigInput.optional(),
 });
 
 export const UpdateChiefInput = z.object({
@@ -65,6 +74,7 @@ export const UpdateChiefInput = z.object({
   adapter_type: AdapterTypeEnum.optional(),
   context_mode: ContextModeEnum.optional(),
   adapter_config: z.record(z.unknown()).optional(),
+  budget_config: ChiefBudgetConfigInput.optional(),
 });
 
 /**

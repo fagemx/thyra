@@ -17,6 +17,7 @@ const BudgetLimitsInput = z.object({
   max_cost_per_action: z.number().min(0).default(10),
   max_cost_per_day: z.number().min(0).default(100),
   max_cost_per_loop: z.number().min(0).default(50),
+  max_cost_per_month: z.number().min(0).default(0), // 0 = unlimited
 });
 
 export const CreateConstitutionInput = z.object({

@@ -78,7 +78,7 @@ function sameBindings(a: SkillBinding[], b: SkillBinding[]): boolean {
 interface CanonicalConstitutionInput {
   rules: Array<{ description: string; enforcement: string; scope: string[] }>;
   allowed_permissions: string[];
-  budget: { max_cost_per_action: number; max_cost_per_day: number; max_cost_per_loop: number };
+  budget: { max_cost_per_action: number; max_cost_per_day: number; max_cost_per_loop: number; max_cost_per_month?: number };
 }
 
 /**
@@ -99,7 +99,12 @@ export function canonicalizeConstitution(c: CanonicalConstitutionInput): string 
       }))
       .sort((a, b) => a.description.localeCompare(b.description)),
     allowed_permissions: [...c.allowed_permissions].sort(),
-    budget: c.budget,
+    budget: {
+      max_cost_per_action: c.budget.max_cost_per_action,
+      max_cost_per_day: c.budget.max_cost_per_day,
+      max_cost_per_loop: c.budget.max_cost_per_loop,
+      max_cost_per_month: c.budget.max_cost_per_month ?? 0,
+    },
   };
   return JSON.stringify(canonical);
 }

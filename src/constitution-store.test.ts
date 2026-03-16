@@ -114,6 +114,7 @@ describe('ConstitutionStore — Karvi budget sync', () => {
       max_cost_per_action: 10,
       max_cost_per_day: 100,
       max_cost_per_loop: 50,
+      max_cost_per_month: 0,
     });
   });
 
@@ -135,6 +136,7 @@ describe('ConstitutionStore — Karvi budget sync', () => {
       max_cost_per_action: 20,
       max_cost_per_day: 200,
       max_cost_per_loop: 100,
+      max_cost_per_month: 0,
     });
   });
 

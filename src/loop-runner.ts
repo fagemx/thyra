@@ -179,6 +179,8 @@ export class LoopRunner {
           recent_rollbacks: [],
           chief_personality: chief.personality,
           loop_id: cycle.id,
+          chief_max_monthly: chief.budget_config?.max_monthly,
+          budget_reset_day: chief.budget_config?.budget_reset_day,
         });
 
         const loopAction = this.processAssessment(decision, assessment);
@@ -186,6 +188,8 @@ export class LoopRunner {
         // Record cost if executed
         if (loopAction.status === 'executed') {
           this.riskAssessor.recordSpend(cycle.village_id, cycle.id, decision.estimated_cost);
+          // Auto-pause check: if monthly budget exceeded after spend
+          this.checkAndPauseIfExceeded(chief, constitution);
         }
 
         // Update cycle
@@ -391,6 +395,8 @@ export class LoopRunner {
       recent_rollbacks: [],
       chief_personality: chief.personality,
       loop_id: cycle.id,
+      chief_max_monthly: chief.budget_config?.max_monthly,
+      budget_reset_day: chief.budget_config?.budget_reset_day,
     });
 
     const decision: Decision = {
@@ -405,6 +411,8 @@ export class LoopRunner {
 
     if (loopAction.status === 'executed') {
       this.riskAssessor.recordSpend(cycle.village_id, cycle.id, actionIntent.estimated_cost);
+      // Auto-pause check: if monthly budget exceeded after spend
+      this.checkAndPauseIfExceeded(chief, constitution);
     }
 
     this.recordAction(cycle.id, loopAction, actionIntent.estimated_cost);
@@ -556,16 +564,42 @@ export class LoopRunner {
       recent_rollbacks: [],
       chief_personality: chief.personality,
       loop_id: cycleId,
+      chief_max_monthly: chief.budget_config?.max_monthly,
+      budget_reset_day: chief.budget_config?.budget_reset_day,
     });
 
     const loopAction = this.processAssessment(decision, assessment);
 
     if (loopAction.status === 'executed') {
       this.riskAssessor.recordSpend(cycle.village_id, cycleId, decision.estimated_cost);
+      // Auto-pause check: if monthly budget exceeded after spend
+      if (constitution) {
+        this.checkAndPauseIfExceeded(chief, constitution);
+      }
     }
 
     this.recordAction(cycleId, loopAction, decision.estimated_cost);
     return loopAction;
+  }
+
+  /** 檢查月預算累計，超限則自動暫停 chief (#226) */
+  private checkAndPauseIfExceeded(chief: Chief, constitution: Constitution): void {
+    const resetDay = chief.budget_config?.budget_reset_day ?? 1;
+    const constitutionLimit = constitution.budget_limits.max_cost_per_month ?? 0;
+    const chiefLimit = chief.budget_config?.max_monthly;
+    const effectiveLimit = chiefLimit ?? constitutionLimit;
+
+    // 0 = unlimited
+    if (effectiveLimit <= 0) return;
+
+    const spentMonth = this.riskAssessor.getSpentMonth(chief.village_id, resetDay);
+    if (spentMonth >= effectiveLimit) {
+      try {
+        this.chiefEngine.pauseChief(chief.id, 'MONTHLY_BUDGET_EXCEEDED');
+      } catch {
+        // Chief 可能已經被 pause 或 inactive
+      }
+    }
   }
 
   private processAssessment(decision: Decision, assessment: AssessmentResult): LoopAction {

@@ -50,6 +50,7 @@ describe('seedBlogVillage', () => {
       max_cost_per_action: 5,
       max_cost_per_day: 50,
       max_cost_per_loop: 25,
+      max_cost_per_month: 0,
     });
   });
 

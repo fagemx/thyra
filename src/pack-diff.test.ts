@@ -22,7 +22,7 @@ function makeYamlConstitution(overrides?: Partial<VillagePackConstitution>): Vil
       { description: 'must not fabricate sources', enforcement: 'hard', scope: ['*'] },
     ],
     allowed_permissions: ['dispatch_task', 'propose_law'],
-    budget: { max_cost_per_action: 0.5, max_cost_per_day: 10, max_cost_per_loop: 2 },
+    budget: { max_cost_per_action: 0.5, max_cost_per_day: 10, max_cost_per_loop: 2, max_cost_per_month: 0 },
     ...overrides,
   };
 }
@@ -39,7 +39,7 @@ function makeDbConstitution(overrides?: Partial<Constitution>): Constitution {
       { id: 'r-001', description: 'must not fabricate sources', enforcement: 'hard', scope: ['*'] },
     ],
     allowed_permissions: ['dispatch_task', 'propose_law'],
-    budget_limits: { max_cost_per_action: 0.5, max_cost_per_day: 10, max_cost_per_loop: 2 },
+    budget_limits: { max_cost_per_action: 0.5, max_cost_per_day: 10, max_cost_per_loop: 2, max_cost_per_month: 0 },
     superseded_by: null,
     ...overrides,
   };
@@ -74,6 +74,9 @@ function makeDbChief(overrides?: Partial<Chief>): Chief {
     adapter_type: 'local' as const,
     context_mode: 'fat' as const,
     adapter_config: {},
+    budget_config: null,
+    pause_reason: null,
+    paused_at: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     ...overrides,
@@ -248,7 +251,7 @@ describe('diffConstitution', () => {
 
   it('changed budget → supersede', () => {
     const yaml = makeYamlConstitution({
-      budget: { max_cost_per_action: 1.0, max_cost_per_day: 10, max_cost_per_loop: 2 },
+      budget: { max_cost_per_action: 1.0, max_cost_per_day: 10, max_cost_per_loop: 2, max_cost_per_month: 0 },
     });
     expect(diffConstitution(yaml, makeDbConstitution())).toBe('supersede');
   });
