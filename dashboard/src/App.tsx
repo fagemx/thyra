@@ -6,6 +6,7 @@ import { WorldPulse } from './components/WorldPulse'
 import { ActivityFeed } from './components/ActivityFeed'
 import { ChangePanel } from './components/ChangePanel'
 import { OperatorDashboard } from './pages/OperatorDashboard'
+import { TimelinePage } from './pages/TimelinePage'
 import './App.module.css'
 
 function TonightPage({ villageId }: { villageId: string }) {
@@ -49,6 +50,17 @@ function NavLinks() {
       >
         Operator
       </Link>
+      <Link
+        href="/timeline"
+        style={{
+          color: location === '/timeline' ? '#e94560' : '#888',
+          textDecoration: 'none',
+          fontSize: '0.875rem',
+          fontWeight: location === '/timeline' ? 600 : 400,
+        }}
+      >
+        Timeline
+      </Link>
     </nav>
   )
 }
@@ -70,6 +82,9 @@ export function App() {
         <Switch>
           <Route path="/operator">
             <OperatorDashboard villageId={selectedVillage} />
+          </Route>
+          <Route path="/timeline">
+            <TimelinePage villageId={selectedVillage} />
           </Route>
           <Route path="/">
             <TonightPage villageId={selectedVillage} />

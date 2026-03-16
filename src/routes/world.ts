@@ -10,6 +10,7 @@
  *   POST /rollback   → 回滾到指定快照
  *   GET  /continuity → 驗證跨週期狀態連續性
  *   GET  /pulse      → SSE stream of world health metrics
+ *   GET  /events     → SSE stream of governance events (audit_log)
  */
 
 import { Hono } from 'hono';
@@ -26,6 +27,7 @@ import {
 } from '../schemas/world';
 import { verifyContinuity } from '../world/continuity';
 import { computeWorldHealth } from '../world/health';
+import { AuditQuery } from '../audit-query';
 import { z } from 'zod';
 
 const SnapshotsQuery = z.object({
@@ -144,6 +146,67 @@ export function worldRoutes(worldManager: WorldManager, db: Database): Hono {
     const villageId = c.req.param('id');
     const report = verifyContinuity(db, villageId, query.data.cycle_count);
     return c.json({ ok: true, data: report });
+  });
+
+  // GET /events — SSE stream of governance events (audit_log)
+  app.get(`${base}/events`, (c) => {
+    const villageId = c.req.param('id');
+    const rawInterval = Number(c.req.query('interval') ?? '3000');
+    const interval = Math.max(1000, Number.isFinite(rawInterval) ? rawInterval : 3000);
+    const auditQuery = new AuditQuery(db);
+
+    return streamSSE(c, async (stream) => {
+      const streamCtrl = { alive: true };
+      stream.onAbort(() => { streamCtrl.alive = false; });
+
+      // 初始批次 — 最近 50 筆
+      const initial = auditQuery.queryByVillage(villageId, {
+        limit: 50,
+        offset: 0,
+      });
+
+      let lastId = 0;
+      for (const event of initial.events) {
+        await stream.writeSSE({
+          data: JSON.stringify(event),
+          event: 'timeline',
+          id: String(event.id),
+        });
+        if (event.id > lastId) lastId = event.id;
+      }
+
+      // 增量推送 — poll audit_log WHERE id > lastId
+      while (streamCtrl.alive) {
+        await stream.sleep(interval);
+        if (!streamCtrl.alive) break;
+
+        const rows = db.prepare(
+          `SELECT * FROM audit_log WHERE id > ? ORDER BY id ASC LIMIT 50`
+        ).all(lastId) as Array<{
+          id: number;
+          entity_type: string;
+          entity_id: string;
+          action: string;
+          payload: string;
+          actor: string;
+          created_at: string;
+          event_id: string | null;
+        }>;
+
+        for (const row of rows) {
+          const event = {
+            ...row,
+            payload: JSON.parse(row.payload) as unknown,
+          };
+          await stream.writeSSE({
+            data: JSON.stringify(event),
+            event: 'timeline',
+            id: String(event.id),
+          });
+          if (event.id > lastId) lastId = event.id;
+        }
+      }
+    });
   });
 
   // GET /pulse — SSE stream of world health metrics
