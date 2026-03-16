@@ -154,10 +154,10 @@ export function worldRoutes(worldManager: WorldManager, db: Database): Hono {
 
     return streamSSE(c, async (stream) => {
       let id = 0;
-      let alive = true;
-      stream.onAbort(() => { alive = false; });
+      const streamCtrl = { alive: true };
+      stream.onAbort(() => { streamCtrl.alive = false; });
 
-      while (alive) {
+      while (streamCtrl.alive) {
         const state = worldManager.getState(villageId);
         const health = computeWorldHealth(state);
         await stream.writeSSE({

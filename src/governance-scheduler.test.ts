@@ -7,6 +7,7 @@ import { ConstitutionStore } from './constitution-store';
 import { ChiefEngine } from './chief-engine';
 import { SkillRegistry } from './skill-registry';
 import { GovernanceScheduler, type GovernanceCycleResult } from './governance-scheduler';
+import type { KarviBridge, KarviProjectResponse } from './karvi-bridge';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -349,5 +350,149 @@ describe('GovernanceScheduler', () => {
     expect(auditRow!.actor).toBe('scheduler');
     const payload = JSON.parse(auditRow!.payload as string) as Record<string, unknown>;
     expect(payload.villages_processed).toBe(1);
+  });
+
+  // -----------------------------------------------------------------------
+  // 14. Pipeline dispatch: chief with pipelines dispatches to Karvi
+  // -----------------------------------------------------------------------
+  it('dispatches pipeline chiefs to Karvi instead of local execution', async () => {
+    const village = createVillageWithConstitution(vm, cs);
+
+    // Create a chief with pipelines
+    const pipelineChief = ce.create(village.id, {
+      name: 'PipelineChief',
+      role: 'economy advisor',
+      permissions: ['dispatch_task'],
+      skills: [],
+      pipelines: ['market-analysis'],
+    }, 'test-actor');
+
+    const dispatches: unknown[] = [];
+    const mockBridge = {
+      dispatchProject: async (input: unknown) => {
+        dispatches.push(input);
+        return { ok: true, title: 'test', taskCount: 1 } as KarviProjectResponse;
+      },
+    } as unknown as KarviBridge;
+
+    const pipelineScheduler = new GovernanceScheduler({
+      worldManager: wm,
+      chiefEngine: ce,
+      villageManager: vm,
+      db,
+      karviBridge: mockBridge,
+    });
+
+    const result = await pipelineScheduler.runOnce();
+
+    // Pipeline chief should NOT produce local chief_results
+    expect(result.chief_results).toHaveLength(0);
+    // Pipeline dispatches should be recorded
+    expect(result.pipeline_dispatches).toHaveLength(1);
+    expect(result.pipeline_dispatches[0].pipeline_id).toBe('market-analysis');
+    expect(result.pipeline_dispatches[0].dispatched).toBe(true);
+    expect(result.pipeline_dispatches[0].chief_id).toBe(pipelineChief.id);
+    expect(dispatches).toHaveLength(1);
+  });
+
+  // -----------------------------------------------------------------------
+  // 15. No-pipeline chief uses local rule-based (unchanged)
+  // -----------------------------------------------------------------------
+  it('uses local rule-based for chiefs without pipelines even with KarviBridge', async () => {
+    const village = createVillageWithConstitution(vm, cs);
+    createActiveChief(ce, village.id, 'event coordinator');
+
+    const mockBridge = {
+      dispatchProject: async () => ({ ok: true, title: 'test', taskCount: 1 }),
+    } as unknown as KarviBridge;
+
+    const pipelineScheduler = new GovernanceScheduler({
+      worldManager: wm,
+      chiefEngine: ce,
+      villageManager: vm,
+      db,
+      karviBridge: mockBridge,
+    });
+
+    const result = await pipelineScheduler.runOnce();
+
+    // Should use local execution
+    expect(result.chief_results.length).toBeGreaterThanOrEqual(1);
+    expect(result.pipeline_dispatches).toHaveLength(0);
+  });
+
+  // -----------------------------------------------------------------------
+  // 16. Mixed village: pipeline + local chiefs coexist
+  // -----------------------------------------------------------------------
+  it('handles mixed pipeline and local chiefs in same village', async () => {
+    const village = createVillageWithConstitution(vm, cs);
+
+    // Local chief (no pipelines)
+    createActiveChief(ce, village.id, 'event coordinator', 'LocalChief');
+
+    // Pipeline chief
+    ce.create(village.id, {
+      name: 'PipelineChief',
+      role: 'economy advisor',
+      permissions: ['dispatch_task'],
+      skills: [],
+      pipelines: ['budget-optimizer'],
+    }, 'test-actor');
+
+    const mockBridge = {
+      dispatchProject: async () => ({ ok: true, title: 'test', taskCount: 1 } as KarviProjectResponse),
+    } as unknown as KarviBridge;
+
+    const pipelineScheduler = new GovernanceScheduler({
+      worldManager: wm,
+      chiefEngine: ce,
+      villageManager: vm,
+      db,
+      karviBridge: mockBridge,
+    });
+
+    const result = await pipelineScheduler.runOnce();
+
+    // Local chief produces chief_results
+    expect(result.chief_results).toHaveLength(1);
+    // Pipeline chief produces pipeline_dispatches
+    expect(result.pipeline_dispatches).toHaveLength(1);
+    expect(result.pipeline_dispatches[0].pipeline_id).toBe('budget-optimizer');
+  });
+
+  // -----------------------------------------------------------------------
+  // 17. Pipeline chief without KarviBridge logs skip audit
+  // -----------------------------------------------------------------------
+  it('skips pipeline chief when no KarviBridge and logs audit', async () => {
+    const village = createVillageWithConstitution(vm, cs);
+    ce.create(village.id, {
+      name: 'OrphanPipelineChief',
+      role: 'economy advisor',
+      permissions: ['dispatch_task'],
+      skills: [],
+      pipelines: ['orphan-pipeline'],
+    }, 'test-actor');
+
+    // No karviBridge in scheduler (default setup has none)
+    const result = await scheduler.runOnce();
+
+    // No pipeline dispatches and no local execution for pipeline chief
+    expect(result.pipeline_dispatches).toHaveLength(0);
+    expect(result.chief_results).toHaveLength(0);
+
+    // Check audit log for skip
+    const skipAudit = db.prepare(
+      "SELECT * FROM audit_log WHERE entity_type = 'governance' AND action = 'pipeline_skip'"
+    ).get() as Record<string, unknown> | null;
+    expect(skipAudit).not.toBeNull();
+  });
+
+  // -----------------------------------------------------------------------
+  // 18. pipeline_dispatches field always present in result
+  // -----------------------------------------------------------------------
+  it('pipeline_dispatches field is always present even when empty', async () => {
+    createVillageWithConstitution(vm, cs, 'Empty Village');
+    const result = await scheduler.runOnce();
+    expect(result.pipeline_dispatches).toEqual([]);
   });
 });
