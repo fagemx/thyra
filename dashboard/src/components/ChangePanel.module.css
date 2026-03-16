@@ -1,0 +1,20 @@
+.card {
+  background: #16213e;
+  border: 1px solid #0f3460;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.title {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #e94560;
+}
+
+.placeholder {
+  color: #666;
+  font-size: 0.875rem;
+  margin: 0;
+  font-style: italic;
+}
