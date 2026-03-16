@@ -35,6 +35,9 @@ import { StallManager } from './market/stalls';
 import { SlotManager } from './market/slots';
 import { marketRoutes } from './routes/market';
 import { telemetryRoutes } from './routes/telemetry';
+import { AlertManager } from './alert-manager';
+import { WebhookDispatcher } from './alert-webhook';
+import { alertRoutes } from './routes/alerts';
 
 const app = new Hono();
 
@@ -64,6 +67,8 @@ const goalStore = new GoalStore(db);
 const zoneManager = new ZoneManager(db);
 const stallManager = new StallManager(db);
 const slotManager = new SlotManager(db);
+const alertManager = new AlertManager(db);
+const webhookDispatcher = new WebhookDispatcher(db);
 const auditQuery = new AuditQuery(db);
 
 app.get('/api/health', (c) => {
@@ -93,6 +98,7 @@ app.route('', worldRoutes(worldManager, db));
 app.route('', goalRoutes(goalStore));
 app.route('', marketRoutes({ db, zoneManager, stallManager, slotManager }));
 app.route('', telemetryRoutes(db));
+app.route('', alertRoutes(alertManager, webhookDispatcher));
 app.route('', packRoutes({
   db,
   villageMgr,
