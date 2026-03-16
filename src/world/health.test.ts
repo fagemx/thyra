@@ -63,6 +63,8 @@ function makeChief(id: string): Chief {
     village_id: 'v-1',
     name: `chief-${id}`,
     role: 'general',
+    role_type: 'chief' as const,
+    parent_chief_id: null,
     version: 1,
     status: 'active',
     skills: [],

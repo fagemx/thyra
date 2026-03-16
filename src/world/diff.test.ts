@@ -49,6 +49,8 @@ function makeChief(overrides: Partial<Chief> = {}): Chief {
     village_id: 'village-1',
     name: 'Alpha',
     role: 'developer',
+    role_type: 'chief' as const,
+    parent_chief_id: null,
     version: 1,
     status: 'active',
     skills: [],

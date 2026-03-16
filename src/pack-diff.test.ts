@@ -64,6 +64,8 @@ function makeDbChief(overrides?: Partial<Chief>): Chief {
     village_id: 'v-001',
     name: 'blog-chief',
     role: 'content-lead',
+    role_type: 'chief' as const,
+    parent_chief_id: null,
     version: 1,
     status: 'active',
     skills: [],
