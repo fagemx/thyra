@@ -14,10 +14,15 @@ import {
   loreStrategy,
   growthStrategy,
   resolveStrategy,
+  resolveChiefPriority,
+  sortChiefsByPriority,
   shouldPropose,
   makeChiefDecision,
   executeChiefCycle,
+  executeChiefCycleWithState,
+  executeCoordinatedCycle,
   dispatchChiefPipelines,
+  DEFAULT_PRIORITY,
   type ChiefProposal,
 } from './chief-autonomy';
 import type { KarviBridge, KarviProjectResponse } from './karvi-bridge';
@@ -702,5 +707,214 @@ describe('dispatchChiefPipelines', () => {
     expect(tasks[0].skill).toBe('market-analysis');
     expect((tasks[0].id as string)).toContain('village-abc');
     expect((tasks[0].id as string)).toContain('chief-xyz');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// G. Priority Ordering Tests (#200)
+// ---------------------------------------------------------------------------
+
+describe('resolveChiefPriority', () => {
+  it('should return 1 for safety officer', () => {
+    expect(resolveChiefPriority(makeChief({ role: 'safety officer' }))).toBe(1);
+  });
+
+  it('should return 2 for economy advisor', () => {
+    expect(resolveChiefPriority(makeChief({ role: 'economy advisor' }))).toBe(2);
+  });
+
+  it('should return 3 for lore keeper', () => {
+    expect(resolveChiefPriority(makeChief({ role: 'lore keeper' }))).toBe(3);
+  });
+
+  it('should return 4 for event coordinator', () => {
+    expect(resolveChiefPriority(makeChief({ role: 'event coordinator' }))).toBe(4);
+  });
+
+  it('should return 5 for growth analyst', () => {
+    expect(resolveChiefPriority(makeChief({ role: 'growth analyst' }))).toBe(5);
+  });
+
+  it('should return DEFAULT_PRIORITY for unknown role', () => {
+    expect(resolveChiefPriority(makeChief({ role: 'general manager' }))).toBe(DEFAULT_PRIORITY);
+  });
+
+  it('should be case-insensitive', () => {
+    expect(resolveChiefPriority(makeChief({ role: 'SAFETY Officer' }))).toBe(1);
+  });
+});
+
+describe('sortChiefsByPriority', () => {
+  it('should sort chiefs by priority order', () => {
+    const growth = makeChief({ id: 'c-growth', role: 'growth analyst' });
+    const safety = makeChief({ id: 'c-safety', role: 'safety officer' });
+    const economy = makeChief({ id: 'c-economy', role: 'economy advisor' });
+
+    const sorted = sortChiefsByPriority([growth, safety, economy]);
+    expect(sorted.map(c => c.id)).toEqual(['c-safety', 'c-economy', 'c-growth']);
+  });
+
+  it('should use created_at as tiebreaker for same priority', () => {
+    const older = makeChief({ id: 'c-old', role: 'safety officer', created_at: '2026-01-01T00:00:00Z' });
+    const newer = makeChief({ id: 'c-new', role: 'security guard', created_at: '2026-02-01T00:00:00Z' });
+
+    const sorted = sortChiefsByPriority([newer, older]);
+    expect(sorted.map(c => c.id)).toEqual(['c-old', 'c-new']);
+  });
+
+  it('should return new array without mutating input', () => {
+    const chiefs = [
+      makeChief({ id: 'c-growth', role: 'growth analyst' }),
+      makeChief({ id: 'c-safety', role: 'safety officer' }),
+    ];
+    const original = [...chiefs];
+    const sorted = sortChiefsByPriority(chiefs);
+
+    expect(sorted).not.toBe(chiefs);
+    expect(chiefs.map(c => c.id)).toEqual(original.map(c => c.id));
+  });
+
+  it('should handle empty array', () => {
+    expect(sortChiefsByPriority([])).toEqual([]);
+  });
+
+  it('should handle single chief', () => {
+    const chief = makeChief({ id: 'c-solo', role: 'safety officer' });
+    const sorted = sortChiefsByPriority([chief]);
+    expect(sorted).toHaveLength(1);
+    expect(sorted[0].id).toBe('c-solo');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// H. Coordinated Cycle Tests (#200)
+// ---------------------------------------------------------------------------
+
+describe('executeChiefCycleWithState', () => {
+  let vm: VillageManager;
+  let cs: ConstitutionStore;
+  let ce: ChiefEngine;
+  let wm: WorldManager;
+
+  beforeEach(() => {
+    const s = setup();
+    vm = s.vm;
+    cs = s.cs;
+    ce = s.ce;
+    wm = s.wm;
+  });
+
+  it('should use provided state instead of reading from DB', () => {
+    const village = createVillage(vm);
+    createConstitution(cs, village.id);
+    const chief = createChief(ce, village.id, { role: 'event coordinator' });
+
+    const state = wm.getState(village.id);
+    const result = executeChiefCycleWithState(wm, village.id, chief, state);
+
+    expect(result.chief_id).toBe(chief.id);
+    expect(result.proposals.length).toBeGreaterThan(0);
+  });
+
+  it('should skip inactive chief', () => {
+    const village = createVillage(vm);
+    createConstitution(cs, village.id);
+    const chief = createChief(ce, village.id, { role: 'event coordinator' });
+    ce.deactivate(chief.id, 'test-actor');
+    const inactiveChief = ce.get(chief.id);
+    if (!inactiveChief) throw new Error('Chief not found');
+
+    const state = wm.getState(village.id);
+    const result = executeChiefCycleWithState(wm, village.id, inactiveChief, state);
+
+    expect(result.proposals).toHaveLength(0);
+    expect(result.applied).toHaveLength(0);
+  });
+});
+
+describe('executeCoordinatedCycle', () => {
+  let vm: VillageManager;
+  let cs: ConstitutionStore;
+  let ce: ChiefEngine;
+  let wm: WorldManager;
+
+  beforeEach(() => {
+    const s = setup();
+    vm = s.vm;
+    cs = s.cs;
+    ce = s.ce;
+    wm = s.wm;
+  });
+
+  it('should execute chiefs in priority order', () => {
+    const village = createVillage(vm);
+    createConstitution(cs, village.id);
+
+    // Create chiefs in reverse priority order
+    const growthChief = createChief(ce, village.id, { name: 'GrowthChief', role: 'growth analyst' });
+    const eventChief = createChief(ce, village.id, { name: 'EventChief', role: 'event coordinator' });
+
+    const result = executeCoordinatedCycle(wm, village.id, [growthChief, eventChief]);
+
+    // Event (priority 4) before Growth (priority 5)
+    expect(result.execution_order[0]).toBe(eventChief.id);
+    expect(result.execution_order[1]).toBe(growthChief.id);
+    expect(result.chief_results).toHaveLength(2);
+  });
+
+  it('should handle single chief as degenerate case', () => {
+    const village = createVillage(vm);
+    createConstitution(cs, village.id);
+    const chief = createChief(ce, village.id, { role: 'event coordinator' });
+
+    const result = executeCoordinatedCycle(wm, village.id, [chief]);
+
+    expect(result.execution_order).toHaveLength(1);
+    expect(result.chief_results).toHaveLength(1);
+  });
+
+  it('should handle empty chiefs array', () => {
+    const village = createVillage(vm);
+    createConstitution(cs, village.id);
+
+    const result = executeCoordinatedCycle(wm, village.id, []);
+
+    expect(result.execution_order).toHaveLength(0);
+    expect(result.chief_results).toHaveLength(0);
+    expect(result.state_transitions).toBe(0);
+  });
+
+  it('should skip inactive chiefs while preserving order for active ones', () => {
+    const village = createVillage(vm);
+    createConstitution(cs, village.id);
+
+    const safetyChief = createChief(ce, village.id, { name: 'SafetyChief', role: 'safety officer' });
+    const eventChief = createChief(ce, village.id, { name: 'EventChief', role: 'event coordinator' });
+    ce.deactivate(safetyChief.id, 'test-actor');
+    const inactiveSafety = ce.get(safetyChief.id);
+    if (!inactiveSafety) throw new Error('Chief not found');
+
+    const result = executeCoordinatedCycle(wm, village.id, [eventChief, inactiveSafety]);
+
+    // Safety (priority 1) is first in order even though inactive
+    expect(result.execution_order[0]).toBe(inactiveSafety.id);
+    expect(result.execution_order[1]).toBe(eventChief.id);
+    // Only event chief produces proposals
+    const activeResults = result.chief_results.filter(r => r.proposals.length > 0);
+    expect(activeResults).toHaveLength(1);
+    expect(activeResults[0].chief_id).toBe(eventChief.id);
+  });
+
+  it('should track state_transitions count', () => {
+    const village = createVillage(vm);
+    createConstitution(cs, village.id);
+    const chief = createChief(ce, village.id, { role: 'event coordinator' });
+
+    const result = executeCoordinatedCycle(wm, village.id, [chief]);
+
+    // Event strategy proposes a law when < 3 laws exist
+    if (result.chief_results[0].applied.length > 0) {
+      expect(result.state_transitions).toBeGreaterThan(0);
+    }
   });
 });
