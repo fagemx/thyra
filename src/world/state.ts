@@ -160,6 +160,10 @@ function deserializeChief(row: Record<string, unknown>): Chief {
     budget_config: row.budget_config ? JSON.parse(row.budget_config as string) as Chief['budget_config'] : null,
     pause_reason: (row.pause_reason as string | null) ?? null,
     paused_at: (row.paused_at as string | null) ?? null,
+    last_heartbeat_at: (row.last_heartbeat_at as string | null) ?? null,
+    current_run_id: (row.current_run_id as string | null) ?? null,
+    current_run_status: (row.current_run_status as Chief['current_run_status'] | null) ?? 'idle',
+    timeout_count: (row.timeout_count as number | null) ?? 0,
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
   };

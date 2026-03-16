@@ -77,6 +77,10 @@ function makeChief(id: string): Chief {
     adapter_type: 'local' as const,
     context_mode: 'fat' as const,
     adapter_config: {},
+    last_heartbeat_at: null,
+    current_run_id: null,
+    current_run_status: 'idle' as const,
+    timeout_count: 0,
     created_at: JUST_NOW,
     updated_at: JUST_NOW,
   };

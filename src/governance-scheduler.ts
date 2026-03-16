@@ -31,6 +31,7 @@ import {
   processHeartbeatResult,
 } from './execution-adapter';
 import type { KarviBridge } from './karvi-bridge';
+import type { StaleDetector, StaleCleanupResult } from './stale-detector';
 
 // ---------------------------------------------------------------------------
 // 型別定義
@@ -57,6 +58,8 @@ export interface GovernanceCycleResult {
   errors: ChiefError[];
   /** Pipeline dispatch 結果（chief 有 pipelines 時） */
   pipeline_dispatches: PipelineDispatchResult[];
+  /** Stale cleanup 結果（有 StaleDetector 時） */
+  stale_cleanup?: StaleCleanupResult;
   skipped?: boolean;
   skip_reason?: string;
 }
@@ -77,6 +80,8 @@ export interface GovernanceSchedulerOpts {
   adapterRegistry?: AdapterRegistry;
   /** 是否使用 heartbeat protocol 而非直接 executeChiefCycle（預設 false，向後相容） */
   useHeartbeat?: boolean;
+  /** Stale detector（可選）。每輪開始前清理超時 chiefs。 */
+  staleDetector?: StaleDetector;
 }
 
 // ---------------------------------------------------------------------------
@@ -93,6 +98,7 @@ export class GovernanceScheduler {
   private readonly onCycleComplete?: (result: GovernanceCycleResult) => void;
   private readonly adapterRegistry: AdapterRegistry;
   private readonly useHeartbeat: boolean;
+  private readonly staleDetector?: StaleDetector;
 
   /** Timer lifecycle 狀態 */
   private _started = false;
@@ -110,6 +116,7 @@ export class GovernanceScheduler {
     this.intervalMs = opts.intervalMs ?? 60_000;
     this.onCycleComplete = opts.onCycleComplete;
     this.useHeartbeat = opts.useHeartbeat ?? false;
+    this.staleDetector = opts.staleDetector;
     this.adapterRegistry = opts.adapterRegistry ?? createDefaultRegistry(
       opts.worldManager,
       (chiefId: string) => opts.chiefEngine.get(chiefId),
@@ -183,6 +190,16 @@ export class GovernanceScheduler {
     const startedAt = new Date().toISOString();
 
     try {
+      // 1.5 Pre-cycle stale cleanup (#231)
+      let staleCleanup: StaleCleanupResult | undefined;
+      if (this.staleDetector) {
+        try {
+          staleCleanup = await this.staleDetector.cleanup();
+        } catch {
+          // Stale detection failure does not affect main cycle
+        }
+      }
+
       // 2. 列出所有 active villages
       const villages = this.villageManager.list({ status: 'active' });
 
@@ -198,6 +215,10 @@ export class GovernanceScheduler {
 
         // 4. Sequential execution per chief with error isolation
         for (const chief of chiefs) {
+          // Run tracking: mark chief as running before execution (#231)
+          const runId = `run-${randomUUID()}`;
+          this.chiefEngine.markRunning(chief.id, runId);
+
           try {
             if (this.useHeartbeat) {
               // Heartbeat protocol path — 統一所有 adapter types（含 karvi）
@@ -234,7 +255,11 @@ export class GovernanceScheduler {
               const result = executeChiefCycle(this.worldManager, village.id, chief);
               allChiefResults.push(result);
             }
+            // Run tracking: mark chief as idle after successful execution (#231)
+            this.chiefEngine.markIdle(chief.id);
           } catch (err: unknown) {
+            // Run tracking: mark chief as idle on error too (so it can retry next cycle)
+            this.chiefEngine.markIdle(chief.id);
             const message = err instanceof Error ? err.message : 'unknown';
             allErrors.push({
               chief_id: chief.id,
@@ -265,6 +290,7 @@ export class GovernanceScheduler {
         chief_results: allChiefResults,
         errors: allErrors,
         pipeline_dispatches: allPipelineDispatches,
+        stale_cleanup: staleCleanup,
       };
 
       // 6. Audit log（THY-07）
