@@ -37,6 +37,10 @@ export interface Chief {
   budget_config: ChiefBudgetConfig | null;
   pause_reason: string | null;
   paused_at: string | null;
+  last_heartbeat_at: string | null;
+  current_run_id: string | null;
+  current_run_status: 'idle' | 'running' | 'timeout';
+  timeout_count: number;
   created_at: string;
   updated_at: string;
 }
@@ -169,13 +173,17 @@ export class ChiefEngine {
       budget_config: input.budget_config ?? null,
       pause_reason: null,
       paused_at: null,
+      last_heartbeat_at: null,
+      current_run_id: null,
+      current_run_status: 'idle',
+      timeout_count: 0,
       created_at: now,
       updated_at: now,
     };
 
     this.db.prepare(`
-      INSERT INTO chiefs (id, village_id, name, role, version, status, skills, pipelines, permissions, personality, constraints, profile, adapter_type, context_mode, adapter_config, budget_config, pause_reason, paused_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO chiefs (id, village_id, name, role, version, status, skills, pipelines, permissions, personality, constraints, profile, adapter_type, context_mode, adapter_config, budget_config, pause_reason, paused_at, last_heartbeat_at, current_run_id, current_run_status, timeout_count, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       chief.id, villageId, chief.name, chief.role, chief.version, chief.status,
       JSON.stringify(chief.skills), JSON.stringify(chief.pipelines),
@@ -185,6 +193,7 @@ export class ChiefEngine {
       JSON.stringify(chief.adapter_config),
       chief.budget_config ? JSON.stringify(chief.budget_config) : null,
       chief.pause_reason, chief.paused_at,
+      chief.last_heartbeat_at, chief.current_run_id, chief.current_run_status, chief.timeout_count,
       chief.created_at, chief.updated_at,
     );
 
@@ -333,6 +342,51 @@ export class ChiefEngine {
     return updated;
   }
 
+  // -----------------------------------------------------------------------
+  // Run tracking methods (#231: stale heartbeat detection)
+  // -----------------------------------------------------------------------
+
+  /** 標記 chief 開始執行（idle -> running） */
+  markRunning(id: string, runId: string): void {
+    const now = new Date().toISOString();
+    this.db.prepare(
+      "UPDATE chiefs SET current_run_status = 'running', current_run_id = ?, last_heartbeat_at = ?, updated_at = ? WHERE id = ?"
+    ).run(runId, now, now, id);
+  }
+
+  /** 標記 chief 執行完成（running -> idle），重置 timeout_count */
+  markIdle(id: string): void {
+    const now = new Date().toISOString();
+    this.db.prepare(
+      "UPDATE chiefs SET current_run_status = 'idle', current_run_id = NULL, timeout_count = 0, updated_at = ? WHERE id = ?"
+    ).run(now, id);
+  }
+
+  /** 標記 chief 超時（running -> timeout），遞增 timeout_count */
+  markTimeout(id: string): void {
+    const now = new Date().toISOString();
+    this.db.prepare(
+      "UPDATE chiefs SET current_run_status = 'timeout', timeout_count = timeout_count + 1, updated_at = ? WHERE id = ?"
+    ).run(now, id);
+  }
+
+  /** 更新心跳時間戳（adapter invoke 期間呼叫） */
+  updateHeartbeat(id: string): void {
+    const now = new Date().toISOString();
+    this.db.prepare(
+      "UPDATE chiefs SET last_heartbeat_at = ?, updated_at = ? WHERE id = ?"
+    ).run(now, now, id);
+  }
+
+  /** 查詢 running 但心跳超時的 chiefs */
+  getStaleRunning(thresholdMs: number): Chief[] {
+    const cutoff = new Date(Date.now() - thresholdMs).toISOString();
+    const rows = this.db.prepare(
+      "SELECT * FROM chiefs WHERE current_run_status = 'running' AND last_heartbeat_at < ? AND status = 'active'"
+    ).all(cutoff) as Record<string, unknown>[];
+    return rows.map((r) => this.deserialize(r));
+  }
+
   /**
    * 解析 profile 預設值。
    * 如果指定 profile，使用 profile 的 personality 作為基礎，
@@ -456,6 +510,10 @@ export class ChiefEngine {
       budget_config: row.budget_config ? JSON.parse(row.budget_config as string) as ChiefBudgetConfig : null,
       pause_reason: (row.pause_reason as string | null) ?? null,
       paused_at: (row.paused_at as string | null) ?? null,
+      last_heartbeat_at: (row.last_heartbeat_at as string | null) ?? null,
+      current_run_id: (row.current_run_id as string | null) ?? null,
+      current_run_status: (row.current_run_status as Chief['current_run_status'] | null) ?? 'idle',
+      timeout_count: (row.timeout_count as number | null) ?? 0,
       created_at: row.created_at as string,
       updated_at: row.updated_at as string,
     };

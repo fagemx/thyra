@@ -377,6 +377,17 @@ export function initSchema(db: Database): void {
   for (const sql of chiefBudgetAlters) {
     try { db.run(sql); } catch { /* column already exists */ }
   }
+
+  // Stale heartbeat detection columns (#231)
+  const chiefStaleAlters = [
+    "ALTER TABLE chiefs ADD COLUMN last_heartbeat_at TEXT DEFAULT NULL",
+    "ALTER TABLE chiefs ADD COLUMN current_run_id TEXT DEFAULT NULL",
+    "ALTER TABLE chiefs ADD COLUMN current_run_status TEXT NOT NULL DEFAULT 'idle'",
+    "ALTER TABLE chiefs ADD COLUMN timeout_count INTEGER NOT NULL DEFAULT 0",
+  ];
+  for (const sql of chiefStaleAlters) {
+    try { db.run(sql); } catch { /* column already exists */ }
+  }
 }
 
 /**

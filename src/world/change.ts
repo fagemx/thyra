@@ -153,6 +153,10 @@ function applyChiefAppoint(
     budget_config: null,
     pause_reason: null,
     paused_at: null,
+    last_heartbeat_at: null,
+    current_run_id: null,
+    current_run_status: 'idle',
+    timeout_count: 0,
     created_at: now,
     updated_at: now,
   };
