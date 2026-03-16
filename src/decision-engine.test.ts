@@ -925,6 +925,7 @@ describe('DecisionEngine', () => {
           active_laws: [],
           observations: [],
           intent: null,
+          chief_goals: [],
         };
 
         const result = await engine.decide(ctx);
@@ -951,6 +952,7 @@ describe('DecisionEngine', () => {
           active_laws: [],
           observations: [],
           intent: null,
+          chief_goals: [],
         };
 
         const result = await engine.decide(ctx);
@@ -994,6 +996,7 @@ describe('DecisionEngine', () => {
           active_laws: activeLaws,
           observations: [],
           intent: null,
+          chief_goals: [],
         };
 
         const result = await engine.decide(ctx);
@@ -1033,6 +1036,7 @@ describe('DecisionEngine', () => {
           active_laws: activeLaws,
           observations: [],
           intent: null,
+          chief_goals: [],
         };
 
         const result = await engine.decide(ctx);
@@ -1058,6 +1062,7 @@ describe('DecisionEngine', () => {
           active_laws: [],
           observations: [],
           intent: null,
+          chief_goals: [],
         };
 
         const result = await engine.decide(ctx);

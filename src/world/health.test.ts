@@ -162,6 +162,7 @@ function makeEmptyState(): WorldState {
     active_laws: [],
     skills: [],
     running_cycles: [],
+    goals: [],
     assembled_at: JUST_NOW,
   };
 }
@@ -174,6 +175,7 @@ function makeFullState(): WorldState {
     active_laws: [makeLaw('l-1'), makeLaw('l-2'), makeLaw('l-3'), makeLaw('l-4'), makeLaw('l-5')],
     skills: [makeSkill('s-1'), makeSkill('s-2'), makeSkill('s-3'), makeSkill('s-4'), makeSkill('s-5')],
     running_cycles: [makeCycle('cy-1', 5)], // 5/100 = 5% utilization
+    goals: [],
     assembled_at: JUST_NOW,
   };
 }

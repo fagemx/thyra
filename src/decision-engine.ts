@@ -7,6 +7,7 @@ import type { SkillRegistry, Skill } from './skill-registry';
 import type { EddaBridge, EddaDecisionHit } from './edda-bridge';
 import type { RiskAssessor } from './risk-assessor';
 import type { LlmAdvisor } from './llm-advisor';
+import type { GoalWithAncestry } from './goal-store';
 import { filterCandidates } from './candidate-filter';
 import type { LoopAction, PlanState } from './schemas/loop';
 
@@ -62,6 +63,9 @@ export interface DecideContext {
 
   // 意圖狀態（從 loop_cycles.intent 讀取）
   intent: CycleIntent | null;
+
+  // 目標層級（chief 的 goals + ancestry，issue #225）
+  chief_goals: GoalWithAncestry[];
 }
 
 /** 推理鏈 — v0.1 Section 2.4 (SI-2: 所有決策必須有可追溯的理由鏈) */
@@ -250,6 +254,7 @@ export class DecisionEngine {
       active_laws: activeLaws,
       observations,
       intent: cycleState.intent ?? null,
+      chief_goals: [],
     };
   }
 

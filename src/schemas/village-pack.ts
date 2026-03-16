@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { PermissionEnum } from './constitution';
+import { GoalMetricSchema, GoalLevelEnum } from './goal';
 
 // --- Sub-schemas ---
 
@@ -73,6 +74,13 @@ export const VillagePackSchema = z.object({
   skills: z.array(
     z.string().regex(SKILL_NAME_PATTERN, 'Skill name must match /^[a-z][a-z0-9_-]*$/'),
   ).default([]),
+  goals: z.array(z.object({
+    level: GoalLevelEnum,
+    title: z.string().min(1),
+    description: z.string().default(''),
+    parent: z.string().optional(),
+    metrics: z.array(GoalMetricSchema).default([]),
+  })).default([]),
 }).superRefine((data, ctx) => {
   // VP-07: chief.permissions each in constitution.allowed_permissions
   const allowed = new Set(data.constitution.allowed_permissions);

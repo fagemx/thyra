@@ -95,6 +95,7 @@ function makeState(overrides: Partial<WorldState> = {}): WorldState {
     active_laws: [],
     skills: [],
     running_cycles: [],
+    goals: [],
     assembled_at: '2026-01-01T00:00:00Z',
     ...overrides,
   };
