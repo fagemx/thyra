@@ -16,7 +16,7 @@ import type { Database } from 'bun:sqlite';
 import { appendAudit } from './db';
 import type { GovernanceCycleResult, ChiefError } from './governance-scheduler';
 import type { ChiefCycleResult } from './chief-autonomy';
-import type { EddaBridge } from './edda-bridge';
+import type { EddaBridge, EddaDecisionHit, EddaLogEntry } from './edda-bridge';
 
 // ---------------------------------------------------------------------------
 // 型別定義
@@ -48,6 +48,13 @@ export interface MarketMetricsSnapshot {
   satisfaction: number;
 }
 
+/** 歷史脈絡（Edda 查詢結果） */
+export interface HistoricalContext {
+  similar_nights: string[];
+  recurring_issues: string[];
+  trends: string[];
+}
+
 /** Night summary 完整結構 */
 export interface NightSummary {
   village_id: string;
@@ -61,6 +68,8 @@ export interface NightSummary {
   rollbacks: number;
   precedents_recorded: number;
   generated_at: string;
+  historical_context?: HistoricalContext;
+  insights: string[];
 }
 
 /** generateNightSummary 選項 */
@@ -99,17 +108,19 @@ const SKIP_WARNING_THRESHOLD = 3;
 // ---------------------------------------------------------------------------
 
 /**
- * 產生 NightSummary。純函數，無副作用。
+ * 產生 NightSummary。可選 EddaBridge 查詢歷史洞察。
  *
  * @param villageId - 目標 village ID
  * @param cycleResults - 整晚所有 GovernanceCycleResult
  * @param opts - 可選：start/end market metrics、日期
+ * @param eddaBridge - 可選：Edda bridge（查詢歷史相似模式 + 重複問題）
  */
-export function generateNightSummary(
+export async function generateNightSummary(
   villageId: string,
   cycleResults: GovernanceCycleResult[],
   opts?: NightSummaryOpts,
-): NightSummary {
+  eddaBridge?: EddaBridge,
+): Promise<NightSummary> {
   const now = new Date().toISOString();
   const date = opts?.date ?? now.slice(0, 10);
 
@@ -144,6 +155,21 @@ export function generateNightSummary(
   // precedents_recorded = applied changes 數量（估計值）
   const precedentsRecorded = proposalsApplied;
 
+  // 查詢 Edda 歷史脈絡（graceful degradation）
+  const historicalContext = eddaBridge
+    ? await queryHistoricalContext(eddaBridge, keyEvents)
+    : undefined;
+
+  // 產出 insights
+  const tonight = {
+    cycles_run: activeCycles.length,
+    rollbacks,
+    proposals_applied: proposalsApplied,
+    proposals_rejected: proposalsRejected,
+    key_events: keyEvents,
+  };
+  const insights = generateInsights(tonight, historicalContext ?? null);
+
   return {
     village_id: villageId,
     date,
@@ -156,6 +182,8 @@ export function generateNightSummary(
     rollbacks,
     precedents_recorded: precedentsRecorded,
     generated_at: now,
+    historical_context: historicalContext,
+    insights,
   };
 }
 
@@ -319,6 +347,175 @@ function countRollbacks(activeCycles: GovernanceCycleResult[]): number {
     }
   }
   return count;
+}
+
+// ---------------------------------------------------------------------------
+// Edda 歷史查詢 + Insight 產生
+// ---------------------------------------------------------------------------
+
+/** 7 天前的 ISO 日期字串 */
+function sevenDaysAgo(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 7);
+  return d.toISOString();
+}
+
+/** 今晚數據的子集（用於 insight 產生） */
+interface TonightDigest {
+  cycles_run: number;
+  rollbacks: number;
+  proposals_applied: number;
+  proposals_rejected: number;
+  key_events: SummaryEvent[];
+}
+
+/**
+ * 兩路並行查詢 Edda：相似模式 + 重複問題。
+ * 每路獨立 catch，確保 graceful degradation。
+ */
+async function queryHistoricalContext(
+  bridge: EddaBridge,
+  keyEvents: SummaryEvent[],
+): Promise<HistoricalContext> {
+  const eventSummary = keyEvents.map((e) => e.description).join('; ');
+
+  // 路 1: 查詢相似的 chief 行為模式
+  const patternsP = bridge.queryDecisions({
+    q: eventSummary || 'chief.cycle',
+    domain: 'chief.cycle',
+    limit: 10,
+  }).catch(() => null);
+
+  // 路 2: 查詢近 7 天的 rollback/error 重複問題
+  const recurringP = bridge.queryEventLog({
+    keyword: 'rollback',
+    after: sevenDaysAgo(),
+    limit: 10,
+  }).catch(() => []);
+
+  const [patterns, recurring] = await Promise.all([patternsP, recurringP]);
+
+  const decisions = patterns?.decisions ?? [];
+
+  return {
+    similar_nights: findSimilarPatterns(decisions),
+    recurring_issues: extractRecurringIssues(recurring),
+    trends: detectTrends(decisions),
+  };
+}
+
+/**
+ * 按 key 分組找重複出現的決策模式。
+ * 同一個 key 出現 2+ 次 → 視為 similar pattern。
+ */
+function findSimilarPatterns(decisions: EddaDecisionHit[]): string[] {
+  const keyCount = new Map<string, number>();
+  for (const d of decisions) {
+    keyCount.set(d.key, (keyCount.get(d.key) ?? 0) + 1);
+  }
+
+  const results: string[] = [];
+  for (const [key, count] of keyCount) {
+    if (count >= 2) {
+      results.push(`Pattern "${key}" appeared ${count} times in recent history`);
+    }
+  }
+  return results;
+}
+
+/**
+ * 從 event log entries 統計重複出現的問題。
+ * 同一 summary keyword 出現 2+ 次 → 視為 recurring issue。
+ */
+function extractRecurringIssues(entries: EddaLogEntry[]): string[] {
+  const summaryCount = new Map<string, number>();
+  for (const e of entries) {
+    // 用 type 作為 grouping key
+    summaryCount.set(e.type, (summaryCount.get(e.type) ?? 0) + 1);
+  }
+
+  const results: string[] = [];
+  for (const [type, count] of summaryCount) {
+    if (count >= 2) {
+      results.push(`"${type}" occurred ${count} times in the past 7 days`);
+    }
+  }
+  return results;
+}
+
+/**
+ * 比較決策的時間分佈偵測趨勢。
+ * 如果近半數決策集中在最近 3 天 → 上升趨勢。
+ */
+function detectTrends(decisions: EddaDecisionHit[]): string[] {
+  if (decisions.length < 3) return [];
+
+  const now = Date.now();
+  const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
+  const recentCount = decisions.filter(
+    (d) => now - new Date(d.ts).getTime() < threeDaysMs,
+  ).length;
+
+  const results: string[] = [];
+  if (recentCount > decisions.length / 2) {
+    results.push(
+      `Activity increasing: ${recentCount}/${decisions.length} decisions in the last 3 days`,
+    );
+  }
+
+  // 按 domain 偵測集中度
+  const domainCount = new Map<string, number>();
+  for (const d of decisions) {
+    domainCount.set(d.domain, (domainCount.get(d.domain) ?? 0) + 1);
+  }
+  for (const [domain, count] of domainCount) {
+    if (count >= 3) {
+      results.push(`Domain "${domain}" is highly active (${count} decisions)`);
+    }
+  }
+
+  return results;
+}
+
+/** 最大 insights 數量 */
+const MAX_INSIGHTS = 5;
+
+/**
+ * 綜合今晚數據 + 歷史脈絡產出 insights（rule-based）。
+ * 無 historicalContext → 只依據今晚數據產出基本 insights。
+ */
+function generateInsights(
+  tonight: TonightDigest,
+  context: HistoricalContext | null,
+): string[] {
+  const insights: string[] = [];
+
+  // 基本 insights（不需 Edda）
+  if (tonight.rollbacks > 0) {
+    insights.push(
+      `${tonight.rollbacks} rollback(s) tonight — review triggering proposals`,
+    );
+  }
+  if (tonight.proposals_rejected > tonight.proposals_applied && tonight.proposals_applied > 0) {
+    insights.push(
+      'More proposals rejected than applied — chiefs may need recalibration',
+    );
+  }
+
+  // 歷史 insights（需要 Edda）
+  if (context) {
+    for (const s of context.similar_nights) {
+      insights.push(`Historical: ${s}`);
+    }
+    for (const r of context.recurring_issues) {
+      insights.push(`Recurring: ${r}`);
+    }
+    for (const t of context.trends) {
+      insights.push(`Trend: ${t}`);
+    }
+  }
+
+  return insights.slice(0, MAX_INSIGHTS);
 }
 
 // ---------------------------------------------------------------------------
