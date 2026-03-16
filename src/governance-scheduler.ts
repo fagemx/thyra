@@ -32,6 +32,8 @@ import {
 } from './execution-adapter';
 import type { KarviBridge } from './karvi-bridge';
 import type { StaleDetector, StaleCleanupResult } from './stale-detector';
+import { CycleTelemetryCollector } from './cycle-telemetry';
+import type { CycleTelemetry } from './schemas/cycle-telemetry';
 
 // ---------------------------------------------------------------------------
 // 型別定義
@@ -60,6 +62,8 @@ export interface GovernanceCycleResult {
   pipeline_dispatches: PipelineDispatchResult[];
   /** Stale cleanup 結果（有 StaleDetector 時） */
   stale_cleanup?: StaleCleanupResult;
+  /** Per-chief per-operation telemetry（#232） */
+  chief_telemetry: CycleTelemetry[];
   skipped?: boolean;
   skip_reason?: string;
 }
@@ -180,6 +184,7 @@ export class GovernanceScheduler {
         chief_results: [],
         errors: [],
         pipeline_dispatches: [],
+        chief_telemetry: [],
         skipped: true,
         skip_reason: 'already_running',
       };
@@ -206,6 +211,7 @@ export class GovernanceScheduler {
       const allChiefResults: ChiefCycleResult[] = [];
       const allErrors: ChiefError[] = [];
       const allPipelineDispatches: PipelineDispatchResult[] = [];
+      const allTelemetry: CycleTelemetry[] = [];
       let villagesProcessed = 0;
 
       // 3. 對每個 village 執行
@@ -217,15 +223,18 @@ export class GovernanceScheduler {
         const pipelineChiefs = chiefs.filter(c => c.pipelines.length > 0);
         const localChiefs = chiefs.filter(c => c.pipelines.length === 0);
 
-        // 4a. Pipeline chiefs: dispatch to Karvi (async, unordered)
+        // 4a. Pipeline chiefs: dispatch to Karvi (async, unordered) with telemetry
         for (const chief of pipelineChiefs) {
+          const ops = CycleTelemetryCollector.begin(cycleId, chief.id, village.id);
           // Run tracking: mark chief as running before execution (#231)
           const runId = `run-${randomUUID()}`;
           this.chiefEngine.markRunning(chief.id, runId);
 
           try {
             if (this.karviBridge) {
+              ops.start('dispatch_pipeline');
               const dispatches = await dispatchChiefPipelines(this.karviBridge, village.id, chief);
+              ops.end('dispatch_pipeline', 'ok');
               allPipelineDispatches.push(...dispatches);
 
               appendAudit(this.db, 'governance', cycleId, 'pipeline_dispatch', {
@@ -236,6 +245,9 @@ export class GovernanceScheduler {
                 failed_count: dispatches.filter(d => !d.dispatched).length,
               }, 'scheduler');
             } else {
+              ops.start('dispatch_pipeline');
+              ops.end('dispatch_pipeline', 'skipped', { detail: 'no_karvi_bridge' });
+
               appendAudit(this.db, 'governance', cycleId, 'pipeline_skip', {
                 chief_id: chief.id,
                 village_id: village.id,
@@ -255,14 +267,19 @@ export class GovernanceScheduler {
               error: message,
             });
           }
+
+          // 儲存 telemetry（即使有 error 也要記錄部分 timing）
+          const telemetry = ops.finish();
+          allTelemetry.push(telemetry);
+          CycleTelemetryCollector.save(this.db, telemetry);
         }
 
         // 4b. Local chiefs: coordinated execution with priority ordering + state threading
         if (localChiefs.length > 0) {
           if (this.useHeartbeat) {
-            await this.runHeartbeatPath(village.id, localChiefs, allChiefResults, allErrors);
+            await this.runHeartbeatPath(village.id, localChiefs, cycleId, allChiefResults, allErrors, allTelemetry);
           } else {
-            this.runCoordinatedPath(village.id, localChiefs, allChiefResults, allErrors);
+            this.runCoordinatedPath(village.id, localChiefs, cycleId, allChiefResults, allErrors, allTelemetry);
           }
         }
       }
@@ -288,6 +305,7 @@ export class GovernanceScheduler {
         errors: allErrors,
         pipeline_dispatches: allPipelineDispatches,
         stale_cleanup: staleCleanup,
+        chief_telemetry: allTelemetry,
       };
 
       // 6. Audit log（THY-07）
@@ -321,19 +339,31 @@ export class GovernanceScheduler {
   private async runHeartbeatPath(
     villageId: string,
     localChiefs: Chief[],
+    cycleId: string,
     allChiefResults: ChiefCycleResult[],
     allErrors: ChiefError[],
+    allTelemetry: CycleTelemetry[],
   ): Promise<void> {
     const sorted = sortChiefsByPriority(localChiefs);
     let currentState = this.worldManager.getState(villageId);
     for (const chief of sorted) {
+      const ops = CycleTelemetryCollector.begin(cycleId, chief.id, villageId);
       try {
+        ops.start('build_context');
         const adapter = this.adapterRegistry.get(chief.adapter_type);
         const context = buildHeartbeatContext(chief, currentState, 'scheduled');
+        ops.end('build_context', 'ok');
+
+        ops.start('invoke_adapter');
         const hbResult = await adapter.invoke(context);
+        ops.end('invoke_adapter', 'ok');
+
+        ops.start('process_result');
         const processed = processHeartbeatResult(
           this.worldManager, this.db, villageId, chief, hbResult,
         );
+        ops.end('process_result', 'ok');
+
         allChiefResults.push(this.toChiefCycleResult(chief.id, processed));
         // Thread state: use last successful apply's state_after
         for (const applied of processed.applied) {
@@ -349,6 +379,9 @@ export class GovernanceScheduler {
           error: message,
         });
       }
+      const telemetry = ops.finish();
+      allTelemetry.push(telemetry);
+      CycleTelemetryCollector.save(this.db, telemetry);
     }
   }
 
@@ -359,11 +392,28 @@ export class GovernanceScheduler {
   private runCoordinatedPath(
     villageId: string,
     localChiefs: Chief[],
+    cycleId: string,
     allChiefResults: ChiefCycleResult[],
     allErrors: ChiefError[],
+    allTelemetry: CycleTelemetry[],
   ): void {
+    // Telemetry: one session per chief in the coordinated cycle
+    const chiefOps = localChiefs.map(chief =>
+      ({ chief, ops: CycleTelemetryCollector.begin(cycleId, chief.id, villageId) }),
+    );
     try {
+      // Start timing for all chiefs (coordinated execution is atomic per village)
+      for (const { ops } of chiefOps) {
+        ops.start('decide');
+      }
       const coordResult = executeCoordinatedCycle(this.worldManager, villageId, localChiefs);
+      // End timing for each chief based on coordinated results
+      for (let i = 0; i < chiefOps.length; i++) {
+        const { ops } = chiefOps[i];
+        const chiefResult = coordResult.chief_results[i];
+        const hadError = coordResult.errors.some(e => e.chief_id === chiefResult?.chief_id);
+        ops.end('decide', hadError ? 'error' : 'ok');
+      }
       allChiefResults.push(...coordResult.chief_results);
       // Propagate per-chief errors from coordinated cycle
       for (const err of coordResult.errors) {
@@ -376,13 +426,20 @@ export class GovernanceScheduler {
     } catch (err: unknown) {
       // Catastrophic error (e.g. getState fails for entire village) — tag all local chiefs
       const message = err instanceof Error ? err.message : 'unknown';
-      for (const chief of localChiefs) {
+      for (const { chief, ops } of chiefOps) {
+        ops.end('decide', 'error', { detail: message });
         allErrors.push({
           chief_id: chief.id,
           village_id: villageId,
           error: message,
         });
       }
+    }
+    // Save telemetry for all local chiefs
+    for (const { ops } of chiefOps) {
+      const telemetry = ops.finish();
+      allTelemetry.push(telemetry);
+      CycleTelemetryCollector.save(this.db, telemetry);
     }
   }
 

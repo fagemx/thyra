@@ -657,4 +657,106 @@ describe('GovernanceScheduler', () => {
     // Local chiefs coordinated (2 results)
     expect(result.chief_results).toHaveLength(2);
   });
+
+  // -----------------------------------------------------------------------
+  // 24. Telemetry: per-chief telemetry recorded (#232)
+  // -----------------------------------------------------------------------
+  it('runOnce() records per-chief telemetry', async () => {
+    const village = createVillageWithConstitution(vm, cs);
+    createActiveChief(ce, village.id, 'event coordinator', 'TelChief');
+
+    const result = await scheduler.runOnce();
+
+    expect(result.chief_telemetry).toHaveLength(1);
+    expect(result.chief_telemetry[0].cycle_id).toBe(result.cycle_id);
+    expect(result.chief_telemetry[0].village_id).toBe(village.id);
+    expect(result.chief_telemetry[0].total_duration_ms).toBeGreaterThanOrEqual(0);
+    expect(result.chief_telemetry[0].operations.length).toBeGreaterThanOrEqual(1);
+
+    // Verify telemetry is persisted in DB
+    const dbRows = db.prepare(
+      'SELECT * FROM cycle_telemetry WHERE cycle_id = ?'
+    ).all(result.cycle_id);
+    expect(dbRows).toHaveLength(1);
+  });
+
+  // -----------------------------------------------------------------------
+  // 25. Telemetry: recorded even on chief error
+  // -----------------------------------------------------------------------
+  it('records telemetry even when chief throws', async () => {
+    const village = createVillageWithConstitution(vm, cs);
+    createActiveChief(ce, village.id, 'event coordinator', 'ErrorChief');
+
+    const origGetState = wm.getState.bind(wm);
+    const failWm = Object.create(wm) as WorldManager;
+    failWm.getState = (_villageId: string) => {
+      throw new Error('getState failed');
+      return origGetState(_villageId); // unreachable, keeps TS happy
+    };
+
+    const failScheduler = new GovernanceScheduler({
+      worldManager: failWm,
+      chiefEngine: ce,
+      villageManager: vm,
+      db,
+    });
+
+    const result = await failScheduler.runOnce();
+
+    // Should have error recorded
+    expect(result.errors).toHaveLength(1);
+    // Should still have telemetry (partial)
+    expect(result.chief_telemetry).toHaveLength(1);
+    expect(result.chief_telemetry[0].total_duration_ms).toBeGreaterThanOrEqual(0);
+  });
+
+  // -----------------------------------------------------------------------
+  // 26. Telemetry: multi-chief produces multiple entries
+  // -----------------------------------------------------------------------
+  it('records telemetry for each chief separately', async () => {
+    const village = createVillageWithConstitution(vm, cs);
+    createActiveChief(ce, village.id, 'event coordinator', 'Chief-1');
+    createActiveChief(ce, village.id, 'economy advisor', 'Chief-2');
+
+    const result = await scheduler.runOnce();
+
+    expect(result.chief_telemetry).toHaveLength(2);
+    const chiefIds = result.chief_telemetry.map(t => t.chief_id);
+    expect(new Set(chiefIds).size).toBe(2);
+  });
+
+  // -----------------------------------------------------------------------
+  // 27. Telemetry: skipped cycle has empty telemetry
+  // -----------------------------------------------------------------------
+  it('skipped cycle has empty chief_telemetry', async () => {
+    // Use the overlap guard to produce a skipped result
+    createVillageWithConstitution(vm, cs);
+
+    let secondResult: GovernanceCycleResult | null = null;
+    const origList = vm.list.bind(vm);
+    const slowVm = Object.create(vm) as VillageManager;
+    let firstCall = true;
+    slowVm.list = (filters?: { status?: string }) => {
+      const result = origList(filters);
+      if (firstCall) {
+        firstCall = false;
+        void telScheduler.runOnce().then(r => { secondResult = r; });
+      }
+      return result;
+    };
+
+    const telScheduler = new GovernanceScheduler({
+      worldManager: wm,
+      chiefEngine: ce,
+      villageManager: slowVm,
+      db,
+    });
+
+    await telScheduler.runOnce();
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    expect(secondResult).not.toBeNull();
+    expect(secondResult!.skipped).toBe(true);
+    expect(secondResult!.chief_telemetry).toEqual([]);
+  });
 });

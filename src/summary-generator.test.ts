@@ -77,6 +77,7 @@ function makeCycleResult(overrides: Partial<GovernanceCycleResult> = {}): Govern
     chief_results: [],
     errors: [],
     pipeline_dispatches: [],
+    chief_telemetry: [],
     ...overrides,
   };
 }
