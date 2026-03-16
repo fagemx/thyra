@@ -43,7 +43,7 @@ export function worldRoutes(worldManager: WorldManager, db: Database): Hono {
 
   // POST /judge — 評估變更是否合法（dry-run）
   app.post(`${base}/judge`, async (c) => {
-    const body = await c.req.json().catch(() => ({}));
+    const body: unknown = await c.req.json().catch(() => ({}));
     const parsed = JudgeChangeInput.safeParse(body);
     if (!parsed.success) {
       return c.json(
@@ -59,7 +59,7 @@ export function worldRoutes(worldManager: WorldManager, db: Database): Hono {
 
   // POST /apply — 套用變更
   app.post(`${base}/apply`, async (c) => {
-    const body = await c.req.json().catch(() => ({}));
+    const body: unknown = await c.req.json().catch(() => ({}));
     const parsed = ApplyChangeInput.safeParse(body);
     if (!parsed.success) {
       return c.json(
@@ -75,7 +75,7 @@ export function worldRoutes(worldManager: WorldManager, db: Database): Hono {
 
   // POST /snapshot — 手動拍攝快照
   app.post(`${base}/snapshot`, async (c) => {
-    const body = await c.req.json().catch(() => ({}));
+    const body: unknown = await c.req.json().catch(() => ({}));
     const parsed = SnapshotInput.safeParse(body);
     if (!parsed.success) {
       return c.json(
@@ -108,7 +108,7 @@ export function worldRoutes(worldManager: WorldManager, db: Database): Hono {
 
   // POST /rollback — 回滾到指定快照
   app.post(`${base}/rollback`, async (c) => {
-    const body = await c.req.json().catch(() => ({}));
+    const body: unknown = await c.req.json().catch(() => ({}));
     const parsed = RollbackInput.safeParse(body);
     if (!parsed.success) {
       return c.json(

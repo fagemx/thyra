@@ -8,7 +8,9 @@ export function skillRoutes(registry: SkillRegistry): Hono {
   app.get('/api/skills', (c) => {
     const status = c.req.query('status') || undefined;
     const name = c.req.query('name') || undefined;
-    return c.json({ ok: true, data: registry.list({ status, name }) });
+    const scope_type = c.req.query('scope_type') || undefined;
+    const source_type = c.req.query('source_type') || undefined;
+    return c.json({ ok: true, data: registry.list({ status, name, scope_type, source_type }) });
   });
 
   app.post('/api/skills', async (c) => {
