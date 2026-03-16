@@ -96,6 +96,7 @@ function makeMinimalState(overrides?: Partial<WorldState>): WorldState {
     active_laws: [],
     skills: [],
     running_cycles: [],
+    goals: [],
     assembled_at: new Date().toISOString(),
     ...overrides,
   };

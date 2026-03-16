@@ -70,6 +70,7 @@ export function makeBaseContext(
     active_laws: laws,
     observations: [],
     intent: null,
+    chief_goals: [],
     ...overrides,
   };
 }

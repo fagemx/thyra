@@ -9,6 +9,7 @@ import type { SkillRegistry } from './skill-registry';
 import { buildSkillPrompt } from './skill-registry';
 import type { Permission } from './schemas/constitution';
 import type { SkillBinding as SkillBindingType } from './schemas/skill';
+import type { GoalWithAncestry } from './goal-store';
 
 export type { ChiefPersonality, ChiefProfile, ChiefProfileName } from './schemas/chief';
 
@@ -462,9 +463,10 @@ export class ChiefEngine {
 }
 
 /**
- * Build a complete system prompt from Chief config + Skills
+ * Build a complete system prompt from Chief config + Skills.
+ * Optionally includes goal hierarchy context (issue #225).
  */
-export function buildChiefPrompt(chief: Chief, skillRegistry: SkillRegistry): string {
+export function buildChiefPrompt(chief: Chief, skillRegistry: SkillRegistry, goals?: GoalWithAncestry[]): string {
   const lines: string[] = [];
 
   lines.push(`You are "${chief.name}", a ${chief.role}.`);
@@ -534,8 +536,30 @@ export function buildChiefPrompt(chief: Chief, skillRegistry: SkillRegistry): st
   if (chief.pipelines.length > 0) {
     lines.push('## Pipelines');
     lines.push('You are bound to the following execution pipelines:');
-    for (const p of chief.pipelines) {
-      lines.push(`- ${p}`);
+    for (const pipeline of chief.pipelines) {
+      lines.push(`- ${pipeline}`);
+    }
+    lines.push('');
+  }
+
+  // Goals (issue #225)
+  if (goals && goals.length > 0) {
+    lines.push('## Goals');
+    for (const { goal, ancestry } of goals) {
+      const ancestors = ancestry.slice(1).reverse();
+      for (let i = 0; i < ancestors.length; i++) {
+        const indent = '  '.repeat(i);
+        const ancestor = ancestors[i];
+        const metricStr = ancestor.metrics.length > 0
+          ? ` (${ancestor.metrics.map((m: GoalWithAncestry['goal']['metrics'][number]) => `${m.name}: ${m.current ?? '?'}/${m.target}${m.unit}`).join(', ')})`
+          : '';
+        lines.push(`${indent}${ancestor.level} goal: ${ancestor.title}${metricStr}`);
+      }
+      const myIndent = '  '.repeat(ancestors.length);
+      const myMetricStr = goal.metrics.length > 0
+        ? ` (${goal.metrics.map((m: GoalWithAncestry['goal']['metrics'][number]) => `${m.name}: ${m.current ?? '?'}/${m.target}${m.unit}`).join(', ')})`
+        : '';
+      lines.push(`${myIndent}-> My goal: ${goal.title}${myMetricStr}`);
     }
     lines.push('');
   }

@@ -5,6 +5,7 @@ import type { Chief } from '../chief-engine';
 import type { Law } from '../law-engine';
 import type { Skill } from '../skill-registry';
 import type { LoopCycle } from '../loop-runner';
+import type { Goal } from '../goal-store';
 
 /** 某個 village 在某一時刻的完整狀態快照 */
 export interface WorldState {
@@ -25,6 +26,9 @@ export interface WorldState {
 
   /** 正在執行的 loop cycles */
   running_cycles: LoopCycle[];
+
+  /** 目標層級（planned + active） */
+  goals: Goal[];
 
   /** 快照組裝時間 (ISO 8601) */
   assembled_at: string;
@@ -83,6 +87,12 @@ export function assembleWorldState(db: Database, villageId: string): WorldState 
   ).all(villageId, 'running') as Record<string, unknown>[];
   const running_cycles = cycleRows.map(deserializeCycle);
 
+  // 7. 查詢 goals（planned + active）
+  const goalRows = db.prepare(
+    "SELECT * FROM goals WHERE village_id = ? AND status IN ('planned','active') ORDER BY level, created_at"
+  ).all(villageId) as Record<string, unknown>[];
+  const goals = goalRows.map(deserializeGoal);
+
   return {
     village,
     constitution,
@@ -90,6 +100,7 @@ export function assembleWorldState(db: Database, villageId: string): WorldState 
     active_laws,
     skills,
     running_cycles,
+    goals,
     assembled_at: new Date().toISOString(),
   };
 }
@@ -196,6 +207,24 @@ function deserializeSkill(row: Record<string, unknown>): Skill {
     tags: JSON.parse((row.tags as string) || '[]') as string[],
     used_count: (row.used_count as number) || 0,
     last_used_at: (row.last_used_at as string) || null,
+  };
+}
+
+/** 來源: goal-store.ts */
+function deserializeGoal(row: Record<string, unknown>): Goal {
+  return {
+    id: row.id as string,
+    village_id: row.village_id as string,
+    level: row.level as Goal['level'],
+    title: row.title as string,
+    description: row.description as string,
+    status: row.status as Goal['status'],
+    parent_id: (row.parent_id as string) || null,
+    owner_chief_id: (row.owner_chief_id as string) || null,
+    metrics: JSON.parse((row.metrics as string) || '[]') as Goal['metrics'],
+    version: row.version as number,
+    created_at: row.created_at as string,
+    updated_at: row.updated_at as string,
   };
 }
 

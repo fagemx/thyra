@@ -97,6 +97,7 @@ function makeContext(overrides: Partial<DecideContext> = {}): DecideContext {
     active_laws: [],
     observations: [],
     intent: null,
+    chief_goals: [],
     ...overrides,
   } as DecideContext;
 }

@@ -28,6 +28,8 @@ import { packRoutes } from './routes/pack';
 import { WorldManager } from './world-manager';
 import { PipelineReactor } from './pipeline-reactor';
 import { worldRoutes } from './routes/world';
+import { GoalStore } from './goal-store';
+import { goalRoutes } from './routes/goals';
 import { ZoneManager } from './market/zones';
 import { StallManager } from './market/stalls';
 import { SlotManager } from './market/slots';
@@ -57,6 +59,7 @@ const loopRunner = new LoopRunner(db, constitutionStore, chiefEngine, lawEngine,
 const territoryCoordinator = new TerritoryCoordinator(db, constitutionStore, skillRegistry);
 const worldManager = new WorldManager(db, eddaBridge, karviBridge);
 const pipelineReactor = new PipelineReactor(worldManager, db);
+const goalStore = new GoalStore(db);
 const zoneManager = new ZoneManager(db);
 const stallManager = new StallManager(db);
 const slotManager = new SlotManager(db);
@@ -86,6 +89,7 @@ app.route('', governanceRoutes({
   riskAssessor,
 }));
 app.route('', worldRoutes(worldManager, db));
+app.route('', goalRoutes(goalStore));
 app.route('', marketRoutes({ db, zoneManager, stallManager, slotManager }));
 app.route('', packRoutes({
   db,

@@ -306,6 +306,25 @@ export function initSchema(db: Database): void {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_metrics_village ON market_metrics(village_id, timestamp);
+
+    -- Goal hierarchy (issue #225)
+    CREATE TABLE IF NOT EXISTS goals (
+      id TEXT PRIMARY KEY,
+      village_id TEXT NOT NULL REFERENCES villages(id),
+      level TEXT NOT NULL CHECK(level IN ('world','team','chief','task')),
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'planned' CHECK(status IN ('planned','active','achieved','cancelled')),
+      parent_id TEXT REFERENCES goals(id),
+      owner_chief_id TEXT REFERENCES chiefs(id),
+      metrics TEXT NOT NULL DEFAULT '[]',
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_goal_village ON goals(village_id, status);
+    CREATE INDEX IF NOT EXISTS idx_goal_parent ON goals(parent_id);
+    CREATE INDEX IF NOT EXISTS idx_goal_chief ON goals(owner_chief_id);
   `);
 
   // ALTER TABLE 新增 intent 欄位（冪等：column 已存在就忽略）
