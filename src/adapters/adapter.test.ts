@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Database } from 'bun:sqlite';
 import { initSchema } from '../db';
 import { AdapterActionSchema } from '../schemas/adapter';
@@ -6,6 +6,8 @@ import type { AdapterAction } from '../schemas/adapter';
 import { DefaultAdapterRegistry } from './registry';
 import { chiefResultToActions } from './interface';
 import type { Adapter, ChiefCycleResult } from './interface';
+import { XAdapter } from './x-adapter';
+import { DiscordAdapter } from './discord-adapter';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -289,6 +291,140 @@ describe('DefaultAdapterRegistry (with db)', () => {
 
     expect(report.failed).toEqual(['x']);
     expect(report.total).toBe(1);
+    spy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// XAdapter Tests
+// ---------------------------------------------------------------------------
+
+describe('XAdapter', () => {
+  it('platform is "x"', () => {
+    const adapter = new XAdapter();
+    expect(adapter.platform).toBe('x');
+  });
+
+  it('works without config', () => {
+    const adapter = new XAdapter();
+    expect(adapter).toBeDefined();
+  });
+
+  it('execute() logs content with console.info', async () => {
+    const adapter = new XAdapter();
+    const spy = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+    const action: AdapterAction = {
+      type: 'post',
+      platform: 'x',
+      content: "Tonight's spotlight: Dragon's Breath Elixir",
+    };
+    await adapter.execute(action);
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    const logMessage = spy.mock.calls[0][0] as string;
+    expect(logMessage).toContain('[XAdapter]');
+    expect(logMessage).toContain('post');
+    expect(logMessage).toContain("Dragon's Breath Elixir");
+    spy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DiscordAdapter Tests
+// ---------------------------------------------------------------------------
+
+describe('DiscordAdapter', () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('platform is "discord"', () => {
+    const adapter = new DiscordAdapter('https://discord.com/api/webhooks/test');
+    expect(adapter.platform).toBe('discord');
+  });
+
+  it('execute() calls fetch with correct URL and payload', async () => {
+    const webhookUrl = 'https://discord.com/api/webhooks/123/abc';
+    const adapter = new DiscordAdapter(webhookUrl);
+
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
+
+    const action: AdapterAction = {
+      type: 'notify',
+      platform: 'discord',
+      content: 'Market opens at midnight!',
+    };
+    await adapter.execute(action);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledWith(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: 'Market opens at midnight!' }),
+    });
+  });
+
+  it('throws on non-ok response (ADAPTER-01)', async () => {
+    const adapter = new DiscordAdapter('https://discord.com/api/webhooks/test');
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: async () => 'Bad Request',
+    });
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
+
+    await expect(adapter.execute({
+      type: 'notify',
+      platform: 'discord',
+      content: 'test',
+    })).rejects.toThrow('Discord webhook failed: 400 Bad Request');
+  });
+
+  it('truncates content over 2000 chars', async () => {
+    const adapter = new DiscordAdapter('https://discord.com/api/webhooks/test');
+    const longContent = 'A'.repeat(2500);
+
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
+
+    await adapter.execute({
+      type: 'post',
+      platform: 'discord',
+      content: longContent,
+    });
+
+    const sentBody = JSON.parse(mockFetch.mock.calls[0][1].body as string) as { content: string };
+    expect(sentBody.content.length).toBeLessThanOrEqual(2000);
+    expect(sentBody.content).toContain('... [truncated]');
+  });
+
+  it('registry catches DiscordAdapter failure (ADAPTER-01 integration)', async () => {
+    const adapter = new DiscordAdapter('https://discord.com/api/webhooks/test');
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      text: async () => 'Not Found',
+    });
+    globalThis.fetch = mockFetch as unknown as typeof fetch;
+
+    const registry = new DefaultAdapterRegistry();
+    registry.register(adapter);
+
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const report = await registry.executeAll([
+      { type: 'notify', platform: 'discord', content: 'test' },
+    ]);
+
+    expect(report.failed).toEqual(['discord']);
+    expect(report.dispatched).toBe(0);
+
     spy.mockRestore();
   });
 });
