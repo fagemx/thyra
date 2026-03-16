@@ -15,6 +15,7 @@
 import type { Database } from 'bun:sqlite';
 import type { KarviEventNormalized } from './schemas/karvi-event';
 import type { WorldManager } from './world-manager';
+import type { EddaBridge } from './edda-bridge';
 import { appendAudit } from './db';
 
 // ---------------------------------------------------------------------------
@@ -42,10 +43,15 @@ export interface ReactorResult {
 // ---------------------------------------------------------------------------
 
 export class PipelineReactor {
+  private readonly eddaBridge: EddaBridge | undefined;
+
   constructor(
     private readonly worldManager: WorldManager,
     private readonly db: Database,
-  ) {}
+    eddaBridge?: EddaBridge,
+  ) {
+    this.eddaBridge = eddaBridge;
+  }
 
   /**
    * 處理 Karvi webhook 事件。
@@ -100,6 +106,8 @@ export class PipelineReactor {
           status,
         }, 'reactor');
 
+        this.recordToEdda(context, 'completed', `status=${status}, task=${event.task_id}, occurred=${event.occurred_at}`);
+
         return { reacted: true, reason: 'applied' };
       }
 
@@ -107,6 +115,8 @@ export class PipelineReactor {
         village_id: context.village_id,
         reasons: result.judge_result.reasons,
       }, 'reactor');
+
+      this.recordToEdda(context, 'rejected', `reasons=${result.judge_result.reasons.join('; ')}`);
 
       return { reacted: false, reason: `judge_rejected: ${result.judge_result.reasons.join('; ')}` };
     } catch (err: unknown) {
@@ -118,6 +128,17 @@ export class PipelineReactor {
 
       return { reacted: false, reason: `error: ${message}` };
     }
+  }
+
+  /** Fire-and-forget: 記錄 pipeline 完成事件到 Edda（THY-06 graceful degradation, #223） */
+  private recordToEdda(context: PipelineContext, value: string, reason: string): void {
+    if (!this.eddaBridge) return;
+    void this.eddaBridge.recordDecision({
+      domain: 'pipeline',
+      aspect: `${context.village_id}.${context.pipeline_id}.completed`,
+      value,
+      reason: `chief=${context.chief_id}, ${reason}`,
+    }).catch(() => {});
   }
 }
 

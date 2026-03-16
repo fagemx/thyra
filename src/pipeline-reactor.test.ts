@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Database } from 'bun:sqlite';
 import { initSchema } from './db';
 import { WorldManager } from './world-manager';
@@ -6,6 +6,7 @@ import { VillageManager } from './village-manager';
 import { ConstitutionStore } from './constitution-store';
 import { PipelineReactor, parsePipelineTaskId } from './pipeline-reactor';
 import type { KarviEventNormalized } from './schemas/karvi-event';
+import type { EddaBridge } from './edda-bridge';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -150,5 +151,96 @@ describe('PipelineReactor', () => {
 
     expect(result.reacted).toBe(true);
     expect(result.reason).toBe('applied');
+  });
+
+  // -----------------------------------------------------------------------
+  // EddaBridge integration (#223)
+  // -----------------------------------------------------------------------
+
+  it('onKarviEvent with eddaBridge records pipeline completion to Edda', () => {
+    const village = createVillageWithConstitution(vm, cs);
+    const mockEdda = {
+      recordDecision: vi.fn().mockResolvedValue({ event_id: 'evt-mock' }),
+    } as unknown as EddaBridge;
+
+    const eddaReactor = new PipelineReactor(
+      new WorldManager(db),
+      db,
+      mockEdda,
+    );
+
+    const event = makeEvent({
+      task_id: `${village.id}:chief-1:my-pipeline:123`,
+    });
+
+    const result = eddaReactor.onKarviEvent(event);
+    expect(result.reacted).toBe(true);
+
+    expect(mockEdda.recordDecision).toHaveBeenCalledTimes(1);
+    const call = (mockEdda.recordDecision as ReturnType<typeof vi.fn>).mock.calls[0][0] as Record<string, unknown>;
+    expect(call.domain).toBe('pipeline');
+    expect((call.aspect as string)).toContain('my-pipeline');
+    expect((call.aspect as string)).toContain('.completed');
+    expect(call.value).toBe('completed');
+    expect((call.reason as string)).toContain('chief=chief-1');
+  });
+
+  it('onKarviEvent without eddaBridge works normally', () => {
+    const village = createVillageWithConstitution(vm, cs);
+    const noEddaReactor = new PipelineReactor(
+      new WorldManager(db),
+      db,
+    );
+
+    const event = makeEvent({
+      task_id: `${village.id}:chief-1:my-pipeline:123`,
+    });
+
+    const result = noEddaReactor.onKarviEvent(event);
+    expect(result.reacted).toBe(true);
+  });
+
+  it('Edda offline does not affect reactor', () => {
+    const village = createVillageWithConstitution(vm, cs);
+    const failingEdda = {
+      recordDecision: vi.fn().mockRejectedValue(new Error('Edda unreachable')),
+    } as unknown as EddaBridge;
+
+    const eddaReactor = new PipelineReactor(
+      new WorldManager(db),
+      db,
+      failingEdda,
+    );
+
+    const event = makeEvent({
+      task_id: `${village.id}:chief-1:my-pipeline:123`,
+    });
+
+    const result = eddaReactor.onKarviEvent(event);
+    expect(result.reacted).toBe(true);
+    expect(result.reason).toBe('applied');
+    expect(failingEdda.recordDecision).toHaveBeenCalledTimes(1);
+  });
+
+  it('error path does not crash with eddaBridge present', () => {
+    const mockEdda = {
+      recordDecision: vi.fn().mockResolvedValue({ event_id: 'evt-mock' }),
+    } as unknown as EddaBridge;
+
+    // Use a non-existent village to trigger error path
+    const event = makeEvent({
+      task_id: 'nonexistent:chief-1:pipeline-1:123',
+    });
+
+    const eddaReactor = new PipelineReactor(
+      new WorldManager(db),
+      db,
+      mockEdda,
+    );
+
+    const result = eddaReactor.onKarviEvent(event);
+
+    // Should fail (error) but not crash
+    expect(result.reacted).toBe(false);
   });
 });

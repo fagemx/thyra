@@ -381,6 +381,26 @@ describe('WorldManager', () => {
       expect(call.value).toBe('constitution.supersede');
     });
 
+    it('apply() Edda payload includes judge breakdown and diff summary (#223)', () => {
+      const mockEdda = createMockEddaBridge();
+      const wmWithEdda = new WorldManager(db, mockEdda);
+      const village = createVillage(vm);
+
+      wmWithEdda.apply(village.id, makeConstitutionChange(), 'enriched test');
+
+      const call = (mockEdda.recordDecision as ReturnType<typeof vi.fn>).mock.calls[0][0] as Record<string, unknown>;
+      const reason = call.reason as string;
+      // Judge breakdown should contain all 5 checks
+      expect(reason).toContain('safety=');
+      expect(reason).toContain('legality=');
+      expect(reason).toContain('boundary=');
+      expect(reason).toContain('evaluator=');
+      expect(reason).toContain('consistency=');
+      // Diff summary should contain changed fields
+      expect(reason).toContain('diff=');
+      expect(reason).toContain('constitution');
+    });
+
     it('apply() without EddaBridge still works', () => {
       const wmNoEdda = new WorldManager(db);
       const village = createVillage(vm);
