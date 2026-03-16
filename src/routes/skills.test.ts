@@ -1,9 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Hono } from 'hono';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
 import { createDb, initSchema } from '../db';
 import { VillageManager } from '../village-manager';
 import { SkillRegistry } from '../skill-registry';
-import { skillRoutes } from './skills';
+import { skillRoutes, parseSkillMarkdown } from './skills';
 
 const SKILL_DEF = {
   description: 'Review code',
@@ -257,5 +260,240 @@ describe('GET /api/skills with filters', () => {
     const body = await res.json() as { ok: boolean; data: { name: string }[] };
     expect(body.data).toHaveLength(1);
     expect(body.data[0].name).toBe('target');
+  });
+});
+
+// --- parseSkillMarkdown 單元測試 ---
+
+describe('parseSkillMarkdown', () => {
+  it('parses frontmatter with name and description', () => {
+    const raw = '---\nname: commit\ndescription: Complete pre-commit workflow\ncontext: fork\n---\n\n# Commit\n\nRun the full commit flow.';
+    const result = parseSkillMarkdown(raw);
+    expect(result.name).toBe('commit');
+    expect(result.description).toBe('Complete pre-commit workflow');
+    expect(result.meta.context).toBe('fork');
+    expect(result.body).toContain('# Commit');
+    expect(result.body).toContain('Run the full commit flow.');
+  });
+
+  it('falls back to heading for name when no frontmatter name', () => {
+    const raw = '# Stall Ranking\n\nRank market stalls by revenue.';
+    const result = parseSkillMarkdown(raw);
+    expect(result.name).toBe('stall-ranking');
+    expect(result.description).toBe('Rank market stalls by revenue.');
+  });
+
+  it('handles no frontmatter at all', () => {
+    const raw = '# My Skill\n\nDo something useful with the codebase.';
+    const result = parseSkillMarkdown(raw);
+    expect(result.name).toBe('my-skill');
+    expect(result.description).toBe('Do something useful with the codebase.');
+    expect(result.meta).toEqual({});
+    expect(result.body).toBe(raw.trim());
+  });
+
+  it('handles empty/malformed frontmatter gracefully', () => {
+    const raw = '---\n\n---\n\nSome content here for the skill body.';
+    const result = parseSkillMarkdown(raw);
+    expect(result.name).toBeNull();
+    expect(result.body).toBe('Some content here for the skill body.');
+  });
+});
+
+// --- POST /api/skills/upload ---
+
+function jsonPost(body: unknown): RequestInit {
+  return {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  };
+}
+
+interface UploadResponse {
+  ok: boolean;
+  data?: { id: string; name: string; content: string; source_type: string; tags: string[]; scope_type: string; definition: { description: string; prompt_template: string } };
+  error?: { code: string; message: string };
+}
+
+describe('POST /api/skills/upload', () => {
+  let app: Hono;
+
+  beforeEach(() => {
+    const built = buildApp();
+    app = built.app;
+  });
+
+  it('uploads valid SKILL.md with frontmatter', async () => {
+    const md = '---\nname: commit\ndescription: Complete pre-commit workflow\n---\n\n# Commit\n\nRun the full pre-commit workflow including lint, build, and test.';
+    const res = await app.request('/api/skills/upload', jsonPost({ content: md }));
+    expect(res.status).toBe(201);
+    const body = await res.json() as UploadResponse;
+    expect(body.ok).toBe(true);
+    expect(body.data?.name).toBe('commit');
+    expect(body.data?.source_type).toBe('upload');
+    expect(body.data?.definition.description).toBe('Complete pre-commit workflow');
+    expect(body.data?.content).toBe(md);
+  });
+
+  it('uses name override over frontmatter', async () => {
+    const md = '---\nname: old-name\ndescription: Some description\n---\n\n# Old Name\n\nThe body content for this skill is long enough.';
+    const res = await app.request('/api/skills/upload', jsonPost({ content: md, name: 'new-name' }));
+    expect(res.status).toBe(201);
+    const body = await res.json() as UploadResponse;
+    expect(body.data?.name).toBe('new-name');
+  });
+
+  it('stores tags and scope_type', async () => {
+    const md = '---\nname: tagged-skill\ndescription: A tagged skill\n---\n\n# Tagged\n\nThis skill has tags and a custom scope type.';
+    const res = await app.request('/api/skills/upload', jsonPost({
+      content: md,
+      tags: ['market', 'ranking'],
+      scope_type: 'global',
+    }));
+    expect(res.status).toBe(201);
+    const body = await res.json() as UploadResponse;
+    expect(body.data?.tags).toEqual(['market', 'ranking']);
+    expect(body.data?.scope_type).toBe('global');
+  });
+
+  it('infers name from heading when no frontmatter name', async () => {
+    const md = '# Code Review\n\nPerform a thorough code review on the changes.';
+    const res = await app.request('/api/skills/upload', jsonPost({ content: md }));
+    expect(res.status).toBe(201);
+    const body = await res.json() as UploadResponse;
+    expect(body.data?.name).toBe('code-review');
+  });
+
+  it('returns 400 when no content provided', async () => {
+    const res = await app.request('/api/skills/upload', jsonPost({}));
+    expect(res.status).toBe(400);
+    const body = await res.json() as UploadResponse;
+    expect(body.error?.code).toBe('VALIDATION');
+  });
+
+  it('returns 409 for duplicate name', async () => {
+    const md = '---\nname: duplicate\ndescription: First version\n---\n\n# Duplicate\n\nThis is the first version of the duplicate skill.';
+    await app.request('/api/skills/upload', jsonPost({ content: md }));
+    const res = await app.request('/api/skills/upload', jsonPost({ content: md }));
+    expect(res.status).toBe(409);
+    const body = await res.json() as UploadResponse;
+    expect(body.error?.code).toBe('CONFLICT');
+  });
+
+  it('works without frontmatter (body = prompt_template)', async () => {
+    const md = '# Simple Skill\n\nJust a simple skill without any frontmatter at all.';
+    const res = await app.request('/api/skills/upload', jsonPost({ content: md }));
+    expect(res.status).toBe(201);
+    const body = await res.json() as UploadResponse;
+    expect(body.data?.name).toBe('simple-skill');
+    expect(body.data?.definition.prompt_template).toBe(md.trim());
+  });
+
+  it('returns 400 for body too short', async () => {
+    const md = '---\nname: short\ndescription: Short\n---\n\nHi';
+    const res = await app.request('/api/skills/upload', jsonPost({ content: md }));
+    expect(res.status).toBe(400);
+    const body = await res.json() as UploadResponse;
+    expect(body.error?.message).toContain('too short');
+  });
+});
+
+// --- POST /api/skills/import-directory ---
+
+interface ImportResult {
+  path: string;
+  status: 'imported' | 'skipped' | 'error';
+  skill_id?: string;
+  reason?: string;
+}
+
+interface ImportResponse {
+  ok: boolean;
+  data?: { imported: number; skipped: number; errors: number; results: ImportResult[]; dry_run: boolean };
+  error?: { code: string; message: string };
+}
+
+describe('POST /api/skills/import-directory', () => {
+  let app: Hono;
+  let registry: SkillRegistry;
+
+  beforeEach(() => {
+    const built = buildApp();
+    app = built.app;
+    registry = built.registry;
+  });
+
+  it('imports directory with 2 skills', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'thyra-import-'));
+    mkdirSync(join(tmpDir, 'commit'));
+    writeFileSync(join(tmpDir, 'commit', 'SKILL.md'), '---\nname: commit\ndescription: Commit workflow\n---\n\n# Commit\n\nRun the commit workflow.');
+    mkdirSync(join(tmpDir, 'review'));
+    writeFileSync(join(tmpDir, 'review', 'SKILL.md'), '---\nname: review\ndescription: Code review\n---\n\n# Review\n\nPerform code review.');
+
+    const res = await app.request('/api/skills/import-directory', jsonPost({ directory: tmpDir }));
+    expect(res.status).toBe(200);
+    const body = await res.json() as ImportResponse;
+    expect(body.ok).toBe(true);
+    expect(body.data?.imported).toBe(2);
+    expect(body.data?.skipped).toBe(0);
+    expect(body.data?.errors).toBe(0);
+  });
+
+  it('skips duplicates without error', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'thyra-import-'));
+    mkdirSync(join(tmpDir, 'existing'));
+    writeFileSync(join(tmpDir, 'existing', 'SKILL.md'), '---\nname: existing-skill\ndescription: Already exists\n---\n\n# Existing\n\nThis skill already exists.');
+
+    // Pre-create the skill
+    registry.create({
+      name: 'existing-skill',
+      definition: { description: 'Already there', prompt_template: 'Template' },
+    }, 'u');
+
+    const res = await app.request('/api/skills/import-directory', jsonPost({ directory: tmpDir }));
+    expect(res.status).toBe(200);
+    const body = await res.json() as ImportResponse;
+    expect(body.data?.skipped).toBe(1);
+    expect(body.data?.imported).toBe(0);
+    expect(body.data?.results[0].status).toBe('skipped');
+  });
+
+  it('returns 400 for nonexistent directory', async () => {
+    const res = await app.request('/api/skills/import-directory', jsonPost({ directory: '/nonexistent/path/xyz' }));
+    expect(res.status).toBe(400);
+    const body = await res.json() as ImportResponse;
+    expect(body.error?.code).toBe('VALIDATION');
+  });
+
+  it('returns 400 for path traversal', async () => {
+    const res = await app.request('/api/skills/import-directory', jsonPost({ directory: '../../../etc' }));
+    expect(res.status).toBe(400);
+    const body = await res.json() as ImportResponse;
+    expect(body.error?.message).toContain('traversal');
+  });
+
+  it('dry_run reports without creating skills', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'thyra-import-'));
+    mkdirSync(join(tmpDir, 'dry-skill'));
+    writeFileSync(join(tmpDir, 'dry-skill', 'SKILL.md'), '---\nname: dry-test\ndescription: Dry run test\n---\n\n# Dry\n\nDry run skill content.');
+
+    const res = await app.request('/api/skills/import-directory', jsonPost({ directory: tmpDir, dry_run: true }));
+    expect(res.status).toBe(200);
+    const body = await res.json() as ImportResponse;
+    expect(body.data?.imported).toBe(1);
+    expect(body.data?.dry_run).toBe(true);
+
+    // Verify no skill was actually created
+    const skills = registry.list({ name: 'dry-test' });
+    expect(skills).toHaveLength(0);
+  });
+
+  it('returns 200 with 0 imported for empty directory', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'thyra-import-'));
+    const res = await app.request('/api/skills/import-directory', jsonPost({ directory: tmpDir }));
+    expect(res.status).toBe(200);
+    const body = await res.json() as ImportResponse;
+    expect(body.data?.imported).toBe(0);
   });
 });
