@@ -160,6 +160,8 @@ function deserializeChief(row: Record<string, unknown>): Chief {
     context_mode: (row.context_mode as Chief['context_mode'] | null) ?? 'fat',
     adapter_config: JSON.parse((row.adapter_config as string) || '{}') as Record<string, unknown>,
     budget_config: row.budget_config ? JSON.parse(row.budget_config as string) as Chief['budget_config'] : null,
+    use_precedents: row.use_precedents === 1 || row.use_precedents === true,
+    precedent_config: row.precedent_config ? JSON.parse(row.precedent_config as string) as Chief['precedent_config'] : null,
     pause_reason: (row.pause_reason as string | null) ?? null,
     paused_at: (row.paused_at as string | null) ?? null,
     last_heartbeat_at: (row.last_heartbeat_at as string | null) ?? null,

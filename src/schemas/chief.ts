@@ -52,6 +52,18 @@ export const ChiefBudgetConfigInput = z.object({
 
 export type ChiefBudgetConfig = z.infer<typeof ChiefBudgetConfigInput>;
 
+/** Chief Edda 先例查詢設定（#222） */
+export const PrecedentConfigInput = z.object({
+  /** 最多查詢幾筆先例（預設 3） */
+  max_precedents: z.number().int().min(1).max(20).default(3),
+  /** 回溯天數（預設 30，client-side 過濾） */
+  lookback_days: z.number().int().min(1).max(365).default(30),
+  /** 可選 domain 過濾（對應 Edda decision key prefix） */
+  domain_filter: z.string().optional(),
+});
+
+export type PrecedentConfig = z.infer<typeof PrecedentConfigInput>;
+
 export const CreateChiefInput = z.object({
   name: z.string().min(1).max(100),
   role: z.string().min(1).max(500),
@@ -72,6 +84,10 @@ export const CreateChiefInput = z.object({
   /** Adapter 專屬設定（如 HTTP endpoint URL） */
   adapter_config: z.record(z.unknown()).default({}),
   budget_config: ChiefBudgetConfigInput.optional(),
+  /** 是否啟用 Edda 先例查詢（#222，預設 false） */
+  use_precedents: z.boolean().default(false),
+  /** Edda 先例查詢設定（use_precedents=true 時有效） */
+  precedent_config: PrecedentConfigInput.optional(),
 });
 
 export const UpdateChiefInput = z.object({
@@ -87,6 +103,8 @@ export const UpdateChiefInput = z.object({
   context_mode: ContextModeEnum.optional(),
   adapter_config: z.record(z.unknown()).optional(),
   budget_config: ChiefBudgetConfigInput.optional(),
+  use_precedents: z.boolean().optional(),
+  precedent_config: PrecedentConfigInput.optional(),
 });
 
 /**
@@ -128,3 +146,4 @@ export type ChiefProfile = z.infer<typeof ChiefProfileSchema>;
 export type CreateChiefInputRaw = z.input<typeof CreateChiefInput>;
 export type CreateChiefInput = z.infer<typeof CreateChiefInput>;
 export type UpdateChiefInput = z.infer<typeof UpdateChiefInput>;
+export type PrecedentConfigInput = z.input<typeof PrecedentConfigInput>;

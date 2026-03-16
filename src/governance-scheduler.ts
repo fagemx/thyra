@@ -19,7 +19,7 @@
 import type { Database } from 'bun:sqlite';
 import { randomUUID } from 'crypto';
 import { appendAudit } from './db';
-import { dispatchChiefPipelines, executeCoordinatedCycle, sortChiefsByPriority, type ChiefCycleResult, type PipelineDispatchResult } from './chief-autonomy';
+import { dispatchChiefPipelines, executeCoordinatedCycle, sortChiefsByPriority, prefetchPrecedents, type ChiefCycleResult, type PipelineDispatchResult } from './chief-autonomy';
 import type { Chief, ChiefEngine } from './chief-engine';
 import type { WorldManager } from './world-manager';
 import type { VillageManager } from './village-manager';
@@ -31,6 +31,7 @@ import {
   processHeartbeatResult,
 } from './execution-adapter';
 import type { KarviBridge } from './karvi-bridge';
+import type { EddaBridge } from './edda-bridge';
 import type { StaleDetector, StaleCleanupResult } from './stale-detector';
 import { CycleTelemetryCollector } from './cycle-telemetry';
 import type { CycleTelemetry } from './schemas/cycle-telemetry';
@@ -86,6 +87,8 @@ export interface GovernanceSchedulerOpts {
   useHeartbeat?: boolean;
   /** Stale detector（可選）。每輪開始前清理超時 chiefs。 */
   staleDetector?: StaleDetector;
+  /** Edda bridge（可選）。use_precedents=true 的 chief 需要此 bridge 查詢先例。 */
+  eddaBridge?: EddaBridge;
 }
 
 // ---------------------------------------------------------------------------
@@ -103,6 +106,7 @@ export class GovernanceScheduler {
   private readonly adapterRegistry: AdapterRegistry;
   private readonly useHeartbeat: boolean;
   private readonly staleDetector?: StaleDetector;
+  private readonly eddaBridge?: EddaBridge;
 
   /** Timer lifecycle 狀態 */
   private _started = false;
@@ -121,6 +125,7 @@ export class GovernanceScheduler {
     this.onCycleComplete = opts.onCycleComplete;
     this.useHeartbeat = opts.useHeartbeat ?? false;
     this.staleDetector = opts.staleDetector;
+    this.eddaBridge = opts.eddaBridge;
     this.adapterRegistry = opts.adapterRegistry ?? createDefaultRegistry(
       opts.worldManager,
       (chiefId: string) => opts.chiefEngine.get(chiefId),
@@ -276,10 +281,20 @@ export class GovernanceScheduler {
 
         // 4b. Local chiefs: coordinated execution with priority ordering + state threading
         if (localChiefs.length > 0) {
+          // #222: Pre-fetch Edda precedents for chiefs with use_precedents=true
+          let precedentsMap: Map<string, import('./edda-bridge').EddaDecisionHit[]> | undefined;
+          if (this.eddaBridge) {
+            try {
+              precedentsMap = await prefetchPrecedents(this.eddaBridge, localChiefs);
+            } catch {
+              // Graceful degradation: Edda pre-fetch failure does not affect main cycle
+            }
+          }
+
           if (this.useHeartbeat) {
             await this.runHeartbeatPath(village.id, localChiefs, cycleId, allChiefResults, allErrors, allTelemetry);
           } else {
-            this.runCoordinatedPath(village.id, localChiefs, cycleId, allChiefResults, allErrors, allTelemetry);
+            this.runCoordinatedPath(village.id, localChiefs, cycleId, allChiefResults, allErrors, allTelemetry, precedentsMap);
           }
         }
       }
@@ -396,6 +411,7 @@ export class GovernanceScheduler {
     allChiefResults: ChiefCycleResult[],
     allErrors: ChiefError[],
     allTelemetry: CycleTelemetry[],
+    precedentsMap?: Map<string, import('./edda-bridge').EddaDecisionHit[]>,
   ): void {
     // Telemetry: one session per chief in the coordinated cycle
     const chiefOps = localChiefs.map(chief =>
@@ -406,7 +422,7 @@ export class GovernanceScheduler {
       for (const { ops } of chiefOps) {
         ops.start('decide');
       }
-      const coordResult = executeCoordinatedCycle(this.worldManager, villageId, localChiefs);
+      const coordResult = executeCoordinatedCycle(this.worldManager, villageId, localChiefs, precedentsMap);
       // End timing for each chief based on coordinated results
       for (let i = 0; i < chiefOps.length; i++) {
         const { ops } = chiefOps[i];

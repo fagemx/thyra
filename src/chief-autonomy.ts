@@ -15,8 +15,10 @@
  */
 
 import type { Chief } from './chief-engine';
+import type { PrecedentConfig } from './schemas/chief';
 import type { WorldManager, ApplyResult } from './world-manager';
 import type { KarviBridge, KarviProjectResponse } from './karvi-bridge';
+import type { EddaBridge, EddaDecisionHit } from './edda-bridge';
 import type { WorldState } from './world/state';
 import type { WorldChange } from './schemas/world-change';
 
@@ -44,8 +46,15 @@ export interface ChiefCycleResult {
   skipped: { proposal: ChiefProposal; reason: string }[];
 }
 
+/** Chief 決策上下文（含可選的 Edda 先例） */
+export interface ChiefDecisionContext {
+  state: WorldState;
+  /** Edda 歷史先例（use_precedents=false 或 Edda 離線時為空陣列） */
+  precedents: EddaDecisionHit[];
+}
+
 /** 策略函數類型 -- pure function，無副作用 */
-export type ChiefStrategy = (chief: Chief, state: WorldState) => ChiefProposal[];
+export type ChiefStrategy = (chief: Chief, ctx: ChiefDecisionContext) => ChiefProposal[];
 
 // ---------------------------------------------------------------------------
 // 角色策略實作
@@ -56,8 +65,9 @@ export type ChiefStrategy = (chief: Chief, state: WorldState) => ChiefProposal[]
  * 觸發條件：running_cycles > 0 且 constitution 有預算限制時，
  * 以 running cycles 數量作為高負載指標，提議調降預算。
  */
-export function economyStrategy(_chief: Chief, state: WorldState): ChiefProposal[] {
+export function economyStrategy(_chief: Chief, ctx: ChiefDecisionContext): ChiefProposal[] {
   const proposals: ChiefProposal[] = [];
+  const { state, precedents } = ctx;
   const constitution = state.constitution;
   if (!constitution) return proposals;
 
@@ -67,13 +77,14 @@ export function economyStrategy(_chief: Chief, state: WorldState): ChiefProposal
   // 高活動量 + 預算存在 → 提議調降 per-action 預算 20%
   if (runningCount > 0 && limits.max_cost_per_action > 0) {
     const newLimit = Math.round(limits.max_cost_per_action * 0.8 * 100) / 100;
+    const confidence = adjustConfidenceWithPrecedents(0.7, 'budget', precedents);
     proposals.push({
       change: {
         type: 'budget.adjust',
         max_cost_per_action: newLimit,
       },
       reason: `High activity detected: ${runningCount} running cycle(s). Reducing per-action budget by 20% to maintain fiscal discipline.`,
-      confidence: 0.7,
+      confidence,
       trigger: `running_cycles.length=${runningCount}, current max_cost_per_action=${limits.max_cost_per_action}`,
     });
   }
@@ -85,14 +96,16 @@ export function economyStrategy(_chief: Chief, state: WorldState): ChiefProposal
  * Event 策略：確保足夠的治理法規。
  * 觸發條件：active_laws < 3 → 提議新法。
  */
-export function eventStrategy(chief: Chief, state: WorldState): ChiefProposal[] {
+export function eventStrategy(chief: Chief, ctx: ChiefDecisionContext): ChiefProposal[] {
   const proposals: ChiefProposal[] = [];
+  const { state, precedents } = ctx;
 
   if (state.active_laws.length < 3) {
     // 找出是否缺少 governance 類法規
     const hasGovernance = state.active_laws.some(l => l.category === 'governance');
     const category = hasGovernance ? 'operational' : 'governance';
 
+    const confidence = adjustConfidenceWithPrecedents(0.6, 'law', precedents);
     proposals.push({
       change: {
         type: 'law.propose',
@@ -105,7 +118,7 @@ export function eventStrategy(chief: Chief, state: WorldState): ChiefProposal[] 
         risk_level: 'low',
       },
       reason: `Village has only ${state.active_laws.length} active law(s), below minimum threshold of 3. Proposing ${category} policy.`,
-      confidence: 0.6,
+      confidence,
       trigger: `active_laws.length=${state.active_laws.length}`,
     });
   }
@@ -117,8 +130,9 @@ export function eventStrategy(chief: Chief, state: WorldState): ChiefProposal[] 
  * Safety 策略：偵測 THY-09 權限違規。
  * 觸發條件：chief permissions 不在 constitution.allowed_permissions 內。
  */
-export function safetyStrategy(_chief: Chief, state: WorldState): ChiefProposal[] {
+export function safetyStrategy(_chief: Chief, ctx: ChiefDecisionContext): ChiefProposal[] {
   const proposals: ChiefProposal[] = [];
+  const { state } = ctx;
   const constitution = state.constitution;
   if (!constitution) return proposals;
 
@@ -149,7 +163,8 @@ export function safetyStrategy(_chief: Chief, state: WorldState): ChiefProposal[
  * Lore 策略：偵測不一致性（village 缺少描述、chief 無 constraints）。
  * 產生 village.update 或回傳空陣列。
  */
-export function loreStrategy(_chief: Chief, state: WorldState): ChiefProposal[] {
+export function loreStrategy(_chief: Chief, ctx: ChiefDecisionContext): ChiefProposal[] {
+  const { state } = ctx;
   const proposals: ChiefProposal[] = [];
   const flags: string[] = [];
 
@@ -187,7 +202,8 @@ export function loreStrategy(_chief: Chief, state: WorldState): ChiefProposal[] 
  * Growth 策略：分析 skill 覆蓋率與 law 效果。
  * 觸發條件：skills < chiefs（缺 skill），或有 harmful 的 active law。
  */
-export function growthStrategy(chief: Chief, state: WorldState): ChiefProposal[] {
+export function growthStrategy(chief: Chief, ctx: ChiefDecisionContext): ChiefProposal[] {
+  const { state, precedents } = ctx;
   const proposals: ChiefProposal[] = [];
 
   // 偵測 harmful 的 active law
@@ -195,6 +211,7 @@ export function growthStrategy(chief: Chief, state: WorldState): ChiefProposal[]
     l => l.effectiveness !== null && l.effectiveness.verdict === 'harmful',
   );
   if (harmfulLaws.length > 0) {
+    const confidence = adjustConfidenceWithPrecedents(0.5, 'improvement', precedents);
     proposals.push({
       change: {
         type: 'law.propose',
@@ -211,7 +228,7 @@ export function growthStrategy(chief: Chief, state: WorldState): ChiefProposal[]
         risk_level: 'low',
       },
       reason: `${harmfulLaws.length} active law(s) marked as harmful: [${harmfulLaws.map(l => l.id).join(', ')}]. Proposing improvement strategy.`,
-      confidence: 0.5,
+      confidence,
       trigger: `harmful_active_laws=${harmfulLaws.length}`,
     });
   }
@@ -354,11 +371,12 @@ export function shouldPropose(proposal: ChiefProposal, chief: Chief): boolean {
  *
  * Pure function，不寫 DB。
  */
-export function makeChiefDecision(chief: Chief, state: WorldState): ChiefProposal[] {
+export function makeChiefDecision(chief: Chief, state: WorldState, precedents?: EddaDecisionHit[]): ChiefProposal[] {
   const strategy = resolveStrategy(chief);
   if (!strategy) return [];
 
-  const rawProposals = strategy(chief, state);
+  const ctx: ChiefDecisionContext = { state, precedents: precedents ?? [] };
+  const rawProposals = strategy(chief, ctx);
   return rawProposals.filter(p => shouldPropose(p, chief));
 }
 
@@ -371,6 +389,7 @@ export function executeChiefCycleWithState(
   villageId: string,
   chief: Chief,
   state: WorldState,
+  precedents?: EddaDecisionHit[],
 ): ChiefCycleResult {
   if (chief.status !== 'active') {
     return { chief_id: chief.id, proposals: [], applied: [], skipped: [] };
@@ -381,7 +400,7 @@ export function executeChiefCycleWithState(
     return { chief_id: chief.id, proposals: [], applied: [], skipped: [] };
   }
 
-  const proposals = makeChiefDecision(chief, state);
+  const proposals = makeChiefDecision(chief, state, precedents);
   const applied: ApplyResult[] = [];
   const skipped: { proposal: ChiefProposal; reason: string }[] = [];
 
@@ -446,6 +465,7 @@ export function executeCoordinatedCycle(
   worldManager: WorldManager,
   villageId: string,
   chiefs: Chief[],
+  precedentsMap?: Map<string, EddaDecisionHit[]>,
 ): CoordinatedCycleResult {
   const sorted = sortChiefsByPriority(chiefs);
   let currentState = worldManager.getState(villageId);
@@ -456,7 +476,8 @@ export function executeCoordinatedCycle(
 
   for (const chief of sorted) {
     try {
-      const result = executeChiefCycleWithState(worldManager, villageId, chief, currentState);
+      const chiefPrecedents = precedentsMap?.get(chief.id);
+      const result = executeChiefCycleWithState(worldManager, villageId, chief, currentState, chiefPrecedents);
       results.push(result);
 
       // Thread state: use the last successful apply's state_after
@@ -481,6 +502,79 @@ export function executeCoordinatedCycle(
     state_transitions: stateTransitions,
     errors,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Edda 先例信心度調整（#222）
+// ---------------------------------------------------------------------------
+
+/**
+ * 根據 Edda 先例調整信心度。
+ *
+ * 規則（簡單 rule-based，Phase 1）：
+ * - 有相關 domain 的 active 先例 → +0.1（過去做過類似決策且仍有效）
+ * - 有相關 domain 的 superseded 先例 → -0.05（過去做過但已被取代）
+ * - 無先例 → 不調整
+ *
+ * 結果 clamped 到 [0, 1]。
+ */
+export function adjustConfidenceWithPrecedents(
+  baseConfidence: number,
+  domain: string,
+  precedents: EddaDecisionHit[],
+): number {
+  if (precedents.length === 0) return baseConfidence;
+
+  const domainLower = domain.toLowerCase();
+  const relevant = precedents.filter(p => p.domain.toLowerCase().includes(domainLower));
+  if (relevant.length === 0) return baseConfidence;
+
+  const activeCount = relevant.filter(p => p.is_active).length;
+  const supersededCount = relevant.length - activeCount;
+
+  let adjusted = baseConfidence;
+  adjusted += activeCount * 0.1;
+  adjusted -= supersededCount * 0.05;
+
+  return Math.max(0, Math.min(1, adjusted));
+}
+
+/**
+ * 為多個 chiefs 批量預取 Edda 先例。
+ *
+ * 只查詢 use_precedents=true 的 chiefs。
+ * Per-chief graceful degradation：單一 chief 查詢失敗不影響其他 chief。
+ * Client-side lookback_days 過濾（Edda API 不支援日期範圍）。
+ */
+export async function prefetchPrecedents(
+  eddaBridge: EddaBridge,
+  chiefs: Chief[],
+): Promise<Map<string, EddaDecisionHit[]>> {
+  const result = new Map<string, EddaDecisionHit[]>();
+
+  for (const chief of chiefs) {
+    if (!chief.use_precedents) continue;
+
+    const config: PrecedentConfig = chief.precedent_config ?? { max_precedents: 3, lookback_days: 30 };
+
+    try {
+      const queryResult = await eddaBridge.queryDecisions({
+        domain: config.domain_filter,
+        limit: config.max_precedents,
+      });
+
+      // Client-side lookback_days 過濾
+      const cutoff = new Date(Date.now() - config.lookback_days * 24 * 60 * 60 * 1000).toISOString();
+      const filtered = queryResult.decisions.filter(d => d.ts >= cutoff);
+
+      result.set(chief.id, filtered);
+    } catch {
+      // Per-chief graceful degradation: Edda 查詢失敗 → 空先例
+      result.set(chief.id, []);
+    }
+  }
+
+  return result;
 }
 
 // ---------------------------------------------------------------------------
