@@ -138,6 +138,7 @@ function deserializeChief(row: Record<string, unknown>): Chief {
     version: row.version as number,
     status: row.status as Chief['status'],
     skills: JSON.parse((row.skills as string) || '[]') as Chief['skills'],
+    pipelines: JSON.parse((row.pipelines as string) || '[]') as string[],
     permissions: JSON.parse((row.permissions as string) || '[]') as Chief['permissions'],
     personality: JSON.parse((row.personality as string) || '{}') as Chief['personality'],
     constraints: JSON.parse((row.constraints as string) || '[]') as Chief['constraints'],

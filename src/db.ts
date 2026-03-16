@@ -331,6 +331,13 @@ export function initSchema(db: Database): void {
   for (const sql of skillAlters) {
     try { db.run(sql); } catch { /* column already exists */ }
   }
+
+  // ALTER TABLE 新增 pipelines 欄位（冪等：column 已存在就忽略）
+  try {
+    db.run("ALTER TABLE chiefs ADD COLUMN pipelines TEXT NOT NULL DEFAULT '[]'");
+  } catch {
+    // "duplicate column name: pipelines" — 安全忽略
+  }
 }
 
 /**

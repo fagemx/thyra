@@ -138,6 +138,7 @@ function applyChiefAppoint(
     version: 1,
     status: 'active',
     skills: change.skills.map((id) => ({ skill_id: id, skill_version: 1 })),
+    pipelines: [],
     permissions: [...change.permissions],
     personality: change.personality ?? {
       risk_tolerance: 'moderate',

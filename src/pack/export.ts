@@ -44,6 +44,7 @@ export interface ExportedVillagePack {
       description: string;
     }>;
     permissions: string[];
+    pipelines: string[];
   };
   laws: Array<{
     category: string;
@@ -160,6 +161,7 @@ export function exportVillage(villageId: string, deps: ExportDeps): ExportResult
           personality: { ...chief.personality },
           constraints: chief.constraints.map((c) => ({ type: c.type, description: c.description })),
           permissions: [...chief.permissions],
+          pipelines: [...chief.pipelines],
         }
       : {
           name: '',
@@ -167,6 +169,7 @@ export function exportVillage(villageId: string, deps: ExportDeps): ExportResult
           personality: { risk_tolerance: 'moderate', communication_style: 'concise', decision_speed: 'deliberate' },
           constraints: [],
           permissions: [],
+          pipelines: [],
         },
     laws: laws.map((l) => ({
       category: l.category,

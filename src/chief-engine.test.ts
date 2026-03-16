@@ -128,6 +128,47 @@ describe('ChiefEngine', () => {
     expect(chiefEngine.get(chief.id)?.status).toBe('inactive');
   });
 
+  it('creates chief with pipelines', () => {
+    const chief = chiefEngine.create(villageId, {
+      name: 'Pipeline Chief',
+      role: 'pipeline operator',
+      pipelines: ['quality-cycle', 'deploy-cycle'],
+    }, 'human');
+    expect(chief.pipelines).toEqual(['quality-cycle', 'deploy-cycle']);
+  });
+
+  it('pipelines defaults to [] when not provided', () => {
+    const chief = chiefEngine.create(villageId, {
+      name: 'No Pipelines',
+      role: 'basic',
+    }, 'human');
+    expect(chief.pipelines).toEqual([]);
+  });
+
+  it('update adds pipelines', () => {
+    const chief = chiefEngine.create(villageId, { name: 'A', role: 'r' }, 'h');
+    expect(chief.pipelines).toEqual([]);
+    const updated = chiefEngine.update(chief.id, { pipelines: ['quality-cycle'] }, 'h');
+    expect(updated.pipelines).toEqual(['quality-cycle']);
+  });
+
+  it('update removes pipelines', () => {
+    const chief = chiefEngine.create(villageId, {
+      name: 'A', role: 'r', pipelines: ['quality-cycle'],
+    }, 'h');
+    expect(chief.pipelines).toEqual(['quality-cycle']);
+    const updated = chiefEngine.update(chief.id, { pipelines: [] }, 'h');
+    expect(updated.pipelines).toEqual([]);
+  });
+
+  it('pipelines persists across get after create', () => {
+    const chief = chiefEngine.create(villageId, {
+      name: 'Persistent', role: 'r', pipelines: ['deploy-cycle'],
+    }, 'h');
+    const fetched = chiefEngine.get(chief.id);
+    expect(fetched?.pipelines).toEqual(['deploy-cycle']);
+  });
+
   it('personality defaults applied', () => {
     const chief = chiefEngine.create(villageId, { name: 'A', role: 'r' }, 'h');
     expect(chief.personality.risk_tolerance).toBe('moderate');
@@ -178,7 +219,7 @@ describe('buildChiefPrompt', () => {
   it('includes name, role, personality, constraints', () => {
     const chief = {
       id: 'chief-1', village_id: 'v', name: 'Reviewer', role: 'code reviewer',
-      version: 1, status: 'active' as const, skills: [], permissions: [],
+      version: 1, status: 'active' as const, skills: [], pipelines: [], permissions: [],
       personality: { risk_tolerance: 'conservative' as const, communication_style: 'concise' as const, decision_speed: 'deliberate' as const },
       constraints: [
         { type: 'must' as const, description: 'check OWASP top 10' },
@@ -203,6 +244,7 @@ describe('buildChiefPrompt', () => {
       id: 'chief-1', village_id: 'v', name: 'A', role: 'r',
       version: 1, status: 'active' as const,
       skills: [{ skill_id: skill.id, skill_version: 1 }],
+      pipelines: [],
       permissions: [],
       personality: { risk_tolerance: 'moderate' as const, communication_style: 'concise' as const, decision_speed: 'deliberate' as const },
       constraints: [],
@@ -218,7 +260,7 @@ describe('buildChiefPrompt', () => {
   it('includes profile section when profile is set', () => {
     const chief = {
       id: 'chief-1', village_id: 'v', name: 'Analyst', role: 'data analyst',
-      version: 1, status: 'active' as const, skills: [], permissions: [],
+      version: 1, status: 'active' as const, skills: [], pipelines: [], permissions: [],
       personality: { risk_tolerance: 'conservative' as const, communication_style: 'detailed' as const, decision_speed: 'deliberate' as const },
       constraints: [],
       profile: 'analyst' as const,
@@ -229,10 +271,41 @@ describe('buildChiefPrompt', () => {
     expect(prompt).toContain('Analysis-focused profile');
   });
 
+  it('includes pipelines section when pipelines are bound', () => {
+    const chief = {
+      id: 'chief-1', village_id: 'v', name: 'Operator', role: 'pipeline operator',
+      version: 1, status: 'active' as const, skills: [],
+      pipelines: ['quality-cycle', 'deploy-cycle'],
+      permissions: [],
+      personality: { risk_tolerance: 'moderate' as const, communication_style: 'concise' as const, decision_speed: 'deliberate' as const },
+      constraints: [],
+      profile: null,
+      created_at: '', updated_at: '',
+    };
+    const prompt = buildChiefPrompt(chief, skillRegistry);
+    expect(prompt).toContain('## Pipelines');
+    expect(prompt).toContain('quality-cycle');
+    expect(prompt).toContain('deploy-cycle');
+  });
+
+  it('does not include pipelines section when pipelines are empty', () => {
+    const chief = {
+      id: 'chief-1', village_id: 'v', name: 'A', role: 'r',
+      version: 1, status: 'active' as const, skills: [], pipelines: [],
+      permissions: [],
+      personality: { risk_tolerance: 'moderate' as const, communication_style: 'concise' as const, decision_speed: 'deliberate' as const },
+      constraints: [],
+      profile: null,
+      created_at: '', updated_at: '',
+    };
+    const prompt = buildChiefPrompt(chief, skillRegistry);
+    expect(prompt).not.toContain('## Pipelines');
+  });
+
   it('does not include profile section when profile is null', () => {
     const chief = {
       id: 'chief-1', village_id: 'v', name: 'A', role: 'r',
-      version: 1, status: 'active' as const, skills: [], permissions: [],
+      version: 1, status: 'active' as const, skills: [], pipelines: [], permissions: [],
       personality: { risk_tolerance: 'moderate' as const, communication_style: 'concise' as const, decision_speed: 'deliberate' as const },
       constraints: [],
       profile: null,
