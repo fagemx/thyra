@@ -1,7 +1,7 @@
 /**
  * world.ts — World API routes
  *
- * 7 個 endpoint 掛載在 /api/villages/:id/world/ 底下：
+ * 8 個 endpoint 掛載在 /api/villages/:id/world/ 底下：
  *   GET  /state      → 取得 village 的完整世界狀態
  *   POST /judge      → 評估變更是否合法（dry-run）
  *   POST /apply      → 套用變更
@@ -9,9 +9,11 @@
  *   GET  /snapshots  → 列出歷史快照
  *   POST /rollback   → 回滾到指定快照
  *   GET  /continuity → 驗證跨週期狀態連續性
+ *   GET  /pulse      → SSE stream of world health metrics
  */
 
 import { Hono } from 'hono';
+import { streamSSE } from 'hono/streaming';
 import type { Database } from 'bun:sqlite';
 import { WorldManager } from '../world-manager';
 import { listSnapshots } from '../world/snapshot';
@@ -23,6 +25,7 @@ import {
   ContinuityInput,
 } from '../schemas/world';
 import { verifyContinuity } from '../world/continuity';
+import { computeWorldHealth } from '../world/health';
 import { z } from 'zod';
 
 const SnapshotsQuery = z.object({
@@ -141,6 +144,30 @@ export function worldRoutes(worldManager: WorldManager, db: Database): Hono {
     const villageId = c.req.param('id');
     const report = verifyContinuity(db, villageId, query.data.cycle_count);
     return c.json({ ok: true, data: report });
+  });
+
+  // GET /pulse — SSE stream of world health metrics
+  app.get(`${base}/pulse`, (c) => {
+    const villageId = c.req.param('id');
+    const rawInterval = Number(c.req.query('interval') ?? '5000');
+    const interval = Math.max(1000, Number.isFinite(rawInterval) ? rawInterval : 5000);
+
+    return streamSSE(c, async (stream) => {
+      let id = 0;
+      let alive = true;
+      stream.onAbort(() => { alive = false; });
+
+      while (alive) {
+        const state = worldManager.getState(villageId);
+        const health = computeWorldHealth(state);
+        await stream.writeSSE({
+          data: JSON.stringify(health),
+          event: 'pulse',
+          id: String(id++),
+        });
+        await stream.sleep(interval);
+      }
+    });
   });
 
   return app;
