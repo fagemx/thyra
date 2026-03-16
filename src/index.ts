@@ -27,6 +27,10 @@ import { governanceRoutes } from './routes/governance';
 import { packRoutes } from './routes/pack';
 import { WorldManager } from './world-manager';
 import { worldRoutes } from './routes/world';
+import { ZoneManager } from './market/zones';
+import { StallManager } from './market/stalls';
+import { SlotManager } from './market/slots';
+import { marketRoutes } from './routes/market';
 
 const app = new Hono();
 
@@ -51,6 +55,9 @@ const decisionEngine = new DecisionEngine(db, constitutionStore, chiefEngine, la
 const loopRunner = new LoopRunner(db, constitutionStore, chiefEngine, lawEngine, riskAssessor, eddaBridge, skillRegistry, decisionEngine);
 const territoryCoordinator = new TerritoryCoordinator(db, constitutionStore, skillRegistry);
 const worldManager = new WorldManager(db, eddaBridge, karviBridge);
+const zoneManager = new ZoneManager(db);
+const stallManager = new StallManager(db);
+const slotManager = new SlotManager(db);
 const auditQuery = new AuditQuery(db);
 
 app.get('/api/health', (c) => {
@@ -77,6 +84,7 @@ app.route('', governanceRoutes({
   riskAssessor,
 }));
 app.route('', worldRoutes(worldManager, db));
+app.route('', marketRoutes({ db, zoneManager, stallManager, slotManager }));
 app.route('', packRoutes({
   db,
   villageMgr,
