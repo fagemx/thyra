@@ -113,6 +113,7 @@ export class GovernanceScheduler {
     this.adapterRegistry = opts.adapterRegistry ?? createDefaultRegistry(
       opts.worldManager,
       (chiefId: string) => opts.chiefEngine.get(chiefId),
+      opts.karviBridge,
     );
   }
 
@@ -198,8 +199,19 @@ export class GovernanceScheduler {
         // 4. Sequential execution per chief with error isolation
         for (const chief of chiefs) {
           try {
-            // Pipeline dispatch: chief 有 pipelines 且 KarviBridge 可用時 dispatch 到 Karvi
-            if (chief.pipelines.length > 0 && this.karviBridge) {
+            if (this.useHeartbeat) {
+              // Heartbeat protocol path — 統一所有 adapter types（含 karvi）
+              const adapterType = chief.adapter_type ?? 'local';
+              const adapter = this.adapterRegistry.get(adapterType);
+              const state = this.worldManager.getState(village.id);
+              const context = buildHeartbeatContext(chief, state, 'scheduled');
+              const hbResult = await adapter.invoke(context);
+              const processed = processHeartbeatResult(
+                this.worldManager, this.db, village.id, chief, hbResult,
+              );
+              allChiefResults.push(this.toChiefCycleResult(chief.id, processed));
+            } else if (chief.pipelines.length > 0 && this.karviBridge) {
+              // Legacy pipeline dispatch path
               const dispatches = await dispatchChiefPipelines(this.karviBridge, village.id, chief);
               allPipelineDispatches.push(...dispatches);
 
@@ -217,16 +229,6 @@ export class GovernanceScheduler {
                 reason: 'no_karvi_bridge',
                 pipelines: chief.pipelines,
               }, 'scheduler');
-            } else if (this.useHeartbeat) {
-              // Heartbeat protocol path
-              const adapter = this.adapterRegistry.get(chief.adapter_type ?? 'local');
-              const state = this.worldManager.getState(village.id);
-              const context = buildHeartbeatContext(chief, state, 'scheduled');
-              const hbResult = await adapter.invoke(context);
-              const processed = processHeartbeatResult(
-                this.worldManager, this.db, village.id, chief, hbResult,
-              );
-              allChiefResults.push(this.toChiefCycleResult(chief.id, processed));
             } else {
               // Legacy path — direct executeChiefCycle
               const result = executeChiefCycle(this.worldManager, village.id, chief);
