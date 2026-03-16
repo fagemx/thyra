@@ -2,7 +2,7 @@ import type { Database } from 'bun:sqlite';
 import { randomUUID } from 'crypto';
 import { appendAudit } from './db';
 import { CreateChiefInput as CreateChiefSchema } from './schemas/chief';
-import type { CreateChiefInputRaw, UpdateChiefInput, ChiefPersonality, ChiefProfile, ChiefProfileName, GovernanceActionInput } from './schemas/chief';
+import type { CreateChiefInputRaw, UpdateChiefInput, ChiefPersonality, ChiefProfile, ChiefProfileName, GovernanceActionInput, ChiefBudgetConfig } from './schemas/chief';
 import type { AdapterType, ContextMode } from './schemas/heartbeat';
 import type { ConstitutionStore } from './constitution-store';
 import type { SkillRegistry } from './skill-registry';
@@ -23,7 +23,7 @@ export interface Chief {
   name: string;
   role: string;
   version: number;
-  status: 'active' | 'inactive';
+  status: 'active' | 'inactive' | 'paused';
   skills: SkillBindingType[];
   pipelines: string[];
   permissions: Permission[];
@@ -33,6 +33,9 @@ export interface Chief {
   adapter_type: AdapterType;
   context_mode: ContextMode;
   adapter_config: Record<string, unknown>;
+  budget_config: ChiefBudgetConfig | null;
+  pause_reason: string | null;
+  paused_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -133,6 +136,13 @@ export class ChiefEngine {
     // THY-14: only verified skills
     this.validateSkillBindings(input.skills, villageId);
 
+    // THY-09 pattern: Chief budget_config.max_monthly <= Constitution max_cost_per_month
+    if (input.budget_config?.max_monthly !== undefined && constitution.budget_limits.max_cost_per_month > 0) {
+      if (input.budget_config.max_monthly > constitution.budget_limits.max_cost_per_month) {
+        throw new Error(`BUDGET_EXCEEDS_CONSTITUTION: chief max_monthly (${input.budget_config.max_monthly}) exceeds constitution max_cost_per_month (${constitution.budget_limits.max_cost_per_month})`);
+      }
+    }
+
     // 解析 profile：profile 提供預設值，只有用戶明確指定的 personality/constraints 覆蓋
     // 需要檢查 rawInput 來判斷哪些欄位是用戶明確提供的
     const rawPersonality = (rawInput as Record<string, unknown>).personality as Partial<ChiefPersonality> | undefined;
@@ -155,13 +165,16 @@ export class ChiefEngine {
       adapter_type: input.adapter_type,
       context_mode: input.context_mode,
       adapter_config: input.adapter_config,
+      budget_config: input.budget_config ?? null,
+      pause_reason: null,
+      paused_at: null,
       created_at: now,
       updated_at: now,
     };
 
     this.db.prepare(`
-      INSERT INTO chiefs (id, village_id, name, role, version, status, skills, pipelines, permissions, personality, constraints, profile, adapter_type, context_mode, adapter_config, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO chiefs (id, village_id, name, role, version, status, skills, pipelines, permissions, personality, constraints, profile, adapter_type, context_mode, adapter_config, budget_config, pause_reason, paused_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       chief.id, villageId, chief.name, chief.role, chief.version, chief.status,
       JSON.stringify(chief.skills), JSON.stringify(chief.pipelines),
@@ -169,6 +182,8 @@ export class ChiefEngine {
       JSON.stringify(chief.personality), JSON.stringify(chief.constraints),
       chief.profile, chief.adapter_type, chief.context_mode,
       JSON.stringify(chief.adapter_config),
+      chief.budget_config ? JSON.stringify(chief.budget_config) : null,
+      chief.pause_reason, chief.paused_at,
       chief.created_at, chief.updated_at,
     );
 
@@ -238,6 +253,7 @@ export class ChiefEngine {
       ...(input.adapter_type !== undefined && { adapter_type: input.adapter_type }),
       ...(input.context_mode !== undefined && { context_mode: input.context_mode }),
       ...(input.adapter_config !== undefined && { adapter_config: input.adapter_config }),
+      ...(input.budget_config !== undefined && { budget_config: input.budget_config }),
       personality: resolvedPersonality,
       constraints: resolvedConstraints,
       profile: resolvedProfile,
@@ -248,6 +264,7 @@ export class ChiefEngine {
     const result = this.db.prepare(`
       UPDATE chiefs SET name=?, role=?, version=?, skills=?, pipelines=?, permissions=?,
         personality=?, constraints=?, profile=?, adapter_type=?, context_mode=?, adapter_config=?,
+        budget_config=?, pause_reason=?, paused_at=?,
         updated_at=? WHERE id=? AND version=?
     `).run(
       updated.name, updated.role, updated.version,
@@ -256,6 +273,8 @@ export class ChiefEngine {
       JSON.stringify(updated.personality), JSON.stringify(updated.constraints),
       updated.profile, updated.adapter_type, updated.context_mode,
       JSON.stringify(updated.adapter_config),
+      updated.budget_config ? JSON.stringify(updated.budget_config) : null,
+      updated.pause_reason, updated.paused_at,
       now, id, existing.version,
     );
     if ((result as { changes: number }).changes === 0) {
@@ -275,6 +294,42 @@ export class ChiefEngine {
       throw new Error('CONCURRENCY_CONFLICT: version mismatch');
     }
     appendAudit(this.db, 'chief', id, 'deactivate', { previous_status: chief.status }, actor);
+  }
+
+  /** 自動暫停 chief（月預算超限） */
+  pauseChief(id: string, reason: string): Chief {
+    const chief = this.get(id);
+    if (!chief) throw new Error('Chief not found');
+    if (chief.status !== 'active') throw new Error('Chief is not active, cannot pause');
+    const now = new Date().toISOString();
+    const result = this.db.prepare(
+      'UPDATE chiefs SET status = ?, pause_reason = ?, paused_at = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?'
+    ).run('paused', reason, now, now, id, chief.version);
+    if ((result as { changes: number }).changes === 0) {
+      throw new Error('CONCURRENCY_CONFLICT: version mismatch');
+    }
+    appendAudit(this.db, 'chief', id, 'pause', { reason, previous_status: chief.status }, 'system');
+    const updated = this.get(id);
+    if (!updated) throw new Error('Chief not found after pause');
+    return updated;
+  }
+
+  /** 人類恢復暫停的 chief */
+  resumeChief(id: string, actor: string): Chief {
+    const chief = this.get(id);
+    if (!chief) throw new Error('Chief not found');
+    if (chief.status !== 'paused') throw new Error('CHIEF_NOT_PAUSED: chief must be paused to resume');
+    const now = new Date().toISOString();
+    const result = this.db.prepare(
+      'UPDATE chiefs SET status = ?, pause_reason = NULL, paused_at = NULL, version = version + 1, updated_at = ? WHERE id = ? AND version = ?'
+    ).run('active', now, id, chief.version);
+    if ((result as { changes: number }).changes === 0) {
+      throw new Error('CONCURRENCY_CONFLICT: version mismatch');
+    }
+    appendAudit(this.db, 'chief', id, 'resume', { resumed_by: actor, previous_pause_reason: chief.pause_reason }, actor);
+    const updated = this.get(id);
+    if (!updated) throw new Error('Chief not found after resume');
+    return updated;
   }
 
   /**
@@ -397,6 +452,9 @@ export class ChiefEngine {
       adapter_type: (row.adapter_type as AdapterType | null) ?? 'local',
       context_mode: (row.context_mode as ContextMode | null) ?? 'fat',
       adapter_config: JSON.parse((row.adapter_config as string) || '{}') as Record<string, unknown>,
+      budget_config: row.budget_config ? JSON.parse(row.budget_config as string) as ChiefBudgetConfig : null,
+      pause_reason: (row.pause_reason as string | null) ?? null,
+      paused_at: (row.paused_at as string | null) ?? null,
       created_at: row.created_at as string,
       updated_at: row.updated_at as string,
     };

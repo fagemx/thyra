@@ -146,6 +146,9 @@ function deserializeChief(row: Record<string, unknown>): Chief {
     adapter_type: (row.adapter_type as Chief['adapter_type'] | null) ?? 'local',
     context_mode: (row.context_mode as Chief['context_mode'] | null) ?? 'fat',
     adapter_config: JSON.parse((row.adapter_config as string) || '{}') as Record<string, unknown>,
+    budget_config: row.budget_config ? JSON.parse(row.budget_config as string) as Chief['budget_config'] : null,
+    pause_reason: (row.pause_reason as string | null) ?? null,
+    paused_at: (row.paused_at as string | null) ?? null,
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
   };

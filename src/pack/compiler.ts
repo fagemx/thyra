@@ -104,6 +104,7 @@ export interface PackConstitution {
     max_cost_per_action: number;
     max_cost_per_day: number;
     max_cost_per_loop: number;
+    max_cost_per_month?: number;
   };
   rules: PackConstitutionRule[];
 }
@@ -191,7 +192,7 @@ function diffConstitution(
       scope: r.scope,
     })),
     allowed_permissions: pack.allowed_permissions,
-    budget_limits: pack.budget,
+    budget_limits: { ...pack.budget, max_cost_per_month: pack.budget.max_cost_per_month ?? 0 },
   });
   const currentFp = canonicalConstitutionFingerprint({
     rules: current.rules,
@@ -375,7 +376,7 @@ export class VillagePackCompiler {
         scope: r.scope ?? ['*'],
       })),
       allowed_permissions: pack.allowed_permissions,
-      budget_limits: pack.budget,
+      budget_limits: { ...pack.budget, max_cost_per_month: pack.budget.max_cost_per_month ?? 0 },
     };
 
     if (action === 'create') {

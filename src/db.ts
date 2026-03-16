@@ -86,7 +86,7 @@ export function initSchema(db: Database): void {
       role TEXT NOT NULL,
       version INTEGER NOT NULL DEFAULT 1,
       status TEXT NOT NULL DEFAULT 'active'
-        CHECK(status IN ('active','inactive')),
+        CHECK(status IN ('active','inactive','paused')),
       skills TEXT NOT NULL DEFAULT '[]',
       permissions TEXT NOT NULL DEFAULT '[]',
       personality TEXT NOT NULL DEFAULT '{}',
@@ -346,6 +346,16 @@ export function initSchema(db: Database): void {
     "ALTER TABLE chiefs ADD COLUMN adapter_config TEXT NOT NULL DEFAULT '{}'",
   ];
   for (const sql of chiefHeartbeatAlters) {
+    try { db.run(sql); } catch { /* column already exists */ }
+  }
+
+  // Chief budget columns (#226: monthly budget accumulation with auto-pause)
+  const chiefBudgetAlters = [
+    "ALTER TABLE chiefs ADD COLUMN budget_config TEXT DEFAULT NULL",
+    "ALTER TABLE chiefs ADD COLUMN pause_reason TEXT DEFAULT NULL",
+    "ALTER TABLE chiefs ADD COLUMN paused_at TEXT DEFAULT NULL",
+  ];
+  for (const sql of chiefBudgetAlters) {
     try { db.run(sql); } catch { /* column already exists */ }
   }
 }

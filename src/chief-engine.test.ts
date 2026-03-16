@@ -227,6 +227,7 @@ describe('buildChiefPrompt', () => {
       ],
       profile: null,
       adapter_type: 'local' as const, context_mode: 'fat' as const, adapter_config: {},
+      budget_config: null, pause_reason: null, paused_at: null,
       created_at: '', updated_at: '',
     };
     const prompt = buildChiefPrompt(chief, skillRegistry);
@@ -251,6 +252,7 @@ describe('buildChiefPrompt', () => {
       constraints: [],
       profile: null,
       adapter_type: 'local' as const, context_mode: 'fat' as const, adapter_config: {},
+      budget_config: null, pause_reason: null, paused_at: null,
       created_at: '', updated_at: '',
     };
     const prompt = buildChiefPrompt(chief, skillRegistry);
@@ -267,6 +269,7 @@ describe('buildChiefPrompt', () => {
       constraints: [],
       profile: 'analyst' as const,
       adapter_type: 'local' as const, context_mode: 'fat' as const, adapter_config: {},
+      budget_config: null, pause_reason: null, paused_at: null,
       created_at: '', updated_at: '',
     };
     const prompt = buildChiefPrompt(chief, skillRegistry);
@@ -284,6 +287,7 @@ describe('buildChiefPrompt', () => {
       constraints: [],
       profile: null,
       adapter_type: 'local' as const, context_mode: 'fat' as const, adapter_config: {},
+      budget_config: null, pause_reason: null, paused_at: null,
       created_at: '', updated_at: '',
     };
     const prompt = buildChiefPrompt(chief, skillRegistry);
@@ -301,6 +305,7 @@ describe('buildChiefPrompt', () => {
       constraints: [],
       profile: null,
       adapter_type: 'local' as const, context_mode: 'fat' as const, adapter_config: {},
+      budget_config: null, pause_reason: null, paused_at: null,
       created_at: '', updated_at: '',
     };
     const prompt = buildChiefPrompt(chief, skillRegistry);
@@ -315,6 +320,7 @@ describe('buildChiefPrompt', () => {
       constraints: [],
       profile: null,
       adapter_type: 'local' as const, context_mode: 'fat' as const, adapter_config: {},
+      budget_config: null, pause_reason: null, paused_at: null,
       created_at: '', updated_at: '',
     };
     const prompt = buildChiefPrompt(chief, skillRegistry);

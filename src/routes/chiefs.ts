@@ -174,6 +174,26 @@ export function chiefRoutes(engine: ChiefEngine, skillRegistry: SkillRegistry, d
   });
 
   /**
+   * Resume a paused chief — 只有人類能恢復 (#226)
+   */
+  app.post('/api/chiefs/:id/resume', (c) => {
+    const id = c.req.param('id');
+    try {
+      const chief = engine.resumeChief(id, 'human');
+      return c.json({ ok: true, data: chief });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Unknown error';
+      if (msg.includes('not found')) {
+        return c.json({ ok: false, error: { code: 'NOT_FOUND', message: msg } }, 404);
+      }
+      if (msg.includes('CHIEF_NOT_PAUSED')) {
+        return c.json({ ok: false, error: { code: 'CHIEF_NOT_PAUSED', message: msg } }, 400);
+      }
+      return c.json({ ok: false, error: { code: 'BAD_REQUEST', message: msg } }, 400);
+    }
+  });
+
+  /**
    * T2 Governance Action — Chief 執行治理動作
    * 流程：validate → risk assess (medium) → dispatch via KarviBridge
    */

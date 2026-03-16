@@ -14,6 +14,7 @@ const VillagePackBudgetSchema = z.object({
   max_cost_per_action: z.number().min(0, 'Budget value must be >= 0'),
   max_cost_per_day: z.number().min(0, 'Budget value must be >= 0'),
   max_cost_per_loop: z.number().min(0, 'Budget value must be >= 0'),
+  max_cost_per_month: z.number().min(0, 'Budget value must be >= 0').default(0),
 });
 
 const VillagePackConstitutionSchema = z.object({

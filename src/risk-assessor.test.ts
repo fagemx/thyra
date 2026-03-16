@@ -266,7 +266,7 @@ describe('RiskAssessor', () => {
       const permissiveCtx: AssessmentContext = {
         constitution: {
           ...ctx.constitution!,
-          budget_limits: { max_cost_per_action: 999999, max_cost_per_day: 999999, max_cost_per_loop: 999999 },
+          budget_limits: { max_cost_per_action: 999999, max_cost_per_day: 999999, max_cost_per_loop: 999999, max_cost_per_month: 0 },
         },
         recent_rollbacks: [],
       };

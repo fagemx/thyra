@@ -150,6 +150,9 @@ function applyChiefAppoint(
     adapter_type: 'local',
     context_mode: 'fat',
     adapter_config: {},
+    budget_config: null,
+    pause_reason: null,
+    paused_at: null,
     created_at: now,
     updated_at: now,
   };

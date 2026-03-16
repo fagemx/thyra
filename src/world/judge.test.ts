@@ -36,7 +36,7 @@ function makeConstitution(overrides: Partial<Constitution> = {}): Constitution {
     created_by: 'human',
     rules: [{ id: 'rule-1', description: 'Must write tests', enforcement: 'hard', scope: ['*'] }],
     allowed_permissions: ['dispatch_task', 'propose_law', 'enact_law_low'],
-    budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+    budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50, max_cost_per_month: 0 },
     superseded_by: null,
     ...overrides,
   };
@@ -59,6 +59,9 @@ function makeChief(overrides: Partial<Chief> = {}): Chief {
     adapter_type: 'local' as const,
     context_mode: 'fat' as const,
     adapter_config: {},
+    budget_config: null,
+    pause_reason: null,
+    paused_at: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     ...overrides,
@@ -123,7 +126,7 @@ describe('judgeChange', () => {
         type: 'constitution.supersede',
         rules: [{ description: 'New rule', enforcement: 'hard', scope: ['*'] }],
         allowed_permissions: ['dispatch_task', 'propose_law'],
-        budget_limits: { max_cost_per_action: 20, max_cost_per_day: 200, max_cost_per_loop: 100 },
+        budget_limits: { max_cost_per_action: 20, max_cost_per_day: 200, max_cost_per_loop: 100, max_cost_per_month: 0 },
         actor: 'human',
       };
       const result = judgeChange(state, change);
@@ -359,7 +362,7 @@ describe('judgeChange', () => {
         type: 'constitution.supersede',
         rules: [{ description: 'New rule', enforcement: 'hard', scope: ['*'] }],
         allowed_permissions: ['propose_law'],
-        budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+        budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50, max_cost_per_month: 0 },
         actor: 'human',
       };
       const result = judgeChange(state, change);
@@ -400,7 +403,7 @@ describe('judgeChange', () => {
         type: 'constitution.supersede',
         rules: [{ description: 'First rule', enforcement: 'hard', scope: ['*'] }],
         allowed_permissions: ['dispatch_task'],
-        budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+        budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50, max_cost_per_month: 0 },
         actor: 'human',
       };
       const result = judgeChange(state, change);
@@ -454,7 +457,7 @@ describe('judgeChange', () => {
         type: 'constitution.supersede',
         rules: [{ description: 'Rule', enforcement: 'hard', scope: ['*'] }],
         allowed_permissions: ['dispatch_task'],
-        budget_limits: { max_cost_per_action: -1, max_cost_per_day: 100, max_cost_per_loop: 50 },
+        budget_limits: { max_cost_per_action: -1, max_cost_per_day: 100, max_cost_per_loop: 50, max_cost_per_month: 0 },
         actor: 'human',
       };
       const result = judgeChange(state, change);
