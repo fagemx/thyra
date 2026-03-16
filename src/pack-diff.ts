@@ -174,6 +174,7 @@ export function diffChief(
     !deepEqual(yaml.personality, current.personality) ||
     !deepEqual(yaml.constraints, current.constraints) ||
     !sameSet(yaml.permissions, current.permissions) ||
+    !sameSet(yaml.pipelines, current.pipelines) ||
     !sameBindings(resolvedSkills, current.skills);
 
   return changed ? 'update' : 'skip';

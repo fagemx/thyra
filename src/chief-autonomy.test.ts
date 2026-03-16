@@ -112,6 +112,7 @@ function makeChief(overrides?: Partial<Chief>): Chief {
     personality: { risk_tolerance: 'moderate', communication_style: 'concise', decision_speed: 'deliberate' },
     constraints: [],
     profile: null,
+    pipelines: [],
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     ...overrides,
