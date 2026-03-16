@@ -81,9 +81,38 @@ curl -X POST http://localhost:3461/api/projects \
 
 The `modelHint` and `model_map` values use format: `<provider-id>/<model-id>`
 
-The provider-id must match a provider defined in the runtime's config:
-- opencode: `opencode.json` in project root
-- codex: built-in OpenAI models
+### Built-in vs Custom providers (IMPORTANT)
+
+opencode has two kinds of providers:
+
+| Type | `opencode.json` needed? | API key | Examples |
+|------|------------------------|---------|----------|
+| **Built-in** | No — shipped with opencode | User pre-configured at opencode/system level | `anthropic`, `openrouter`, `zai-coding-plan`, ... |
+| **Custom** | Yes — must exist in project root | In karvi `.env` or system env | User-defined entries in `opencode.json` |
+
+Built-in providers and their default models **vary per user's opencode installation and configuration**. Do not assume any specific provider or model is available.
+
+**How to check what's actually configured:**
+
+```bash
+# 1. Check current model_map (what Karvi will use)
+curl -s http://localhost:3461/api/controls | node -e "
+  const d=JSON.parse(require('fs').readFileSync(0,'utf8'));
+  console.log('preferred_runtime:', d.preferred_runtime);
+  console.log('model_map:', JSON.stringify(d.model_map, null, 2))"
+
+# 2. Check what opencode sees (from Karvi server startup log)
+#    Look for lines like: [opencode] Loaded N provider(s), M model(s)
+
+# 3. Verify a specific model works
+opencode run --model <provider>/<model> -- "hello"
+```
+
+**Do NOT audit `opencode.json` files to verify built-in providers** — they won't appear there.
+
+The provider-id must match either:
+- A built-in opencode provider, OR
+- A custom provider defined in `opencode.json` in the project root
 
 ### Setting global model_map
 
@@ -103,7 +132,7 @@ curl -X POST http://localhost:3461/api/controls \
 
 ## Cross-Project Dispatch
 
-To dispatch tasks to a different repo (e.g., edda from karvi):
+To dispatch tasks to a different repo (e.g., edda issues dispatched from karvi):
 
 ### target_repo formats (IMPORTANT)
 
@@ -114,6 +143,24 @@ To dispatch tasks to a different repo (e.g., edda from karvi):
 | Relative path | `"../edda"` | ❌ Rejected |
 | Unescaped Windows path | `"C:\ai_agent\edda"` | ❌ Backslash escape bug |
 
+### What changes with cross-project dispatch
+
+| Item | Without `target_repo` | With `target_repo` |
+|------|----------------------|-------------------|
+| Worktree location | `karvi/.claude/worktrees/` | `{target_repo}/.claude/worktrees/` |
+| Skills loaded | karvi's `.claude/skills/` | target repo's `.claude/skills/` |
+| Agent CWD | karvi worktree | target repo worktree |
+| `opencode.json` | karvi's | **target repo's** (only matters for custom providers) |
+| CLAUDE.md | karvi's | target repo's |
+| Task tracking | karvi board | karvi board (centralized) |
+
+### Prerequisites for cross-project dispatch
+
+1. Target repo must be a valid Git repo
+2. **Built-in providers** (e.g., `zai-coding-plan`): work out of the box, no extra setup needed
+3. **Custom providers** (e.g., `custom-ai-t8star-cn`): target repo must have its own `opencode.json` with the provider definition
+4. repo_map configured (if using slug format)
+
 ### Setup repo_map for slug-based dispatch
 
 ```bash
@@ -122,10 +169,14 @@ curl -X POST http://localhost:3461/api/controls \
   -d '{"repo_map": {"fagemx/edda": "C:/ai_agent/edda"}}'
 ```
 
-### CLI cross-project
+### CLI cross-project (simplest)
 
 ```bash
-npm run go -- 145 --repo C:\ai_agent\edda
+# --repo accepts raw Windows path (shell handles escaping)
+npm run go -- <issue> --repo C:\path\to\target\repo
+
+# Multiple issues + model override
+npm run go -- 100 101 102 --repo C:\path\to\target\repo --runtime opencode --model <provider>/<model> -y
 ```
 
 ### curl cross-project
@@ -147,37 +198,40 @@ curl -X POST http://localhost:3461/api/projects \
 
 ## Multi-Model Dispatch (different model per task)
 
+Each task can use a different provider/model via `--model`:
+
 ```bash
-# Task A: OpenRouter
-npm run go -- 100 --runtime opencode --model openrouter/anthropic/claude-sonnet-4
+# Each task gets its own model
+npm run go -- 100 --runtime opencode --model <provider-A>/<model-A>
+npm run go -- 101 --runtime opencode --model <provider-B>/<model-B>
 
-# Task B: T8Star
-npm run go -- 101 --runtime opencode --model custom-ai-t8star-cn/gpt-5.3-codex-high
+# Without --model → uses model_map default → then opencode's own default
+npm run go -- 102 --runtime opencode
 
-# Task C: z.ai
-npm run go -- 102 --runtime opencode --model zai-coding-plan/glm-5
-
-# Task D: Codex native
+# Different runtime entirely
 npm run go -- 103 --runtime codex
 ```
+
+To find available `<provider>/<model>` values, check `controls.model_map` or ask the user which model to use. Do not guess.
 
 ## Pre-Dispatch Checklist
 
 1. **Server running?** `curl http://localhost:3461/api/health/preflight`
+   - If not: `cd C:/ai_agent/karvi/server && node server.js &`
 2. **Controls correct?** `curl http://localhost:3461/api/controls`
-   - `auto_dispatch: true` — tasks auto-start
    - `use_worktrees: true` — isolated workspaces
    - `use_step_pipeline: true` — plan → implement → review
-3. **API key set?** Check `.env` for the provider's key
-4. **opencode.json exists?** For custom providers, target repo needs `opencode.json`
+3. **Model available?** Check `controls.model_map` for configured defaults. If user specifies a model, trust it. Do NOT audit config files for built-in providers — just dispatch.
+4. **Cross-project only**: custom providers need `opencode.json` in target repo root
 
 ## Common Pitfalls
 
 | Mistake | Fix |
 |---------|-----|
+| Auditing config files for built-in providers | Built-in providers (e.g., `zai-coding-plan`) don't appear in `opencode.json` — just dispatch |
 | `autoStart: true` in payload | Don't use — bypasses worktree + step pipeline |
 | Windows path not escaped in JSON | Use `\\` or `/` in JSON strings |
-| Custom provider not found | Ensure `opencode.json` is in target repo root |
+| Custom provider not found in cross-project | Ensure `opencode.json` is in **target repo** root (not just karvi) |
 | model_map overrides your intent | Clear it: `{"model_map": {}}` |
 | Task stuck as "dispatched" | Manual dispatch: `curl -X POST .../api/tasks/GH-XXX/dispatch` |
 
