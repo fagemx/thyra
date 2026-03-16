@@ -9,8 +9,12 @@ import type {
   ApplyResult,
   AuditEntry,
   BudgetStatus,
+  ChangeProposal,
   Chief,
   JudgeResult,
+  Law,
+  SchedulerStatus,
+  SnapshotMeta,
   TelemetryEntry,
   TelemetrySummary,
   Village,
@@ -154,6 +158,59 @@ export function subscribePulse(
   }
 
   return () => source.close()
+}
+
+// --- Intervention: Chief Pause ---
+
+export async function pauseChief(chiefId: string, reason?: string): Promise<Chief> {
+  return request<Chief>('POST', `/chiefs/${chiefId}/pause`, { reason })
+}
+
+// --- Intervention: Snapshots + Rollback ---
+
+export async function listSnapshots(villageId: string, limit = 10): Promise<SnapshotMeta[]> {
+  return request<SnapshotMeta[]>('GET', `/villages/${villageId}/world/snapshots?limit=${limit}`)
+}
+
+export async function rollbackToSnapshot(
+  villageId: string,
+  snapshotId: string,
+  reason: string,
+): Promise<unknown> {
+  return request<unknown>('POST', `/villages/${villageId}/world/rollback`, {
+    snapshot_id: snapshotId,
+    reason,
+  })
+}
+
+// --- Intervention: Pending Proposals ---
+
+export async function listPendingChanges(villageId: string): Promise<ChangeProposal[]> {
+  return request<ChangeProposal[]>('GET', `/villages/${villageId}/pending-changes`)
+}
+
+// --- Intervention: Law Approve/Reject ---
+
+export async function approveLaw(lawId: string): Promise<Law> {
+  return request<Law>('POST', `/laws/${lawId}/approve`)
+}
+
+export async function rejectLaw(lawId: string): Promise<Law> {
+  return request<Law>('POST', `/laws/${lawId}/reject`)
+}
+
+// --- Intervention: Scheduler ---
+
+export async function getSchedulerStatus(): Promise<SchedulerStatus> {
+  return request<SchedulerStatus>('GET', '/scheduler/status')
+}
+
+export async function stopScheduler(): Promise<SchedulerStatus> {
+  return request<SchedulerStatus>('POST', '/scheduler/stop')
+}
+
+export async function startScheduler(): Promise<SchedulerStatus> {
+  return request<SchedulerStatus>('POST', '/scheduler/start')
 }
 
 export { ApiError }

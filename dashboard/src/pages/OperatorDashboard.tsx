@@ -4,6 +4,7 @@ import { WorldPulseOperator } from '../components/operator/WorldPulseOperator'
 import { QuickStats } from '../components/operator/QuickStats'
 import { ChiefStatusPanel } from '../components/operator/ChiefStatusPanel'
 import { ActivityStream } from '../components/operator/ActivityStream'
+import { InterventionPanel } from '../components/operator/InterventionPanel'
 import styles from './OperatorDashboard.module.css'
 
 interface OperatorDashboardProps {
@@ -23,6 +24,7 @@ export function OperatorDashboard({ villageId }: OperatorDashboardProps) {
       </div>
       <div className={styles.bottomRow}>
         <ActivityStream villageId={villageId} />
+        <InterventionPanel villageId={villageId} />
       </div>
     </div>
   )

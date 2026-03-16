@@ -1,0 +1,206 @@
+.card {
+  background: #1a1a2e;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem 0;
+  color: #e94560;
+}
+
+.section {
+  margin-bottom: 1rem;
+}
+
+.section:last-child {
+  margin-bottom: 0;
+}
+
+.sectionTitle {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 0.5rem 0;
+}
+
+.empty {
+  font-size: 0.8125rem;
+  color: #666;
+  font-style: italic;
+}
+
+.error {
+  font-size: 0.8125rem;
+  color: #e94560;
+}
+
+/* Chief control */
+.chiefRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.375rem 0;
+  border-bottom: 1px solid #2a2a3e;
+}
+
+.chiefRow:last-child {
+  border-bottom: none;
+}
+
+.chiefName {
+  font-size: 0.875rem;
+  color: #e0e0e0;
+}
+
+.chiefStatus {
+  font-size: 0.75rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 10px;
+  margin-left: 0.5rem;
+}
+
+.statusActive {
+  background: rgba(46, 204, 113, 0.15);
+  color: #2ecc71;
+}
+
+.statusPaused {
+  background: rgba(231, 76, 60, 0.15);
+  color: #e74c3c;
+}
+
+.actionBtn {
+  padding: 0.25rem 0.75rem;
+  border: 1px solid #555;
+  border-radius: 4px;
+  background: transparent;
+  color: #ccc;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.actionBtn:hover:not(:disabled) {
+  border-color: #888;
+  color: #fff;
+}
+
+.actionBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.actionBtnDanger {
+  border-color: #e94560;
+  color: #e94560;
+}
+
+.actionBtnDanger:hover:not(:disabled) {
+  background: rgba(233, 69, 96, 0.1);
+}
+
+.actionBtnWarning {
+  border-color: #e67e22;
+  color: #e67e22;
+}
+
+.actionBtnWarning:hover:not(:disabled) {
+  background: rgba(230, 126, 34, 0.1);
+}
+
+.actionBtnSuccess {
+  border-color: #2ecc71;
+  color: #2ecc71;
+}
+
+.actionBtnSuccess:hover:not(:disabled) {
+  background: rgba(46, 204, 113, 0.1);
+}
+
+/* Snapshot list */
+.snapshotRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.375rem 0;
+  border-bottom: 1px solid #2a2a3e;
+}
+
+.snapshotRow:last-child {
+  border-bottom: none;
+}
+
+.snapshotInfo {
+  font-size: 0.8125rem;
+  color: #ccc;
+}
+
+.snapshotTime {
+  font-size: 0.75rem;
+  color: #666;
+  margin-left: 0.5rem;
+}
+
+/* Proposal list */
+.proposalRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.375rem 0;
+  border-bottom: 1px solid #2a2a3e;
+  gap: 0.5rem;
+}
+
+.proposalRow:last-child {
+  border-bottom: none;
+}
+
+.proposalType {
+  font-size: 0.8125rem;
+  color: #ccc;
+  flex: 1;
+}
+
+.proposalActions {
+  display: flex;
+  gap: 0.375rem;
+}
+
+/* Scheduler */
+.schedulerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.375rem 0;
+}
+
+.schedulerStatus {
+  font-size: 0.875rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.dotRunning {
+  background: #2ecc71;
+}
+
+.dotStopped {
+  background: #e74c3c;
+}
+
+.dotUnknown {
+  background: #666;
+}
