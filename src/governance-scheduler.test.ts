@@ -599,4 +599,62 @@ describe('GovernanceScheduler', () => {
     // One pipeline dispatch from karvi adapter
     expect(dispatches).toHaveLength(1);
   });
+
+  // -----------------------------------------------------------------------
+  // 22. Coordinated execution: local chiefs run in priority order (#200)
+  // -----------------------------------------------------------------------
+  it('runOnce() executes local chiefs in priority order', async () => {
+    const village = createVillageWithConstitution(vm, cs);
+
+    // Create chiefs in reverse priority order
+    const growthChief = createActiveChief(ce, village.id, 'growth analyst', 'GrowthChief');
+    const eventChief = createActiveChief(ce, village.id, 'event coordinator', 'EventChief');
+
+    const result = await scheduler.runOnce();
+
+    // Both should be executed
+    expect(result.chief_results).toHaveLength(2);
+    // Event (priority 4) should come before Growth (priority 5)
+    expect(result.chief_results[0].chief_id).toBe(eventChief.id);
+    expect(result.chief_results[1].chief_id).toBe(growthChief.id);
+  });
+
+  // -----------------------------------------------------------------------
+  // 23. Mixed pipeline + local chiefs: pipeline dispatches, local coordinates (#200)
+  // -----------------------------------------------------------------------
+  it('separates pipeline chiefs from local coordinated execution', async () => {
+    const village = createVillageWithConstitution(vm, cs);
+
+    // Local chiefs
+    createActiveChief(ce, village.id, 'event coordinator', 'LocalEvent');
+    createActiveChief(ce, village.id, 'safety officer', 'LocalSafety');
+
+    // Pipeline chief
+    ce.create(village.id, {
+      name: 'PipelineEconomy',
+      role: 'economy advisor',
+      permissions: ['dispatch_task'],
+      skills: [],
+      pipelines: ['budget-optimizer'],
+    }, 'test-actor');
+
+    const mockBridge = {
+      dispatchProject: async () => ({ ok: true, title: 'test', taskCount: 1 } as KarviProjectResponse),
+    } as unknown as KarviBridge;
+
+    const pipelineScheduler = new GovernanceScheduler({
+      worldManager: wm,
+      chiefEngine: ce,
+      villageManager: vm,
+      db,
+      karviBridge: mockBridge,
+    });
+
+    const result = await pipelineScheduler.runOnce();
+
+    // Pipeline chief dispatched
+    expect(result.pipeline_dispatches).toHaveLength(1);
+    // Local chiefs coordinated (2 results)
+    expect(result.chief_results).toHaveLength(2);
+  });
 });

@@ -244,6 +244,50 @@ export function growthStrategy(chief: Chief, state: WorldState): ChiefProposal[]
 }
 
 // ---------------------------------------------------------------------------
+// 優先級排序（#200: inter-chief coordination）
+// ---------------------------------------------------------------------------
+
+/** Chief 執行優先級映射（數字越小越先執行）。
+ *  Safety(1) > Economy(2) > Lore(3) > Event(4) > Growth(5) */
+export const CHIEF_PRIORITY: Readonly<Record<string, number>> = {
+  safety: 1, security: 1, compliance: 1,
+  economy: 2, budget: 2, finance: 2,
+  lore: 3, narrative: 3, story: 3,
+  event: 4, activity: 4,
+  growth: 5, metrics: 5, analytics: 5,
+};
+
+/** 未知角色的預設優先級（最後執行） */
+export const DEFAULT_PRIORITY = 99;
+
+/**
+ * 解析 chief role 對應的執行優先級。
+ * 使用 keyword matching，與 resolveStrategy 一致。
+ * 未知角色回傳 DEFAULT_PRIORITY。
+ */
+export function resolveChiefPriority(chief: Chief): number {
+  const roleLower = chief.role.toLowerCase();
+  for (const [keyword, priority] of Object.entries(CHIEF_PRIORITY)) {
+    if (roleLower.includes(keyword)) return priority;
+  }
+  return DEFAULT_PRIORITY;
+}
+
+/**
+ * 按優先級排序 chiefs（穩定排序）。
+ * 同優先級按 created_at 升序（先建立的先執行）。
+ * 回傳新陣列，不修改原陣列。
+ */
+export function sortChiefsByPriority(chiefs: Chief[]): Chief[] {
+  return [...chiefs].sort((a, b) => {
+    const pa = resolveChiefPriority(a);
+    const pb = resolveChiefPriority(b);
+    if (pa !== pb) return pa - pb;
+    return a.created_at.localeCompare(b.created_at);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // 角色解析
 // ---------------------------------------------------------------------------
 
@@ -319,34 +363,20 @@ export function makeChiefDecision(chief: Chief, state: WorldState): ChiefProposa
 }
 
 /**
- * 執行一輪 chief 決策週期。
- *
- * 流程：
- *   1. 取得 WorldState
- *   2. makeChiefDecision → proposals
- *   3. 逐一 apply（經 judge pipeline）
- *   4. 回傳 ChiefCycleResult
- *
- * 注意：inactive chief 不會執行。
+ * 執行一輪 chief 決策週期（使用提供的 state 而非從 DB 讀取）。
+ * 用於 coordinated execution：前一個 chief 的 state_after 作為下一個 chief 的輸入。
  */
-export function executeChiefCycle(
+export function executeChiefCycleWithState(
   worldManager: WorldManager,
   villageId: string,
   chief: Chief,
+  state: WorldState,
 ): ChiefCycleResult {
-  // 前置檢查：chief 必須 active
   if (chief.status !== 'active') {
-    return {
-      chief_id: chief.id,
-      proposals: [],
-      applied: [],
-      skipped: [],
-    };
+    return { chief_id: chief.id, proposals: [], applied: [], skipped: [] };
   }
 
-  const state = worldManager.getState(villageId);
   const proposals = makeChiefDecision(chief, state);
-
   const applied: ApplyResult[] = [];
   const skipped: { proposal: ChiefProposal; reason: string }[] = [];
 
@@ -362,11 +392,89 @@ export function executeChiefCycle(
     }
   }
 
+  return { chief_id: chief.id, proposals, applied, skipped };
+}
+
+/**
+ * 執行一輪 chief 決策週期。
+ *
+ * 流程：
+ *   1. 取得 WorldState
+ *   2. makeChiefDecision → proposals
+ *   3. 逐一 apply（經 judge pipeline）
+ *   4. 回傳 ChiefCycleResult
+ *
+ * 注意：inactive chief 不會執行。
+ */
+export function executeChiefCycle(
+  worldManager: WorldManager,
+  villageId: string,
+  chief: Chief,
+): ChiefCycleResult {
+  if (chief.status !== 'active') {
+    return { chief_id: chief.id, proposals: [], applied: [], skipped: [] };
+  }
+  const state = worldManager.getState(villageId);
+  return executeChiefCycleWithState(worldManager, villageId, chief, state);
+}
+
+/** Coordinated cycle 結果 */
+export interface CoordinatedCycleResult {
+  /** 執行順序（chief IDs） */
+  execution_order: string[];
+  /** 各 chief 的結果 */
+  chief_results: ChiefCycleResult[];
+  /** 總共有多少次 state transition */
+  state_transitions: number;
+  /** Per-chief 錯誤（isolated，不影響其他 chief） */
+  errors: { chief_id: string; error: string }[];
+}
+
+/**
+ * 執行一輪多 chief 協調決策。
+ * 1. 按 priority 排序 chiefs
+ * 2. 首個 chief 用 DB state，後續 chief 用前一個的 state_after
+ * 3. Judge 自然解決衝突（先到先得）
+ * 4. Per-chief error isolation — 單一 chief 失敗不影響其他 chief
+ */
+export function executeCoordinatedCycle(
+  worldManager: WorldManager,
+  villageId: string,
+  chiefs: Chief[],
+): CoordinatedCycleResult {
+  const sorted = sortChiefsByPriority(chiefs);
+  let currentState = worldManager.getState(villageId);
+
+  const results: ChiefCycleResult[] = [];
+  const errors: { chief_id: string; error: string }[] = [];
+  let stateTransitions = 0;
+
+  for (const chief of sorted) {
+    try {
+      const result = executeChiefCycleWithState(worldManager, villageId, chief, currentState);
+      results.push(result);
+
+      // Thread state: use the last successful apply's state_after
+      for (const applied of result.applied) {
+        if (applied.state_after) {
+          currentState = applied.state_after;
+          stateTransitions++;
+        }
+      }
+    } catch (err: unknown) {
+      // Per-chief error isolation: one chief failing doesn't block others
+      const message = err instanceof Error ? err.message : 'unknown';
+      errors.push({ chief_id: chief.id, error: message });
+      // Push empty result so chief_results stays aligned with execution_order
+      results.push({ chief_id: chief.id, proposals: [], applied: [], skipped: [] });
+    }
+  }
+
   return {
-    chief_id: chief.id,
-    proposals,
-    applied,
-    skipped,
+    execution_order: sorted.map(c => c.id),
+    chief_results: results,
+    state_transitions: stateTransitions,
+    errors,
   };
 }
 
