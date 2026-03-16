@@ -24,8 +24,9 @@ import { HeartbeatResultSchema } from './schemas/heartbeat';
 import type { Chief } from './chief-engine';
 import type { WorldState } from './world/state';
 import type { WorldManager, ApplyResult } from './world-manager';
-import { makeChiefDecision } from './chief-autonomy';
+import { makeChiefDecision, dispatchChiefPipelines } from './chief-autonomy';
 import { appendAudit } from './db';
+import type { KarviBridge } from './karvi-bridge';
 
 // ---------------------------------------------------------------------------
 // ExecutionAdapter 介面
@@ -44,6 +45,15 @@ export interface ExecutionAdapter {
    * 失敗應拋出 Error，由呼叫方 catch。
    */
   invoke(context: HeartbeatContext): Promise<HeartbeatResult>;
+
+  /** 健康檢查（Phase 2+）。回傳 adapter 是否可用。 */
+  healthCheck?(): Promise<boolean>;
+
+  /** 建立 stateful session（Phase 2+）。回傳 session ID。 */
+  createSession?(chiefId: string): Promise<string>;
+
+  /** 銷毀 session（Phase 2+）。 */
+  destroySession?(sessionId: string): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -131,6 +141,62 @@ export class LocalAdapter implements ExecutionAdapter {
       proposals: proposals.length > 0 ? proposals : undefined,
       usage: { duration_ms: durationMs },
     };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// KarviPipelineAdapter — 封裝 pipeline dispatch 到 Karvi
+// ---------------------------------------------------------------------------
+
+/**
+ * Karvi pipeline adapter：將 chief 的 pipelines 派發到 Karvi 執行。
+ * 包裝 dispatchChiefPipelines()，回傳 in_progress（pipeline 是非同步，結果透過 webhook 回報）。
+ *
+ * 需要 KarviBridge + chiefs 資訊才能運作。
+ */
+export class KarviPipelineAdapter implements ExecutionAdapter {
+  readonly type = 'karvi';
+
+  constructor(
+    private bridge: KarviBridge,
+    private chiefLookup: (chiefId: string) => Chief | null,
+  ) {}
+
+  async invoke(context: HeartbeatContext): Promise<HeartbeatResult> {
+    const startMs = Date.now();
+
+    const chief = this.chiefLookup(context.chief_id);
+    if (!chief) {
+      return {
+        heartbeat_id: context.heartbeat_id,
+        status: 'failed',
+        usage: { duration_ms: Date.now() - startMs },
+      };
+    }
+
+    try {
+      const dispatches = await dispatchChiefPipelines(this.bridge, context.village_id, chief);
+      const durationMs = Date.now() - startMs;
+      const allDispatched = dispatches.length > 0 && dispatches.every(d => d.dispatched);
+
+      return {
+        heartbeat_id: context.heartbeat_id,
+        status: allDispatched ? 'in_progress' : 'failed',
+        usage: { duration_ms: durationMs },
+      };
+    } catch (_err: unknown) {
+      const durationMs = Date.now() - startMs;
+      return {
+        heartbeat_id: context.heartbeat_id,
+        status: 'failed',
+        usage: { duration_ms: durationMs },
+      };
+    }
+  }
+
+  async healthCheck(): Promise<boolean> {
+    // Phase 2: implement Karvi health endpoint check
+    return true;
   }
 }
 
@@ -284,13 +350,18 @@ export function processHeartbeatResult(
 
 /**
  * 建立預設 AdapterRegistry，已註冊 LocalAdapter。
+ * 若提供 KarviBridge，額外註冊 KarviPipelineAdapter。
  * 供 GovernanceScheduler 使用。
  */
 export function createDefaultRegistry(
   worldManager: WorldManager,
   chiefLookup: (chiefId: string) => Chief | null,
+  karviBridge?: KarviBridge,
 ): AdapterRegistry {
   const registry = new AdapterRegistry();
   registry.register(new LocalAdapter(worldManager, chiefLookup));
+  if (karviBridge) {
+    registry.register(new KarviPipelineAdapter(karviBridge, chiefLookup));
+  }
   return registry;
 }

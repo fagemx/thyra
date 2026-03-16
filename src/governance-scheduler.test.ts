@@ -495,4 +495,108 @@ describe('GovernanceScheduler', () => {
     const result = await scheduler.runOnce();
     expect(result.pipeline_dispatches).toEqual([]);
   });
+
+  // -----------------------------------------------------------------------
+  // 19. useHeartbeat=true: local chief routes through adapter registry
+  // -----------------------------------------------------------------------
+  it('useHeartbeat=true routes local chief through adapter registry', async () => {
+    const village = createVillageWithConstitution(vm, cs);
+    createActiveChief(ce, village.id, 'event coordinator', 'HeartbeatLocalChief');
+
+    const heartbeatScheduler = new GovernanceScheduler({
+      worldManager: wm,
+      chiefEngine: ce,
+      villageManager: vm,
+      db,
+      useHeartbeat: true,
+    });
+
+    const result = await heartbeatScheduler.runOnce();
+
+    // Should still produce chief_results via heartbeat path
+    expect(result.chief_results).toHaveLength(1);
+    expect(result.villages_processed).toBe(1);
+    // Pipeline dispatches should be empty (no pipeline chief)
+    expect(result.pipeline_dispatches).toHaveLength(0);
+  });
+
+  // -----------------------------------------------------------------------
+  // 20. useHeartbeat=true: karvi chief routes through KarviPipelineAdapter
+  // -----------------------------------------------------------------------
+  it('useHeartbeat=true routes karvi chief through KarviPipelineAdapter', async () => {
+    const village = createVillageWithConstitution(vm, cs);
+    ce.create(village.id, {
+      name: 'HeartbeatKarviChief',
+      role: 'economy advisor',
+      permissions: ['dispatch_task'],
+      skills: [],
+      pipelines: ['market-analysis'],
+      adapter_type: 'karvi',
+    }, 'test-actor');
+
+    const dispatches: unknown[] = [];
+    const mockBridge = {
+      dispatchProject: async (input: unknown) => {
+        dispatches.push(input);
+        return { ok: true, title: 'test', taskCount: 1 } as KarviProjectResponse;
+      },
+    } as unknown as KarviBridge;
+
+    const heartbeatScheduler = new GovernanceScheduler({
+      worldManager: wm,
+      chiefEngine: ce,
+      villageManager: vm,
+      db,
+      karviBridge: mockBridge,
+      useHeartbeat: true,
+    });
+
+    const result = await heartbeatScheduler.runOnce();
+
+    // Karvi chief should route through adapter, producing chief_results
+    expect(result.chief_results).toHaveLength(1);
+    expect(dispatches).toHaveLength(1);
+    // No legacy pipeline_dispatches (heartbeat path handles it)
+    expect(result.pipeline_dispatches).toHaveLength(0);
+  });
+
+  // -----------------------------------------------------------------------
+  // 21. useHeartbeat=true: mixed local + karvi chiefs
+  // -----------------------------------------------------------------------
+  it('useHeartbeat=true handles mixed local and karvi chiefs', async () => {
+    const village = createVillageWithConstitution(vm, cs);
+    createActiveChief(ce, village.id, 'event coordinator', 'LocalChief');
+    ce.create(village.id, {
+      name: 'KarviChief',
+      role: 'economy advisor',
+      permissions: ['dispatch_task'],
+      skills: [],
+      pipelines: ['budget-opt'],
+      adapter_type: 'karvi',
+    }, 'test-actor');
+
+    const dispatches: unknown[] = [];
+    const mockBridge = {
+      dispatchProject: async (input: unknown) => {
+        dispatches.push(input);
+        return { ok: true, title: 'test', taskCount: 1 } as KarviProjectResponse;
+      },
+    } as unknown as KarviBridge;
+
+    const heartbeatScheduler = new GovernanceScheduler({
+      worldManager: wm,
+      chiefEngine: ce,
+      villageManager: vm,
+      db,
+      karviBridge: mockBridge,
+      useHeartbeat: true,
+    });
+
+    const result = await heartbeatScheduler.runOnce();
+
+    // Both chiefs routed through adapter registry
+    expect(result.chief_results).toHaveLength(2);
+    // One pipeline dispatch from karvi adapter
+    expect(dispatches).toHaveLength(1);
+  });
 });

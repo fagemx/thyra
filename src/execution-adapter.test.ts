@@ -10,11 +10,13 @@ import type { HeartbeatContext, HeartbeatResult } from './schemas/heartbeat';
 import {
   AdapterRegistry,
   LocalAdapter,
+  KarviPipelineAdapter,
   buildHeartbeatContext,
   processHeartbeatResult,
   createDefaultRegistry,
   type ExecutionAdapter,
 } from './execution-adapter';
+import type { KarviBridge, KarviProjectResponse } from './karvi-bridge';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -197,6 +199,153 @@ describe('LocalAdapter', () => {
 
     expect(result.status).toBe('completed');
     expect(result.proposals).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// KarviPipelineAdapter tests
+// ---------------------------------------------------------------------------
+
+describe('KarviPipelineAdapter', () => {
+  let vm: VillageManager;
+  let cs: ConstitutionStore;
+  let ce: ChiefEngine;
+  let wm: WorldManager;
+
+  beforeEach(() => {
+    const s = setup();
+    vm = s.vm;
+    cs = s.cs;
+    ce = s.ce;
+    wm = s.wm;
+  });
+
+  function makeMockBridge(dispatches: unknown[]): KarviBridge {
+    return {
+      dispatchProject: async (input: unknown) => {
+        dispatches.push(input);
+        return { ok: true, title: 'test', taskCount: 1 } as KarviProjectResponse;
+      },
+    } as unknown as KarviBridge;
+  }
+
+  it('has type "karvi"', () => {
+    const adapter = new KarviPipelineAdapter(
+      makeMockBridge([]),
+      (id) => ce.get(id),
+    );
+    expect(adapter.type).toBe('karvi');
+  });
+
+  it('invoke dispatches pipeline via bridge and returns in_progress', async () => {
+    const village = createVillageWithConstitution(vm, cs);
+    const chief = ce.create(village.id, {
+      name: 'PipelineChief',
+      role: 'economy advisor',
+      permissions: ['dispatch_task'],
+      skills: [],
+      pipelines: ['market-analysis'],
+      adapter_type: 'karvi',
+    }, 'test-actor');
+
+    const dispatches: unknown[] = [];
+    const adapter = new KarviPipelineAdapter(
+      makeMockBridge(dispatches),
+      (id) => ce.get(id),
+    );
+
+    const context = buildHeartbeatContext(chief, wm.getState(village.id), 'scheduled');
+    const result = await adapter.invoke(context);
+
+    expect(result.heartbeat_id).toBe(context.heartbeat_id);
+    expect(result.status).toBe('in_progress');
+    expect(result.usage?.duration_ms).toBeGreaterThanOrEqual(0);
+    expect(dispatches).toHaveLength(1);
+  });
+
+  it('invoke returns failed for unknown chief', async () => {
+    const adapter = new KarviPipelineAdapter(
+      makeMockBridge([]),
+      () => null,
+    );
+
+    const context: HeartbeatContext = {
+      heartbeat_id: 'hb-test',
+      village_id: 'v1',
+      chief_id: 'nonexistent',
+      trigger: 'scheduled',
+      context_mode: 'fat',
+      budget_remaining: 100,
+      permissions: [],
+      constitution_rules: [],
+      assigned_tasks: [],
+    };
+    const result = await adapter.invoke(context);
+    expect(result.status).toBe('failed');
+  });
+
+  it('invoke returns failed on bridge error', async () => {
+    const village = createVillageWithConstitution(vm, cs);
+    const chief = ce.create(village.id, {
+      name: 'ErrorChief',
+      role: 'economy advisor',
+      permissions: ['dispatch_task'],
+      skills: [],
+      pipelines: ['broken-pipeline'],
+      adapter_type: 'karvi',
+    }, 'test-actor');
+
+    const errorBridge = {
+      dispatchProject: async () => {
+        throw new Error('Karvi unreachable');
+      },
+    } as unknown as KarviBridge;
+
+    const adapter = new KarviPipelineAdapter(
+      errorBridge,
+      (id) => ce.get(id),
+    );
+
+    const context = buildHeartbeatContext(chief, wm.getState(village.id), 'scheduled');
+    const result = await adapter.invoke(context);
+
+    expect(result.status).toBe('failed');
+    expect(result.usage?.duration_ms).toBeGreaterThanOrEqual(0);
+  });
+
+  it('invoke returns failed when bridge returns null (Karvi offline)', async () => {
+    const village = createVillageWithConstitution(vm, cs);
+    const chief = ce.create(village.id, {
+      name: 'OfflineChief',
+      role: 'economy advisor',
+      permissions: ['dispatch_task'],
+      skills: [],
+      pipelines: ['offline-pipeline'],
+      adapter_type: 'karvi',
+    }, 'test-actor');
+
+    const offlineBridge = {
+      dispatchProject: async () => null,
+    } as unknown as KarviBridge;
+
+    const adapter = new KarviPipelineAdapter(
+      offlineBridge,
+      (id) => ce.get(id),
+    );
+
+    const context = buildHeartbeatContext(chief, wm.getState(village.id), 'scheduled');
+    const result = await adapter.invoke(context);
+
+    // dispatchChiefPipelines returns dispatched=false when response is null
+    expect(result.status).toBe('failed');
+  });
+
+  it('healthCheck returns true (Phase 1 stub)', async () => {
+    const adapter = new KarviPipelineAdapter(
+      makeMockBridge([]),
+      () => null,
+    );
+    expect(await adapter.healthCheck()).toBe(true);
   });
 });
 
@@ -421,12 +570,26 @@ describe('processHeartbeatResult', () => {
 // ---------------------------------------------------------------------------
 
 describe('createDefaultRegistry', () => {
-  it('creates registry with local adapter', () => {
+  it('creates registry with local adapter (no bridge)', () => {
     const s = setup();
     const registry = createDefaultRegistry(s.wm, (id) => s.ce.get(id));
 
     expect(registry.has('local')).toBe(true);
     expect(registry.get('local').type).toBe('local');
+    expect(registry.has('karvi')).toBe(false);
+  });
+
+  it('creates registry with local + karvi adapters when bridge provided', () => {
+    const s = setup();
+    const mockBridge = {
+      dispatchProject: async () => null,
+    } as unknown as KarviBridge;
+
+    const registry = createDefaultRegistry(s.wm, (id) => s.ce.get(id), mockBridge);
+
+    expect(registry.has('local')).toBe(true);
+    expect(registry.has('karvi')).toBe(true);
+    expect(registry.get('karvi').type).toBe('karvi');
   });
 });
 
