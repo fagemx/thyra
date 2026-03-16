@@ -35,6 +35,7 @@ import type { EddaBridge } from './edda-bridge';
 import type { StaleDetector, StaleCleanupResult } from './stale-detector';
 import { CycleTelemetryCollector } from './cycle-telemetry';
 import type { CycleTelemetry } from './schemas/cycle-telemetry';
+import { ReputationTracker } from './reputation-tracker';
 
 // ---------------------------------------------------------------------------
 // 型別定義
@@ -280,6 +281,7 @@ export class GovernanceScheduler {
         }
 
         // 4b. Local chiefs: coordinated execution with priority ordering + state threading
+        const chiefResultsBefore = allChiefResults.length;
         if (localChiefs.length > 0) {
           // #222: Pre-fetch Edda precedents for chiefs with use_precedents=true
           let precedentsMap: Map<string, import('./edda-bridge').EddaDecisionHit[]> | undefined;
@@ -295,6 +297,16 @@ export class GovernanceScheduler {
             await this.runHeartbeatPath(village.id, localChiefs, cycleId, allChiefResults, allErrors, allTelemetry);
           } else {
             this.runCoordinatedPath(village.id, localChiefs, cycleId, allChiefResults, allErrors, allTelemetry, precedentsMap);
+          }
+        }
+
+        // 4c. Reputation tracking (#216): 記錄此 village 各 chief 的聲望變動
+        for (let i = chiefResultsBefore; i < allChiefResults.length; i++) {
+          const chiefResult = allChiefResults[i];
+          try {
+            ReputationTracker.recordCycleResult(this.db, village.id, chiefResult);
+          } catch {
+            // Reputation tracking failure does not affect main cycle
           }
         }
       }
