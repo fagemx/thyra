@@ -426,6 +426,8 @@ export interface CoordinatedCycleResult {
   chief_results: ChiefCycleResult[];
   /** 總共有多少次 state transition */
   state_transitions: number;
+  /** Per-chief 錯誤（isolated，不影響其他 chief） */
+  errors: { chief_id: string; error: string }[];
 }
 
 /**
@@ -433,6 +435,7 @@ export interface CoordinatedCycleResult {
  * 1. 按 priority 排序 chiefs
  * 2. 首個 chief 用 DB state，後續 chief 用前一個的 state_after
  * 3. Judge 自然解決衝突（先到先得）
+ * 4. Per-chief error isolation — 單一 chief 失敗不影響其他 chief
  */
 export function executeCoordinatedCycle(
   worldManager: WorldManager,
@@ -443,18 +446,27 @@ export function executeCoordinatedCycle(
   let currentState = worldManager.getState(villageId);
 
   const results: ChiefCycleResult[] = [];
+  const errors: { chief_id: string; error: string }[] = [];
   let stateTransitions = 0;
 
   for (const chief of sorted) {
-    const result = executeChiefCycleWithState(worldManager, villageId, chief, currentState);
-    results.push(result);
+    try {
+      const result = executeChiefCycleWithState(worldManager, villageId, chief, currentState);
+      results.push(result);
 
-    // Thread state: use the last successful apply's state_after
-    for (const applied of result.applied) {
-      if (applied.state_after) {
-        currentState = applied.state_after;
-        stateTransitions++;
+      // Thread state: use the last successful apply's state_after
+      for (const applied of result.applied) {
+        if (applied.state_after) {
+          currentState = applied.state_after;
+          stateTransitions++;
+        }
       }
+    } catch (err: unknown) {
+      // Per-chief error isolation: one chief failing doesn't block others
+      const message = err instanceof Error ? err.message : 'unknown';
+      errors.push({ chief_id: chief.id, error: message });
+      // Push empty result so chief_results stays aligned with execution_order
+      results.push({ chief_id: chief.id, proposals: [], applied: [], skipped: [] });
     }
   }
 
@@ -462,6 +474,7 @@ export function executeCoordinatedCycle(
     execution_order: sorted.map(c => c.id),
     chief_results: results,
     state_transitions: stateTransitions,
+    errors,
   };
 }
 

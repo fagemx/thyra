@@ -20,7 +20,7 @@ import type { Database } from 'bun:sqlite';
 import { randomUUID } from 'crypto';
 import { appendAudit } from './db';
 import { dispatchChiefPipelines, executeCoordinatedCycle, sortChiefsByPriority, type ChiefCycleResult, type PipelineDispatchResult } from './chief-autonomy';
-import type { ChiefEngine } from './chief-engine';
+import type { Chief, ChiefEngine } from './chief-engine';
 import type { WorldManager } from './world-manager';
 import type { VillageManager } from './village-manager';
 import {
@@ -260,43 +260,9 @@ export class GovernanceScheduler {
         // 4b. Local chiefs: coordinated execution with priority ordering + state threading
         if (localChiefs.length > 0) {
           if (this.useHeartbeat) {
-            // Heartbeat path: sort by priority, sequential execution
-            const sorted = sortChiefsByPriority(localChiefs);
-            for (const chief of sorted) {
-              try {
-                const adapter = this.adapterRegistry.get(chief.adapter_type ?? 'local');
-                const state = this.worldManager.getState(village.id);
-                const context = buildHeartbeatContext(chief, state, 'scheduled');
-                const hbResult = await adapter.invoke(context);
-                const processed = processHeartbeatResult(
-                  this.worldManager, this.db, village.id, chief, hbResult,
-                );
-                allChiefResults.push(this.toChiefCycleResult(chief.id, processed));
-              } catch (err: unknown) {
-                const message = err instanceof Error ? err.message : 'unknown';
-                allErrors.push({
-                  chief_id: chief.id,
-                  village_id: village.id,
-                  error: message,
-                });
-              }
-            }
+            await this.runHeartbeatPath(village.id, localChiefs, allChiefResults, allErrors);
           } else {
-            // Coordinated cycle: priority ordering + state threading (#200)
-            try {
-              const coordResult = executeCoordinatedCycle(this.worldManager, village.id, localChiefs);
-              allChiefResults.push(...coordResult.chief_results);
-            } catch (err: unknown) {
-              // Per-chief errors within coordinated cycle — record for all local chiefs
-              const message = err instanceof Error ? err.message : 'unknown';
-              for (const chief of localChiefs) {
-                allErrors.push({
-                  chief_id: chief.id,
-                  village_id: village.id,
-                  error: message,
-                });
-              }
-            }
+            this.runCoordinatedPath(village.id, localChiefs, allChiefResults, allErrors);
           }
         }
       }
@@ -345,6 +311,78 @@ export class GovernanceScheduler {
       return cycleResult;
     } finally {
       this._cycling = false;
+    }
+  }
+
+  /**
+   * Heartbeat path: sort by priority, sequential execution with state threading.
+   * Each chief sees the accumulated state from higher-priority chiefs.
+   */
+  private async runHeartbeatPath(
+    villageId: string,
+    localChiefs: Chief[],
+    allChiefResults: ChiefCycleResult[],
+    allErrors: ChiefError[],
+  ): Promise<void> {
+    const sorted = sortChiefsByPriority(localChiefs);
+    let currentState = this.worldManager.getState(villageId);
+    for (const chief of sorted) {
+      try {
+        const adapter = this.adapterRegistry.get(chief.adapter_type);
+        const context = buildHeartbeatContext(chief, currentState, 'scheduled');
+        const hbResult = await adapter.invoke(context);
+        const processed = processHeartbeatResult(
+          this.worldManager, this.db, villageId, chief, hbResult,
+        );
+        allChiefResults.push(this.toChiefCycleResult(chief.id, processed));
+        // Thread state: use last successful apply's state_after
+        for (const applied of processed.applied) {
+          if (applied.state_after) {
+            currentState = applied.state_after;
+          }
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'unknown';
+        allErrors.push({
+          chief_id: chief.id,
+          village_id: villageId,
+          error: message,
+        });
+      }
+    }
+  }
+
+  /**
+   * Coordinated cycle path: priority ordering + state threading + per-chief isolation.
+   * Falls back to tagging all local chiefs on catastrophic error (e.g. getState failure).
+   */
+  private runCoordinatedPath(
+    villageId: string,
+    localChiefs: Chief[],
+    allChiefResults: ChiefCycleResult[],
+    allErrors: ChiefError[],
+  ): void {
+    try {
+      const coordResult = executeCoordinatedCycle(this.worldManager, villageId, localChiefs);
+      allChiefResults.push(...coordResult.chief_results);
+      // Propagate per-chief errors from coordinated cycle
+      for (const err of coordResult.errors) {
+        allErrors.push({
+          chief_id: err.chief_id,
+          village_id: villageId,
+          error: err.error,
+        });
+      }
+    } catch (err: unknown) {
+      // Catastrophic error (e.g. getState fails for entire village) — tag all local chiefs
+      const message = err instanceof Error ? err.message : 'unknown';
+      for (const chief of localChiefs) {
+        allErrors.push({
+          chief_id: chief.id,
+          village_id: villageId,
+          error: message,
+        });
+      }
     }
   }
 
