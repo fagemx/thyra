@@ -11,6 +11,7 @@ import type { GovernanceCycleResult, ChiefError } from './governance-scheduler';
 import type { ChiefCycleResult, ChiefProposal } from './chief-autonomy';
 import type { ApplyResult } from './world-manager';
 import type { WorldChange } from './schemas/world-change';
+import type { EddaBridge, EddaQueryResult, EddaLogEntry } from './edda-bridge';
 import { Database } from 'bun:sqlite';
 import { initSchema } from './db';
 
@@ -88,8 +89,8 @@ function makeCycleResult(overrides: Partial<GovernanceCycleResult> = {}): Govern
 
 describe('summary-generator', () => {
   describe('generateNightSummary', () => {
-    it('returns empty summary for 0 cycles', () => {
-      const summary = generateNightSummary('village-1', [], { date: '2026-03-15' });
+    it('returns empty summary for 0 cycles', async () => {
+      const summary = await generateNightSummary('village-1', [], { date: '2026-03-15' });
 
       expect(summary.village_id).toBe('village-1');
       expect(summary.date).toBe('2026-03-15');
@@ -110,7 +111,7 @@ describe('summary-generator', () => {
       expect(summary.generated_at).toBeTruthy();
     });
 
-    it('counts single cycle with all proposals applied', () => {
+    it('counts single cycle with all proposals applied', async () => {
       const proposals = [
         makeProposal('budget.adjust', 'reduce budget'),
         makeProposal('law.propose', 'new spending law'),
@@ -125,7 +126,7 @@ describe('summary-generator', () => {
         chief_results: [chiefResult],
       });
 
-      const summary = generateNightSummary('village-1', [cycle], { date: '2026-03-15' });
+      const summary = await generateNightSummary('village-1', [cycle], { date: '2026-03-15' });
 
       expect(summary.cycles_run).toBe(1);
       expect(summary.proposals_total).toBe(2);
@@ -135,7 +136,7 @@ describe('summary-generator', () => {
       expect(summary.precedents_recorded).toBe(2);
     });
 
-    it('counts mixed results (applied + rejected + skipped)', () => {
+    it('counts mixed results (applied + rejected + skipped)', async () => {
       const p1 = makeProposal('law.propose', 'good law');
       const p2 = makeProposal('budget.adjust', 'bad budget');
       const p3 = makeProposal('chief.update_permissions', 'permission change');
@@ -154,7 +155,7 @@ describe('summary-generator', () => {
         chief_results: [chiefResult],
       });
 
-      const summary = generateNightSummary('village-1', [cycle], { date: '2026-03-15' });
+      const summary = await generateNightSummary('village-1', [cycle], { date: '2026-03-15' });
 
       expect(summary.proposals_total).toBe(3);
       expect(summary.proposals_applied).toBe(1);
@@ -162,7 +163,7 @@ describe('summary-generator', () => {
       expect(summary.proposals_rejected).toBe(2);
     });
 
-    it('extracts chief errors as key events', () => {
+    it('extracts chief errors as key events', async () => {
       const errors: ChiefError[] = [
         { chief_id: 'chief-a', village_id: 'village-1', error: 'timeout' },
         { chief_id: 'chief-b', village_id: 'village-1', error: 'invalid state' },
@@ -174,7 +175,7 @@ describe('summary-generator', () => {
         errors: [errors[1]],
       });
 
-      const summary = generateNightSummary('village-1', [cycle1, cycle2], { date: '2026-03-15' });
+      const summary = await generateNightSummary('village-1', [cycle1, cycle2], { date: '2026-03-15' });
 
       const errorEvents = summary.key_events.filter((e) => e.type === 'chief_error');
       expect(errorEvents.length).toBe(2);
@@ -183,7 +184,7 @@ describe('summary-generator', () => {
       expect(errorEvents[0].description).toContain('chief-a');
     });
 
-    it('picks top 5 key_events by score when >5 events exist', () => {
+    it('picks top 5 key_events by score when >5 events exist', async () => {
       // 產生 7 個不同分數的 proposals
       const proposals = [
         makeProposal('constitution.supersede', 'r1'), // 100
@@ -203,7 +204,7 @@ describe('summary-generator', () => {
         chief_results: [chiefResult],
       });
 
-      const summary = generateNightSummary('village-1', [cycle], { date: '2026-03-15' });
+      const summary = await generateNightSummary('village-1', [cycle], { date: '2026-03-15' });
 
       expect(summary.key_events.length).toBe(5);
       // 最高分應為 constitution.supersede (100)
@@ -214,7 +215,7 @@ describe('summary-generator', () => {
       expect(Math.min(...scores)).toBeGreaterThanOrEqual(40);
     });
 
-    it('excludes skipped (overlap) cycles from cycles_run', () => {
+    it('excludes skipped (overlap) cycles from cycles_run', async () => {
       const activeCycle = makeCycleResult({
         total_proposals: 2,
         total_applied: 2,
@@ -225,7 +226,7 @@ describe('summary-generator', () => {
         skip_reason: 'already_running',
       });
 
-      const summary = generateNightSummary(
+      const summary = await generateNightSummary(
         'village-1',
         [activeCycle, skippedCycle],
         { date: '2026-03-15' },
@@ -236,7 +237,7 @@ describe('summary-generator', () => {
       expect(summary.proposals_total).toBe(2);
     });
 
-    it('computes market_delta with start/end metrics', () => {
+    it('computes market_delta with start/end metrics', async () => {
       const startMetrics: MarketMetricsSnapshot = {
         active_stalls: 10,
         revenue: 500,
@@ -257,7 +258,7 @@ describe('summary-generator', () => {
         endMetrics,
       };
 
-      const summary = generateNightSummary('village-1', [cycle], opts);
+      const summary = await generateNightSummary('village-1', [cycle], opts);
 
       expect(summary.market_delta.stalls_added).toBe(3);
       expect(summary.market_delta.stalls_removed).toBe(0);
@@ -266,9 +267,9 @@ describe('summary-generator', () => {
       expect(summary.market_delta.satisfaction_change).toBe(0.07);
     });
 
-    it('returns zero market_delta without metrics', () => {
+    it('returns zero market_delta without metrics', async () => {
       const cycle = makeCycleResult();
-      const summary = generateNightSummary('village-1', [cycle], { date: '2026-03-15' });
+      const summary = await generateNightSummary('village-1', [cycle], { date: '2026-03-15' });
 
       expect(summary.market_delta).toEqual({
         stalls_added: 0,
@@ -279,7 +280,7 @@ describe('summary-generator', () => {
       });
     });
 
-    it('counts rollbacks from law.repeal and chief.dismiss proposals', () => {
+    it('counts rollbacks from law.repeal and chief.dismiss proposals', async () => {
       const proposals = [
         makeProposal('law.repeal', 'repeal outdated law'),
         makeProposal('chief.dismiss', 'dismiss inactive chief'),
@@ -293,12 +294,12 @@ describe('summary-generator', () => {
         chief_results: [chiefResult],
       });
 
-      const summary = generateNightSummary('village-1', [cycle], { date: '2026-03-15' });
+      const summary = await generateNightSummary('village-1', [cycle], { date: '2026-03-15' });
 
       expect(summary.rollbacks).toBe(2);
     });
 
-    it('generates scheduling_pressure warning when 3+ cycles skipped', () => {
+    it('generates scheduling_pressure warning when 3+ cycles skipped', async () => {
       const skipped = Array.from({ length: 3 }, (_, i) =>
         makeCycleResult({
           cycle_id: `skip-${i}`,
@@ -307,13 +308,221 @@ describe('summary-generator', () => {
         }),
       );
 
-      const summary = generateNightSummary('village-1', skipped, { date: '2026-03-15' });
+      const summary = await generateNightSummary('village-1', skipped, { date: '2026-03-15' });
 
       expect(summary.cycles_run).toBe(0);
       const pressureEvent = summary.key_events.find((e) => e.type === 'scheduling_pressure');
       expect(pressureEvent).toBeDefined();
       expect(pressureEvent?.severity).toBe('warning');
       expect(pressureEvent?.description).toContain('3 cycles skipped');
+    });
+
+    it('returns empty insights without EddaBridge', async () => {
+      const summary = await generateNightSummary('village-1', [], { date: '2026-03-15' });
+
+      expect(summary.historical_context).toBeUndefined();
+      expect(summary.insights).toEqual([]);
+    });
+  });
+
+  describe('generateNightSummary with EddaBridge', () => {
+    function makeDecisionHit(key: string, domain: string, ts?: string): {
+      event_id: string; key: string; value: string; reason: string;
+      domain: string; branch: string; ts: string; is_active: boolean;
+    } {
+      return {
+        event_id: `evt-${Math.random().toString(36).slice(2, 8)}`,
+        key,
+        value: 'test-value',
+        reason: 'test reason',
+        domain,
+        branch: 'main',
+        ts: ts ?? new Date().toISOString(),
+        is_active: true,
+      };
+    }
+
+    function makeLogEntry(type: string, summary: string): EddaLogEntry {
+      return {
+        event_id: `evt-${Math.random().toString(36).slice(2, 8)}`,
+        type,
+        summary,
+        ts: new Date().toISOString(),
+      };
+    }
+
+    function makeMockBridge(opts: {
+      decisions?: EddaQueryResult;
+      logEntries?: EddaLogEntry[];
+      queryFails?: boolean;
+      logFails?: boolean;
+    }): EddaBridge {
+      return {
+        queryDecisions: opts.queryFails
+          ? () => Promise.reject(new Error('Edda offline'))
+          : () => Promise.resolve(opts.decisions ?? {
+              query: '', input_type: 'keyword',
+              decisions: [], timeline: [],
+              related_commits: [], related_notes: [],
+            }),
+        queryEventLog: opts.logFails
+          ? () => Promise.reject(new Error('Edda offline'))
+          : () => Promise.resolve(opts.logEntries ?? []),
+      } as unknown as EddaBridge;
+    }
+
+    it('populates historical_context with similar patterns from Edda', async () => {
+      const bridge = makeMockBridge({
+        decisions: {
+          query: 'test', input_type: 'keyword',
+          decisions: [
+            makeDecisionHit('chief.pricing', 'chief'),
+            makeDecisionHit('chief.pricing', 'chief'),
+            makeDecisionHit('chief.staffing', 'chief'),
+          ],
+          timeline: [], related_commits: [], related_notes: [],
+        },
+      });
+
+      const summary = await generateNightSummary('village-1', [], { date: '2026-03-15' }, bridge);
+
+      expect(summary.historical_context).toBeDefined();
+      expect(summary.historical_context?.similar_nights.length).toBeGreaterThan(0);
+      expect(summary.historical_context?.similar_nights[0]).toContain('chief.pricing');
+      expect(summary.historical_context?.similar_nights[0]).toContain('2 times');
+    });
+
+    it('populates recurring_issues from event log', async () => {
+      const bridge = makeMockBridge({
+        logEntries: [
+          makeLogEntry('rollback', 'price rollback'),
+          makeLogEntry('rollback', 'another rollback'),
+          makeLogEntry('error', 'budget error'),
+        ],
+      });
+
+      const summary = await generateNightSummary('village-1', [], { date: '2026-03-15' }, bridge);
+
+      expect(summary.historical_context).toBeDefined();
+      expect(summary.historical_context?.recurring_issues.length).toBeGreaterThan(0);
+      expect(summary.historical_context?.recurring_issues[0]).toContain('rollback');
+      expect(summary.historical_context?.recurring_issues[0]).toContain('2 times');
+    });
+
+    it('detects trends when recent decisions dominate', async () => {
+      const now = new Date();
+      const recentTs = now.toISOString();
+      const oldTs = new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString();
+
+      const bridge = makeMockBridge({
+        decisions: {
+          query: 'test', input_type: 'keyword',
+          decisions: [
+            makeDecisionHit('chief.pricing', 'chief', recentTs),
+            makeDecisionHit('chief.staffing', 'chief', recentTs),
+            makeDecisionHit('chief.events', 'chief', recentTs),
+            makeDecisionHit('chief.old', 'chief', oldTs),
+          ],
+          timeline: [], related_commits: [], related_notes: [],
+        },
+      });
+
+      const summary = await generateNightSummary('village-1', [], { date: '2026-03-15' }, bridge);
+
+      expect(summary.historical_context?.trends.length).toBeGreaterThan(0);
+      expect(summary.historical_context?.trends[0]).toContain('Activity increasing');
+    });
+
+    it('gracefully degrades when Edda is offline (queryDecisions fails)', async () => {
+      const bridge = makeMockBridge({ queryFails: true, logFails: true });
+
+      const summary = await generateNightSummary('village-1', [], { date: '2026-03-15' }, bridge);
+
+      // 仍有 historical_context（空的），不 throw
+      expect(summary.historical_context).toBeDefined();
+      expect(summary.historical_context?.similar_nights).toEqual([]);
+      expect(summary.historical_context?.recurring_issues).toEqual([]);
+      expect(summary.historical_context?.trends).toEqual([]);
+    });
+
+    it('combines tonight data + historical context into insights', async () => {
+      const proposals = [
+        makeProposal('law.repeal', 'rollback law'),
+      ];
+      const chiefResult = makeChiefResult({ proposals, appliedCount: 1 });
+      const cycle = makeCycleResult({
+        total_proposals: 1,
+        total_applied: 1,
+        chief_results: [chiefResult],
+      });
+
+      const bridge = makeMockBridge({
+        decisions: {
+          query: 'test', input_type: 'keyword',
+          decisions: [
+            makeDecisionHit('chief.pricing', 'chief'),
+            makeDecisionHit('chief.pricing', 'chief'),
+          ],
+          timeline: [], related_commits: [], related_notes: [],
+        },
+        logEntries: [
+          makeLogEntry('rollback', 'price rollback'),
+          makeLogEntry('rollback', 'another rollback'),
+        ],
+      });
+
+      const summary = await generateNightSummary('village-1', [cycle], { date: '2026-03-15' }, bridge);
+
+      // 應包含 rollback insight + historical insights
+      expect(summary.insights.length).toBeGreaterThan(0);
+      expect(summary.insights.some((i) => i.includes('rollback'))).toBe(true);
+    });
+
+    it('limits insights to 5', async () => {
+      // 製造很多 rollback + 很多歷史數據
+      const proposals = [
+        makeProposal('law.repeal', 'r1'),
+        makeProposal('chief.dismiss', 'r2'),
+      ];
+      const chiefResult = makeChiefResult({
+        proposals,
+        appliedCount: 0,
+        skippedProposals: [
+          { proposal: proposals[0], reason: 'rejected' },
+          { proposal: proposals[1], reason: 'rejected' },
+        ],
+      });
+      const cycle = makeCycleResult({
+        total_proposals: 2,
+        total_applied: 0,
+        total_rejected: 2,
+        chief_results: [chiefResult],
+      });
+
+      const bridge = makeMockBridge({
+        decisions: {
+          query: 'test', input_type: 'keyword',
+          decisions: [
+            makeDecisionHit('chief.a', 'chief'),
+            makeDecisionHit('chief.a', 'chief'),
+            makeDecisionHit('chief.b', 'chief'),
+            makeDecisionHit('chief.b', 'chief'),
+            makeDecisionHit('chief.c', 'chief'),
+            makeDecisionHit('chief.c', 'chief'),
+          ],
+          timeline: [], related_commits: [], related_notes: [],
+        },
+        logEntries: [
+          makeLogEntry('rollback', 'r1'),
+          makeLogEntry('rollback', 'r2'),
+          makeLogEntry('error', 'e1'),
+          makeLogEntry('error', 'e2'),
+        ],
+      });
+
+      const summary = await generateNightSummary('village-1', [cycle], { date: '2026-03-15' }, bridge);
+
+      expect(summary.insights.length).toBeLessThanOrEqual(5);
     });
   });
 
@@ -322,7 +531,7 @@ describe('summary-generator', () => {
       const db = new Database(':memory:');
       initSchema(db);
 
-      const summary = generateNightSummary('village-1', [], { date: '2026-03-15' });
+      const summary = await generateNightSummary('village-1', [], { date: '2026-03-15' });
       await recordNightSummary(db, summary);
 
       const rows = db.prepare(
