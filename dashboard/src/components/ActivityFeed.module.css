@@ -2,7 +2,7 @@
   background: #16213e;
   border: 1px solid #0f3460;
   border-radius: 8px;
-  padding: 1rem;
+  padding: 1.25rem;
 }
 
 .title {
@@ -17,4 +17,96 @@
   font-size: 0.875rem;
   margin: 0;
   font-style: italic;
+}
+
+.errorText {
+  color: #e94560;
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.event {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid #0f3460;
+  animation: slideIn 300ms ease-out;
+}
+
+.event:last-child {
+  border-bottom: none;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Color-coded dot */
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dotSuccess {
+  background: #4ecdc4;
+}
+
+.dotDanger {
+  background: #e94560;
+}
+
+.dotConst {
+  background: #f39c12;
+}
+
+.dotDefault {
+  background: #888;
+}
+
+.eventBody {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.action {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.entity {
+  font-size: 0.7rem;
+  color: #666;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.time {
+  font-size: 0.7rem;
+  color: #555;
+  flex-shrink: 0;
+  white-space: nowrap;
 }

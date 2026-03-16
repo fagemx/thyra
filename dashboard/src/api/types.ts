@@ -125,3 +125,36 @@ export interface ApplyResult {
   change_id: string
   snapshot_id?: string
 }
+
+// --- World Health ---
+
+export interface WorldHealth {
+  overall: number
+  chief_count: number
+  law_count: number
+  skill_count: number
+  budget_utilization: number
+  last_change_age_ms: number
+  constitution_active: boolean
+  cycle_count: number
+  scores: {
+    chief: number
+    constitution: number
+    law: number
+    skill: number
+    budget: number
+    freshness: number
+  }
+}
+
+// --- Audit ---
+
+export interface AuditEntry {
+  id: number
+  entity_type: string
+  entity_id: string
+  action: string
+  payload: string
+  actor: string
+  created_at: string
+}
