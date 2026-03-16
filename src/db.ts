@@ -338,6 +338,16 @@ export function initSchema(db: Database): void {
   } catch {
     // "duplicate column name: pipelines" — 安全忽略
   }
+
+  // Heartbeat protocol columns (#228)
+  const chiefHeartbeatAlters = [
+    "ALTER TABLE chiefs ADD COLUMN adapter_type TEXT NOT NULL DEFAULT 'local'",
+    "ALTER TABLE chiefs ADD COLUMN context_mode TEXT NOT NULL DEFAULT 'fat'",
+    "ALTER TABLE chiefs ADD COLUMN adapter_config TEXT NOT NULL DEFAULT '{}'",
+  ];
+  for (const sql of chiefHeartbeatAlters) {
+    try { db.run(sql); } catch { /* column already exists */ }
+  }
 }
 
 /**

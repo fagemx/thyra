@@ -70,6 +70,9 @@ function makeChief(id: string): Chief {
     constraints: [],
     profile: null,
     pipelines: [],
+    adapter_type: 'local' as const,
+    context_mode: 'fat' as const,
+    adapter_config: {},
     created_at: JUST_NOW,
     updated_at: JUST_NOW,
   };
