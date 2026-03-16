@@ -147,6 +147,9 @@ function applyChiefAppoint(
     },
     constraints: [],
     profile: null,
+    adapter_type: 'local',
+    context_mode: 'fat',
+    adapter_config: {},
     created_at: now,
     updated_at: now,
   };

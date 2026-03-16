@@ -23,6 +23,13 @@ import { executeChiefCycle, type ChiefCycleResult } from './chief-autonomy';
 import type { ChiefEngine } from './chief-engine';
 import type { WorldManager } from './world-manager';
 import type { VillageManager } from './village-manager';
+import {
+  type AdapterRegistry,
+  type ProcessedHeartbeat,
+  createDefaultRegistry,
+  buildHeartbeatContext,
+  processHeartbeatResult,
+} from './execution-adapter';
 
 // ---------------------------------------------------------------------------
 // 型別定義
@@ -61,6 +68,10 @@ export interface GovernanceSchedulerOpts {
   intervalMs?: number;
   /** 每輪結束後的 callback hook（adapter / summary generator 用） */
   onCycleComplete?: (result: GovernanceCycleResult) => void;
+  /** Adapter 註冊表（預設包含 LocalAdapter） */
+  adapterRegistry?: AdapterRegistry;
+  /** 是否使用 heartbeat protocol 而非直接 executeChiefCycle（預設 false，向後相容） */
+  useHeartbeat?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -74,6 +85,8 @@ export class GovernanceScheduler {
   private readonly db: Database;
   private readonly intervalMs: number;
   private readonly onCycleComplete?: (result: GovernanceCycleResult) => void;
+  private readonly adapterRegistry: AdapterRegistry;
+  private readonly useHeartbeat: boolean;
 
   /** Timer lifecycle 狀態 */
   private _started = false;
@@ -89,6 +102,11 @@ export class GovernanceScheduler {
     this.db = opts.db;
     this.intervalMs = opts.intervalMs ?? 60_000;
     this.onCycleComplete = opts.onCycleComplete;
+    this.useHeartbeat = opts.useHeartbeat ?? false;
+    this.adapterRegistry = opts.adapterRegistry ?? createDefaultRegistry(
+      opts.worldManager,
+      (chiefId: string) => opts.chiefEngine.get(chiefId),
+    );
   }
 
   /** 啟動定時排程。雙重啟動會拋出錯誤。 */
@@ -171,8 +189,22 @@ export class GovernanceScheduler {
         // 4. Sequential execution per chief with error isolation
         for (const chief of chiefs) {
           try {
-            const result = executeChiefCycle(this.worldManager, village.id, chief);
-            allChiefResults.push(result);
+            if (this.useHeartbeat) {
+              // Heartbeat protocol path
+              const adapter = this.adapterRegistry.get(chief.adapter_type ?? 'local');
+              const state = this.worldManager.getState(village.id);
+              const context = buildHeartbeatContext(chief, state, 'scheduled');
+              const hbResult = await adapter.invoke(context);
+              const processed = processHeartbeatResult(
+                this.worldManager, this.db, village.id, chief, hbResult,
+              );
+              // Map ProcessedHeartbeat → ChiefCycleResult for backward compat
+              allChiefResults.push(this.toChiefCycleResult(chief.id, processed));
+            } else {
+              // Legacy path — direct executeChiefCycle
+              const result = executeChiefCycle(this.worldManager, village.id, chief);
+              allChiefResults.push(result);
+            }
           } catch (err: unknown) {
             const message = err instanceof Error ? err.message : 'unknown';
             allErrors.push({
@@ -227,5 +259,19 @@ export class GovernanceScheduler {
     } finally {
       this._cycling = false;
     }
+  }
+
+  /**
+   * 將 ProcessedHeartbeat 映射為 ChiefCycleResult，維持向後相容。
+   * heartbeat protocol 不產生 ChiefProposal 物件，
+   * 所以 proposals/skipped 欄位為空，改用 applied 追蹤。
+   */
+  private toChiefCycleResult(chiefId: string, processed: ProcessedHeartbeat): ChiefCycleResult {
+    return {
+      chief_id: chiefId,
+      proposals: [],    // heartbeat path 不暴露原始 proposals
+      applied: processed.applied,
+      skipped: [],      // rejection 計入 rejected_count
+    };
   }
 }

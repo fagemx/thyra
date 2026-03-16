@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { PermissionEnum } from './constitution';
+import { AdapterTypeEnum, ContextModeEnum } from './heartbeat';
 
 const SkillBindingInput = z.object({
   skill_id: z.string(),
@@ -44,6 +45,12 @@ export const CreateChiefInput = z.object({
   personality: ChiefPersonalityInput.default({}),
   constraints: z.array(ChiefConstraintInput).default([]),
   profile: ChiefProfileNameEnum.optional(),
+  /** Adapter 類型 — 決定由哪種 adapter 處理此 chief 的心跳 */
+  adapter_type: AdapterTypeEnum.default('local'),
+  /** Context 傳遞模式 — fat 或 thin */
+  context_mode: ContextModeEnum.default('fat'),
+  /** Adapter 專屬設定（如 HTTP endpoint URL） */
+  adapter_config: z.record(z.unknown()).default({}),
 });
 
 export const UpdateChiefInput = z.object({
@@ -55,6 +62,9 @@ export const UpdateChiefInput = z.object({
   personality: ChiefPersonalityInput.optional(),
   constraints: z.array(ChiefConstraintInput).optional(),
   profile: ChiefProfileNameEnum.optional(),
+  adapter_type: AdapterTypeEnum.optional(),
+  context_mode: ContextModeEnum.optional(),
+  adapter_config: z.record(z.unknown()).optional(),
 });
 
 /**

@@ -226,6 +226,7 @@ describe('buildChiefPrompt', () => {
         { type: 'must_not' as const, description: 'comment on formatting' },
       ],
       profile: null,
+      adapter_type: 'local' as const, context_mode: 'fat' as const, adapter_config: {},
       created_at: '', updated_at: '',
     };
     const prompt = buildChiefPrompt(chief, skillRegistry);
@@ -249,6 +250,7 @@ describe('buildChiefPrompt', () => {
       personality: { risk_tolerance: 'moderate' as const, communication_style: 'concise' as const, decision_speed: 'deliberate' as const },
       constraints: [],
       profile: null,
+      adapter_type: 'local' as const, context_mode: 'fat' as const, adapter_config: {},
       created_at: '', updated_at: '',
     };
     const prompt = buildChiefPrompt(chief, skillRegistry);
@@ -264,6 +266,7 @@ describe('buildChiefPrompt', () => {
       personality: { risk_tolerance: 'conservative' as const, communication_style: 'detailed' as const, decision_speed: 'deliberate' as const },
       constraints: [],
       profile: 'analyst' as const,
+      adapter_type: 'local' as const, context_mode: 'fat' as const, adapter_config: {},
       created_at: '', updated_at: '',
     };
     const prompt = buildChiefPrompt(chief, skillRegistry);
@@ -280,6 +283,7 @@ describe('buildChiefPrompt', () => {
       personality: { risk_tolerance: 'moderate' as const, communication_style: 'concise' as const, decision_speed: 'deliberate' as const },
       constraints: [],
       profile: null,
+      adapter_type: 'local' as const, context_mode: 'fat' as const, adapter_config: {},
       created_at: '', updated_at: '',
     };
     const prompt = buildChiefPrompt(chief, skillRegistry);
@@ -296,6 +300,7 @@ describe('buildChiefPrompt', () => {
       personality: { risk_tolerance: 'moderate' as const, communication_style: 'concise' as const, decision_speed: 'deliberate' as const },
       constraints: [],
       profile: null,
+      adapter_type: 'local' as const, context_mode: 'fat' as const, adapter_config: {},
       created_at: '', updated_at: '',
     };
     const prompt = buildChiefPrompt(chief, skillRegistry);
@@ -309,6 +314,7 @@ describe('buildChiefPrompt', () => {
       personality: { risk_tolerance: 'moderate' as const, communication_style: 'concise' as const, decision_speed: 'deliberate' as const },
       constraints: [],
       profile: null,
+      adapter_type: 'local' as const, context_mode: 'fat' as const, adapter_config: {},
       created_at: '', updated_at: '',
     };
     const prompt = buildChiefPrompt(chief, skillRegistry);

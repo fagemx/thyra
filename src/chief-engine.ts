@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { appendAudit } from './db';
 import { CreateChiefInput as CreateChiefSchema } from './schemas/chief';
 import type { CreateChiefInputRaw, UpdateChiefInput, ChiefPersonality, ChiefProfile, ChiefProfileName, GovernanceActionInput } from './schemas/chief';
+import type { AdapterType, ContextMode } from './schemas/heartbeat';
 import type { ConstitutionStore } from './constitution-store';
 import type { SkillRegistry } from './skill-registry';
 import { buildSkillPrompt } from './skill-registry';
@@ -29,6 +30,9 @@ export interface Chief {
   personality: ChiefPersonality;
   constraints: ChiefConstraint[];
   profile: ChiefProfileName | null;
+  adapter_type: AdapterType;
+  context_mode: ContextMode;
+  adapter_config: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }
@@ -148,19 +152,24 @@ export class ChiefEngine {
       personality: resolved.personality,
       constraints: resolved.constraints,
       profile: input.profile ?? null,
+      adapter_type: input.adapter_type,
+      context_mode: input.context_mode,
+      adapter_config: input.adapter_config,
       created_at: now,
       updated_at: now,
     };
 
     this.db.prepare(`
-      INSERT INTO chiefs (id, village_id, name, role, version, status, skills, pipelines, permissions, personality, constraints, profile, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO chiefs (id, village_id, name, role, version, status, skills, pipelines, permissions, personality, constraints, profile, adapter_type, context_mode, adapter_config, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       chief.id, villageId, chief.name, chief.role, chief.version, chief.status,
       JSON.stringify(chief.skills), JSON.stringify(chief.pipelines),
       JSON.stringify(chief.permissions),
       JSON.stringify(chief.personality), JSON.stringify(chief.constraints),
-      chief.profile, chief.created_at, chief.updated_at,
+      chief.profile, chief.adapter_type, chief.context_mode,
+      JSON.stringify(chief.adapter_config),
+      chief.created_at, chief.updated_at,
     );
 
     appendAudit(this.db, 'chief', chief.id, 'create', chief, actor);
@@ -226,6 +235,9 @@ export class ChiefEngine {
       ...(input.skills !== undefined && { skills: input.skills }),
       ...(input.pipelines !== undefined && { pipelines: input.pipelines }),
       ...(input.permissions !== undefined && { permissions: input.permissions }),
+      ...(input.adapter_type !== undefined && { adapter_type: input.adapter_type }),
+      ...(input.context_mode !== undefined && { context_mode: input.context_mode }),
+      ...(input.adapter_config !== undefined && { adapter_config: input.adapter_config }),
       personality: resolvedPersonality,
       constraints: resolvedConstraints,
       profile: resolvedProfile,
@@ -235,13 +247,16 @@ export class ChiefEngine {
 
     const result = this.db.prepare(`
       UPDATE chiefs SET name=?, role=?, version=?, skills=?, pipelines=?, permissions=?,
-        personality=?, constraints=?, profile=?, updated_at=? WHERE id=? AND version=?
+        personality=?, constraints=?, profile=?, adapter_type=?, context_mode=?, adapter_config=?,
+        updated_at=? WHERE id=? AND version=?
     `).run(
       updated.name, updated.role, updated.version,
       JSON.stringify(updated.skills), JSON.stringify(updated.pipelines),
       JSON.stringify(updated.permissions),
       JSON.stringify(updated.personality), JSON.stringify(updated.constraints),
-      updated.profile, now, id, existing.version,
+      updated.profile, updated.adapter_type, updated.context_mode,
+      JSON.stringify(updated.adapter_config),
+      now, id, existing.version,
     );
     if ((result as { changes: number }).changes === 0) {
       throw new Error('CONCURRENCY_CONFLICT: version mismatch');
@@ -379,6 +394,9 @@ export class ChiefEngine {
       personality: JSON.parse((row.personality as string) || '{}') as Chief['personality'],
       constraints: JSON.parse((row.constraints as string) || '[]') as Chief['constraints'],
       profile: (row.profile as ChiefProfileName | null) ?? null,
+      adapter_type: (row.adapter_type as AdapterType | null) ?? 'local',
+      context_mode: (row.context_mode as ContextMode | null) ?? 'fat',
+      adapter_config: JSON.parse((row.adapter_config as string) || '{}') as Record<string, unknown>,
       created_at: row.created_at as string,
       updated_at: row.updated_at as string,
     };

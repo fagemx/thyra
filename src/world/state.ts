@@ -128,7 +128,7 @@ function deserializeConstitution(row: Record<string, unknown>): Constitution {
   };
 }
 
-/** 來源: chief-engine.ts L183-198 */
+/** 來源: chief-engine.ts deserialize */
 function deserializeChief(row: Record<string, unknown>): Chief {
   return {
     id: row.id as string,
@@ -143,6 +143,9 @@ function deserializeChief(row: Record<string, unknown>): Chief {
     personality: JSON.parse((row.personality as string) || '{}') as Chief['personality'],
     constraints: JSON.parse((row.constraints as string) || '[]') as Chief['constraints'],
     profile: (row.profile as Chief['profile']) ?? null,
+    adapter_type: (row.adapter_type as Chief['adapter_type'] | null) ?? 'local',
+    context_mode: (row.context_mode as Chief['context_mode'] | null) ?? 'fat',
+    adapter_config: JSON.parse((row.adapter_config as string) || '{}') as Record<string, unknown>,
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
   };
