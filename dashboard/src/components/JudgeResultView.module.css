@@ -1,0 +1,118 @@
+.container {
+  margin-top: 1rem;
+}
+
+.heading {
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+/* Pipeline bar — 5 segments side by side */
+.pipeline {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 0.75rem;
+}
+
+.step {
+  flex: 1;
+  text-align: center;
+  padding: 0.35rem 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: 3px;
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.stepPass {
+  background: #2d6a4f;
+}
+
+.stepFail {
+  background: #9b2226;
+}
+
+/* Verdict badge */
+.verdict {
+  display: inline-block;
+  padding: 0.3rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.75rem;
+}
+
+.verdictAllowed {
+  background: #2d6a4f;
+  color: #b7e4c7;
+}
+
+.verdictRejected {
+  background: #9b2226;
+  color: #ffc9c9;
+}
+
+.verdictApproval {
+  background: #a0620d;
+  color: #ffe0a3;
+}
+
+/* Reasons + warnings */
+.section {
+  margin-bottom: 0.75rem;
+}
+
+.sectionTitle {
+  margin: 0 0 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #aaa;
+}
+
+.reasonList,
+.warningList {
+  margin: 0;
+  padding-left: 1.25rem;
+  list-style: disc;
+}
+
+.reasonItem {
+  color: #ff6b6b;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.warningItem {
+  color: #ffc078;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+/* Apply button */
+.applyButton {
+  display: inline-block;
+  padding: 0.5rem 1.25rem;
+  background: #2d6a4f;
+  color: #fff;
+  border: 1px solid #40916c;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.applyButton:hover:not(:disabled) {
+  background: #40916c;
+}
+
+.applyButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

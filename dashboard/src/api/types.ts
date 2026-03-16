@@ -214,6 +214,7 @@ export interface WorldStateDiff {
   skills: SkillsDiff
   loops: LoopCyclesDiff
   has_changes: boolean
+<<<<<<< HEAD
 }
 
 // --- WorldHealth (mirrors src/world/health.ts) ---

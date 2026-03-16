@@ -12,6 +12,148 @@
   color: #e94560;
 }
 
+/* Form fields */
+.field {
+  margin-bottom: 0.75rem;
+}
+
+.label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #aaa;
+  margin-bottom: 0.3rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.select {
+  width: 100%;
+  padding: 0.45rem 0.5rem;
+  background: #0d1b2a;
+  color: #e0e0e0;
+  border: 1px solid #0f3460;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.select:focus {
+  outline: none;
+  border-color: #e94560;
+}
+
+.textarea {
+  width: 100%;
+  padding: 0.5rem;
+  background: #0d1b2a;
+  color: #e0e0e0;
+  border: 1px solid #0f3460;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-family: 'Consolas', 'Courier New', monospace;
+  resize: vertical;
+  min-height: 120px;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
+
+.textarea:focus {
+  outline: none;
+  border-color: #e94560;
+}
+
+.input {
+  width: 100%;
+  padding: 0.45rem 0.5rem;
+  background: #0d1b2a;
+  color: #e0e0e0;
+  border: 1px solid #0f3460;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.input:focus {
+  outline: none;
+  border-color: #e94560;
+}
+
+/* Buttons */
+.judgeButton {
+  display: inline-block;
+  padding: 0.5rem 1.25rem;
+  background: #e94560;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.judgeButton:hover:not(:disabled) {
+  background: #d63a52;
+}
+
+.judgeButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.resetButton {
+  display: inline-block;
+  margin-top: 0.75rem;
+  padding: 0.4rem 1rem;
+  background: transparent;
+  color: #888;
+  border: 1px solid #333;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.resetButton:hover {
+  color: #e0e0e0;
+  border-color: #666;
+}
+
+/* Error */
+.error {
+  margin-top: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(155, 34, 38, 0.3);
+  border: 1px solid #9b2226;
+  border-radius: 4px;
+  color: #ff6b6b;
+  font-size: 0.85rem;
+}
+
+/* Applied state extras */
+.noChanges {
+  color: #666;
+  font-size: 0.85rem;
+  font-style: italic;
+  margin: 0.75rem 0 0;
+}
+
+.snapshotInfo {
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  color: #888;
+}
+
+.snapshotInfo code {
+  background: rgba(15, 52, 96, 0.5);
+  padding: 0.1rem 0.3rem;
+  border-radius: 2px;
+  font-size: 0.75rem;
+}
+
 .placeholder {
   color: #666;
   font-size: 0.875rem;

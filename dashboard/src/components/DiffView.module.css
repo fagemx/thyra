@@ -1,0 +1,94 @@
+.container {
+  margin-top: 1rem;
+}
+
+.heading {
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.noChanges {
+  color: #666;
+  font-size: 0.85rem;
+  font-style: italic;
+  margin: 0;
+}
+
+.section {
+  margin-bottom: 0.75rem;
+  padding: 0.5rem;
+  background: rgba(15, 52, 96, 0.3);
+  border-radius: 4px;
+}
+
+.sectionTitle {
+  margin: 0 0 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #aaa;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.added {
+  color: #69db7c;
+  font-size: 0.8rem;
+  margin: 0.15rem 0;
+  font-family: 'Consolas', 'Courier New', monospace;
+}
+
+.removed {
+  color: #ff6b6b;
+  font-size: 0.8rem;
+  margin: 0.15rem 0;
+  font-family: 'Consolas', 'Courier New', monospace;
+}
+
+.changed {
+  color: #ffc078;
+  font-size: 0.8rem;
+  margin: 0.15rem 0;
+  font-family: 'Consolas', 'Courier New', monospace;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  background: #0f3460;
+  color: #e0e0e0;
+  margin-bottom: 0.35rem;
+}
+
+.badge[data-action='created'] {
+  background: #2d6a4f;
+  color: #b7e4c7;
+}
+
+.badge[data-action='superseded'] {
+  background: #a0620d;
+  color: #ffe0a3;
+}
+
+.badge[data-action='revoked'] {
+  background: #9b2226;
+  color: #ffc9c9;
+}
+
+.fingerprint {
+  color: #888;
+  font-size: 0.75rem;
+  margin: 0.15rem 0;
+}
+
+.fingerprint code {
+  background: rgba(15, 52, 96, 0.5);
+  padding: 0.1rem 0.3rem;
+  border-radius: 2px;
+  font-size: 0.75rem;
+}
