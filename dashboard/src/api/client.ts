@@ -7,6 +7,7 @@
 import type {
   ApiResponse,
   ApplyResult,
+  AuditEntry,
   JudgeVerdict,
   Village,
   WorldChange,
@@ -69,6 +70,15 @@ export async function applyChange(
     ...change,
     reason,
   })
+}
+
+// --- Audit ---
+
+export async function getVillageAudit(
+  villageId: string,
+  limit = 10,
+): Promise<AuditEntry[]> {
+  return request<AuditEntry[]>('GET', `/villages/${villageId}/audit?limit=${limit}`)
 }
 
 // --- Health ---

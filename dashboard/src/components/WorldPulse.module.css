@@ -2,41 +2,179 @@
   background: #16213e;
   border: 1px solid #0f3460;
   border-radius: 8px;
-  padding: 1rem;
+  padding: 1.25rem;
 }
 
-.error {
-  color: #e94560;
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
 }
 
 .title {
-  margin: 0 0 0.75rem;
+  margin: 0;
   font-size: 1rem;
   font-weight: 600;
   color: #e94560;
 }
 
-.grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.75rem;
+/* Connection indicator dot */
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
-.stat {
+.dotLive {
+  background: #4ecdc4;
+  box-shadow: 0 0 6px #4ecdc4;
+  animation: blink 2s ease-in-out infinite;
+}
+
+.dotOff {
+  background: #555;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* Big number */
+.numberWrap {
+  text-align: center;
+  padding: 1rem 0;
+}
+
+.number {
+  font-size: 4rem;
+  font-weight: 700;
+  line-height: 1;
+  transition: color 0.6s ease;
+  will-change: transform;
+}
+
+.numberLabel {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #888;
+  margin-top: 0.25rem;
+}
+
+/* Breathing animations */
+.pulse {
+  animation: pulseAnim 400ms ease-out;
+}
+
+.bump {
+  animation: bumpAnim 500ms ease-out;
+}
+
+@keyframes pulseAnim {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.03); }
+  100% { transform: scale(1); }
+}
+
+@keyframes bumpAnim {
+  0% { transform: scale(1); filter: brightness(1); }
+  25% { transform: scale(1.06); filter: brightness(1.3); }
+  100% { transform: scale(1); filter: brightness(1); }
+}
+
+/* Health color classes */
+.healthy {
+  color: #4ecdc4;
+}
+
+.warning {
+  color: #f39c12;
+}
+
+.danger {
+  color: #e94560;
+}
+
+/* Sub-score bars */
+.bars {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.4rem;
+  margin-top: 1rem;
 }
 
-.label {
-  font-size: 0.75rem;
+.barRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.barLabel {
+  font-size: 0.7rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   color: #888;
+  width: 80px;
+  flex-shrink: 0;
 }
 
-.value {
-  font-size: 1.125rem;
+.barTrack {
+  flex: 1;
+  height: 6px;
+  background: #0d1b36;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.barFill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.6s ease, background-color 0.6s ease;
+}
+
+.barFill.healthy {
+  background-color: #4ecdc4;
+}
+
+.barFill.warning {
+  background-color: #f39c12;
+}
+
+.barFill.danger {
+  background-color: #e94560;
+}
+
+.barValue {
+  font-size: 0.75rem;
   font-weight: 600;
-  color: #e0e0e0;
+  width: 28px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* Metadata row */
+.meta {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #0f3460;
+  font-size: 0.75rem;
+  color: #666;
+}
+
+/* States */
+.errorText {
+  color: #e94560;
+  font-size: 0.875rem;
+}
+
+.loading {
+  color: #666;
+  font-size: 0.875rem;
+  text-align: center;
+  padding: 2rem 0;
 }
