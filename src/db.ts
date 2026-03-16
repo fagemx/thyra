@@ -325,6 +325,23 @@ export function initSchema(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_goal_village ON goals(village_id, status);
     CREATE INDEX IF NOT EXISTS idx_goal_parent ON goals(parent_id);
     CREATE INDEX IF NOT EXISTS idx_goal_chief ON goals(owner_chief_id);
+
+    -- Cycle telemetry (#232: per-operation timing for governance cycles)
+    CREATE TABLE IF NOT EXISTS cycle_telemetry (
+      id TEXT PRIMARY KEY,
+      cycle_id TEXT NOT NULL,
+      chief_id TEXT NOT NULL,
+      village_id TEXT NOT NULL,
+      total_duration_ms INTEGER NOT NULL,
+      operations TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_telemetry_village
+      ON cycle_telemetry(village_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_telemetry_chief
+      ON cycle_telemetry(chief_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_telemetry_cycle
+      ON cycle_telemetry(cycle_id);
   `);
 
   // ALTER TABLE 新增 intent 欄位（冪等：column 已存在就忽略）

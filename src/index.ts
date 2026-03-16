@@ -34,6 +34,7 @@ import { ZoneManager } from './market/zones';
 import { StallManager } from './market/stalls';
 import { SlotManager } from './market/slots';
 import { marketRoutes } from './routes/market';
+import { telemetryRoutes } from './routes/telemetry';
 
 const app = new Hono();
 
@@ -91,6 +92,7 @@ app.route('', governanceRoutes({
 app.route('', worldRoutes(worldManager, db));
 app.route('', goalRoutes(goalStore));
 app.route('', marketRoutes({ db, zoneManager, stallManager, slotManager }));
+app.route('', telemetryRoutes(db));
 app.route('', packRoutes({
   db,
   villageMgr,
