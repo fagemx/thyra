@@ -1,7 +1,7 @@
 /**
  * world/judge.ts — change-level 驗證管線
  *
- * 4 層管線：Safety → Legality → Boundary → Consistency
+ * 5 層管線：Safety → Legality → Boundary → Evaluator → Consistency
  * Pure function，無 DB 依賴。接收 WorldState + WorldChange，回傳 JudgeResult。
  *
  * Safety Invariants 改編自 src/risk-assessor.ts (THY-12)。
@@ -10,7 +10,9 @@
 import type { WorldState } from './state';
 import type { WorldChange } from '../schemas/world-change';
 import type { Permission } from '../schemas/constitution';
+import type { EvaluatorRule } from '../schemas/evaluator';
 import { applyChange } from './change';
+import { checkEvaluator } from './evaluator';
 
 // ---------------------------------------------------------------------------
 // JudgeResult 型別
@@ -22,7 +24,12 @@ export interface JudgeResult {
   safety_check: boolean;
   legality_check: boolean;
   boundary_check: boolean;
+  evaluator_check: boolean;
   consistency_check: boolean;
+  /** Evaluator warn messages (default []) */
+  warnings: string[];
+  /** Evaluator require_human_approval fired (default false) */
+  requires_approval: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -219,12 +226,13 @@ function checkConsistency(state: WorldState, change: WorldChange): string[] {
 // ---------------------------------------------------------------------------
 
 /**
- * 對一個 WorldChange 進行 4 層驗證管線。
+ * 對一個 WorldChange 進行 5 層驗證管線。
  *
  * 1. Safety — 硬編碼安全檢查（SI-1, SI-4, SI-7）
  * 2. Legality — constitution 允許範圍
  * 3. Boundary — 預算上限、合理性
- * 4. Consistency — apply 後狀態一致性
+ * 4. Evaluator — 用戶定義的品質標準
+ * 5. Consistency — apply 後狀態一致性
  *
  * 回傳 JudgeResult，其中 allowed = 所有層都通過。
  */
@@ -232,14 +240,36 @@ export function judgeChange(state: WorldState, change: WorldChange): JudgeResult
   const safetyReasons = checkSafety(state, change);
   const legalityReasons = checkLegality(state, change);
   const boundaryReasons = checkBoundary(state, change);
+
+  // Layer 4: Evaluator — 用戶定義的品質標準
+  const evaluatorRules: EvaluatorRule[] =
+    (state.constitution as Record<string, unknown> | null)?.evaluator_rules as EvaluatorRule[] ?? [];
+  const evaluatorResult = checkEvaluator(state, change, evaluatorRules);
+  const evaluatorReasons: string[] = [];
+  for (const rr of evaluatorResult.rule_results) {
+    if (rr.action_taken === 'reject') {
+      evaluatorReasons.push(`EVALUATOR: rule "${rr.rule_name}" rejected change`);
+    }
+    if (rr.action_taken === 'require_human_approval') {
+      evaluatorReasons.push(`EVALUATOR: rule "${rr.rule_name}" requires human approval`);
+    }
+  }
+
   const consistencyReasons = checkConsistency(state, change);
 
   const safety_check = safetyReasons.length === 0;
   const legality_check = legalityReasons.length === 0;
   const boundary_check = boundaryReasons.length === 0;
+  const evaluator_check = evaluatorResult.passed;
   const consistency_check = consistencyReasons.length === 0;
 
-  const reasons = [...safetyReasons, ...legalityReasons, ...boundaryReasons, ...consistencyReasons];
+  const reasons = [
+    ...safetyReasons,
+    ...legalityReasons,
+    ...boundaryReasons,
+    ...evaluatorReasons,
+    ...consistencyReasons,
+  ];
   const allowed = reasons.length === 0;
 
   return {
@@ -248,6 +278,9 @@ export function judgeChange(state: WorldState, change: WorldChange): JudgeResult
     safety_check,
     legality_check,
     boundary_check,
+    evaluator_check,
     consistency_check,
+    warnings: evaluatorResult.warnings,
+    requires_approval: evaluatorResult.requires_approval,
   };
 }

@@ -12,6 +12,7 @@ import type { ChiefEngine, Chief } from '../chief-engine';
 import type { LawEngine, Law } from '../law-engine';
 import type { SkillRegistry, Skill } from '../skill-registry';
 import type { Permission } from '../schemas/constitution';
+import type { EvaluatorRule } from '../schemas/evaluator';
 import type { SkillBinding } from '../schemas/skill';
 
 // ── Types ────────────────────────────────────────────────────
@@ -107,6 +108,7 @@ export interface PackConstitution {
     max_cost_per_month?: number;
   };
   rules: PackConstitutionRule[];
+  evaluators?: EvaluatorRule[];
 }
 
 export interface PackChief {

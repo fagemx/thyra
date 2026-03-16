@@ -128,6 +128,7 @@ describe('judgeChange', () => {
         rules: [{ description: 'New rule', enforcement: 'hard', scope: ['*'] }],
         allowed_permissions: ['dispatch_task', 'propose_law'],
         budget_limits: { max_cost_per_action: 20, max_cost_per_day: 200, max_cost_per_loop: 100, max_cost_per_month: 0 },
+        evaluator_rules: [],
         actor: 'human',
       };
       const result = judgeChange(state, change);
@@ -364,6 +365,7 @@ describe('judgeChange', () => {
         rules: [{ description: 'New rule', enforcement: 'hard', scope: ['*'] }],
         allowed_permissions: ['propose_law'],
         budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50, max_cost_per_month: 0 },
+        evaluator_rules: [],
         actor: 'human',
       };
       const result = judgeChange(state, change);
@@ -396,7 +398,123 @@ describe('judgeChange', () => {
     });
   });
 
-  // --- 7. constitution.supersede 不需要現有 constitution ---
+  // --- 7. Evaluator layer ---
+  describe('evaluator layer', () => {
+    it('passes with no evaluator rules (backward compatible)', () => {
+      const state = makeState();
+      const change: WorldChange = { type: 'village.update', name: 'New Name' };
+      const result = judgeChange(state, change);
+
+      expect(result.evaluator_check).toBe(true);
+      expect(result.warnings).toHaveLength(0);
+      expect(result.requires_approval).toBe(false);
+    });
+
+    it('warns when evaluator rule on_fail is warn', () => {
+      const constitution = makeConstitution();
+      (constitution as unknown as Record<string, unknown>).evaluator_rules = [
+        {
+          name: 'soft-budget',
+          trigger: 'budget.adjust',
+          condition: { field: 'change.max_cost_per_action', operator: 'lte', value: 5 },
+          on_fail: { risk: 'low', action: 'warn' },
+        },
+      ];
+      const state = makeState({ constitution });
+      const change: WorldChange = { type: 'budget.adjust', max_cost_per_action: 8 };
+      const result = judgeChange(state, change);
+
+      expect(result.allowed).toBe(true);
+      expect(result.evaluator_check).toBe(true); // warn doesn't fail evaluator_check
+      expect(result.warnings.length).toBeGreaterThan(0);
+      expect(result.warnings[0]).toContain('soft-budget');
+    });
+
+    it('rejects when evaluator rule on_fail is reject', () => {
+      const constitution = makeConstitution();
+      (constitution as unknown as Record<string, unknown>).evaluator_rules = [
+        {
+          name: 'hard-budget',
+          trigger: 'budget.adjust',
+          condition: { field: 'change.max_cost_per_action', operator: 'lt', value: 50 },
+          on_fail: { risk: 'high', action: 'reject' },
+        },
+      ];
+      const state = makeState({ constitution });
+      const change: WorldChange = { type: 'budget.adjust', max_cost_per_action: 80 };
+      const result = judgeChange(state, change);
+
+      expect(result.allowed).toBe(false);
+      expect(result.evaluator_check).toBe(false);
+      expect(result.reasons.some(r => r.includes('EVALUATOR'))).toBe(true);
+    });
+
+    it('blocks with requires_approval when evaluator rule action is require_human_approval', () => {
+      const constitution = makeConstitution();
+      (constitution as unknown as Record<string, unknown>).evaluator_rules = [
+        {
+          name: 'price-stability',
+          trigger: 'budget.adjust',
+          condition: { field: 'change.max_cost_per_action', operator: 'lt', value: 20 },
+          on_fail: { risk: 'medium', action: 'require_human_approval' },
+        },
+      ];
+      const state = makeState({ constitution });
+      const change: WorldChange = { type: 'budget.adjust', max_cost_per_action: 30 };
+      const result = judgeChange(state, change);
+
+      expect(result.allowed).toBe(false);
+      expect(result.evaluator_check).toBe(false);
+      expect(result.requires_approval).toBe(true);
+      expect(result.reasons.some(r => r.includes('requires human approval'))).toBe(true);
+    });
+
+    it('evaluator does not trigger for non-matching change types', () => {
+      const constitution = makeConstitution();
+      (constitution as unknown as Record<string, unknown>).evaluator_rules = [
+        {
+          name: 'budget-only',
+          trigger: 'budget.adjust',
+          condition: { field: 'change.max_cost_per_action', operator: 'lt', value: 1 },
+          on_fail: { risk: 'high', action: 'reject' },
+        },
+      ];
+      const state = makeState({ constitution });
+      const change: WorldChange = { type: 'village.update', name: 'New' };
+      const result = judgeChange(state, change);
+
+      expect(result.allowed).toBe(true);
+      expect(result.evaluator_check).toBe(true);
+    });
+
+    it('evaluator uses ref with multiplier', () => {
+      const constitution = makeConstitution({
+        budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50, max_cost_per_month: 0 },
+      });
+      (constitution as unknown as Record<string, unknown>).evaluator_rules = [
+        {
+          name: 'budget-2x',
+          trigger: 'budget.adjust',
+          condition: {
+            field: 'change.max_cost_per_action',
+            operator: 'lt',
+            ref: 'constitution.budget_limits.max_cost_per_action',
+            multiplier: 2,
+          },
+          on_fail: { risk: 'medium', action: 'reject' },
+        },
+      ];
+      const state = makeState({ constitution });
+      // 10 * 2 = 20, change = 25, not < 20 → reject
+      const change: WorldChange = { type: 'budget.adjust', max_cost_per_action: 25 };
+      const result = judgeChange(state, change);
+
+      expect(result.allowed).toBe(false);
+      expect(result.evaluator_check).toBe(false);
+    });
+  });
+
+  // --- 8. constitution.supersede 不需要現有 constitution ---
   describe('edge cases', () => {
     it('allows constitution.supersede without existing constitution', () => {
       const state = makeState({ constitution: null });
@@ -405,6 +523,7 @@ describe('judgeChange', () => {
         rules: [{ description: 'First rule', enforcement: 'hard', scope: ['*'] }],
         allowed_permissions: ['dispatch_task'],
         budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50, max_cost_per_month: 0 },
+        evaluator_rules: [],
         actor: 'human',
       };
       const result = judgeChange(state, change);
@@ -459,6 +578,7 @@ describe('judgeChange', () => {
         rules: [{ description: 'Rule', enforcement: 'hard', scope: ['*'] }],
         allowed_permissions: ['dispatch_task'],
         budget_limits: { max_cost_per_action: -1, max_cost_per_day: 100, max_cost_per_loop: 50, max_cost_per_month: 0 },
+        evaluator_rules: [],
         actor: 'human',
       };
       const result = judgeChange(state, change);

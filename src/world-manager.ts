@@ -104,7 +104,7 @@ export class WorldManager {
   }
 
   /**
-   * 對一個 WorldChange 進行 4 層驗證（不套用）。
+   * 對一個 WorldChange 進行 5 層驗證（不套用）。
    * 用途：preview / dry-run。
    */
   propose(villageId: string, change: WorldChange): JudgeResult {

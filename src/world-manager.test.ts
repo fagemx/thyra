@@ -47,6 +47,7 @@ function makeConstitutionChange(): WorldChange {
     rules: [{ description: 'new rule', enforcement: 'hard' as const, scope: ['*'] }],
     allowed_permissions: ['dispatch_task', 'enact_law_low'],
     budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50, max_cost_per_month: 0 },
+    evaluator_rules: [],
     actor: 'test-actor',
   };
 }

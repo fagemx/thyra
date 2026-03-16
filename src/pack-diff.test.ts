@@ -23,6 +23,7 @@ function makeYamlConstitution(overrides?: Partial<VillagePackConstitution>): Vil
     ],
     allowed_permissions: ['dispatch_task', 'propose_law'],
     budget: { max_cost_per_action: 0.5, max_cost_per_day: 10, max_cost_per_loop: 2, max_cost_per_month: 0 },
+    evaluators: [],
     ...overrides,
   };
 }
