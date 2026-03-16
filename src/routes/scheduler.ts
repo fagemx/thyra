@@ -19,7 +19,7 @@ export interface SchedulerLike {
 
 export interface SchedulerRouteDeps {
   scheduler?: SchedulerLike;
-  db?: Database;
+  db: Database;
 }
 
 export function schedulerRoutes(deps?: SchedulerRouteDeps): Hono {
@@ -63,9 +63,7 @@ export function schedulerRoutes(deps?: SchedulerRouteDeps): Hono {
 
     deps.scheduler.stop();
 
-    if (deps.db) {
-      appendAudit(deps.db, 'scheduler', 'global', 'stop', { source: 'dashboard' }, 'human');
-    }
+    appendAudit(deps.db, 'scheduler', 'global', 'stop', { source: 'dashboard' }, 'human');
 
     return c.json({
       ok: true,
@@ -96,9 +94,7 @@ export function schedulerRoutes(deps?: SchedulerRouteDeps): Hono {
 
     deps.scheduler.start();
 
-    if (deps.db) {
-      appendAudit(deps.db, 'scheduler', 'global', 'start', { source: 'dashboard' }, 'human');
-    }
+    appendAudit(deps.db, 'scheduler', 'global', 'start', { source: 'dashboard' }, 'human');
 
     return c.json({
       ok: true,
