@@ -186,6 +186,30 @@ export function chiefRoutes(engine: ChiefEngine, skillRegistry: SkillRegistry, d
   });
 
   /**
+   * Pause an active chief — 人類手動暫停 (#235)
+   */
+  app.post('/api/chiefs/:id/pause', async (c) => {
+    const id = c.req.param('id');
+    const body: unknown = await c.req.json().catch(() => ({}));
+    const reason = (typeof body === 'object' && body !== null && 'reason' in body && typeof (body as Record<string, unknown>).reason === 'string')
+      ? (body as Record<string, string>).reason
+      : 'Manual pause via dashboard';
+    try {
+      const chief = engine.pauseChief(id, reason, 'human');
+      return c.json({ ok: true, data: chief });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Unknown error';
+      if (msg.includes('not found')) {
+        return c.json({ ok: false, error: { code: 'NOT_FOUND', message: msg } }, 404);
+      }
+      if (msg.includes('not active')) {
+        return c.json({ ok: false, error: { code: 'CHIEF_NOT_ACTIVE', message: msg } }, 400);
+      }
+      return c.json({ ok: false, error: { code: 'BAD_REQUEST', message: msg } }, 400);
+    }
+  });
+
+  /**
    * Resume a paused chief — 只有人類能恢復 (#226)
    */
   app.post('/api/chiefs/:id/resume', (c) => {

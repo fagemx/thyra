@@ -38,6 +38,7 @@ import { telemetryRoutes } from './routes/telemetry';
 import { AlertManager } from './alert-manager';
 import { WebhookDispatcher } from './alert-webhook';
 import { alertRoutes } from './routes/alerts';
+import { schedulerRoutes } from './routes/scheduler';
 
 const app = new Hono();
 
@@ -99,6 +100,7 @@ app.route('', goalRoutes(goalStore));
 app.route('', marketRoutes({ db, zoneManager, stallManager, slotManager }));
 app.route('', telemetryRoutes(db));
 app.route('', alertRoutes(alertManager, webhookDispatcher));
+app.route('', schedulerRoutes({ db }));
 app.route('', packRoutes({
   db,
   villageMgr,

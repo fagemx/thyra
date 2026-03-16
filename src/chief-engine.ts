@@ -392,8 +392,8 @@ export class ChiefEngine {
     appendAudit(this.db, 'chief', id, 'deactivate', { previous_status: chief.status }, actor);
   }
 
-  /** 自動暫停 chief（月預算超限） */
-  pauseChief(id: string, reason: string): Chief {
+  /** 暫停 chief（月預算超限或人工介入） */
+  pauseChief(id: string, reason: string, actor = 'system'): Chief {
     const chief = this.get(id);
     if (!chief) throw new Error('Chief not found');
     if (chief.status !== 'active') throw new Error('Chief is not active, cannot pause');
@@ -404,7 +404,7 @@ export class ChiefEngine {
     if ((result as { changes: number }).changes === 0) {
       throw new Error('CONCURRENCY_CONFLICT: version mismatch');
     }
-    appendAudit(this.db, 'chief', id, 'pause', { reason, previous_status: chief.status }, 'system');
+    appendAudit(this.db, 'chief', id, 'pause', { reason, previous_status: chief.status }, actor);
     const updated = this.get(id);
     if (!updated) throw new Error('Chief not found after pause');
     return updated;

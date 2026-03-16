@@ -214,7 +214,6 @@ export interface WorldStateDiff {
   skills: SkillsDiff
   loops: LoopCyclesDiff
   has_changes: boolean
-<<<<<<< HEAD
 }
 
 // --- WorldHealth (mirrors src/world/health.ts) ---
@@ -284,35 +283,31 @@ export interface BudgetStatus {
   utilization: number
 }
 
-// --- World Health ---
+// --- Snapshot (mirrors world snapshots) ---
 
-export interface WorldHealth {
-  overall: number
-  chief_count: number
-  law_count: number
-  skill_count: number
-  budget_utilization: number
-  last_change_age_ms: number
-  constitution_active: boolean
-  cycle_count: number
-  scores: {
-    chief: number
-    constitution: number
-    law: number
-    skill: number
-    budget: number
-    freshness: number
-  }
+export interface SnapshotMeta {
+  id: string
+  village_id: string
+  trigger: string
+  created_at: string
 }
 
-// --- Audit ---
+// --- Pending Change Proposal ---
 
-export interface AuditEntry {
-  id: number
-  entity_type: string
-  entity_id: string
-  action: string
-  payload: string
-  actor: string
+export interface ChangeProposal {
+  id: string
+  village_id: string
+  type: string
+  status: string
+  payload: Record<string, unknown>
   created_at: string
+}
+
+// --- Scheduler Status ---
+
+export interface SchedulerStatus {
+  running: boolean
+  village_id: string | null
+  interval_ms: number | null
+  last_cycle_at: string | null
 }
