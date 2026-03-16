@@ -62,6 +62,8 @@ function makeChief(overrides: Partial<Chief> = {}): Chief {
     context_mode: 'fat' as const,
     adapter_config: {},
     budget_config: null,
+    use_precedents: false,
+    precedent_config: null,
     pause_reason: null,
     paused_at: null,
     last_heartbeat_at: null,

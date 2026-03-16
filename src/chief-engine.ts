@@ -2,7 +2,7 @@ import type { Database } from 'bun:sqlite';
 import { randomUUID } from 'crypto';
 import { appendAudit } from './db';
 import { CreateChiefInput as CreateChiefSchema } from './schemas/chief';
-import type { CreateChiefInputRaw, UpdateChiefInput, ChiefPersonality, ChiefProfile, ChiefProfileName, GovernanceActionInput, ChiefBudgetConfig, RoleType } from './schemas/chief';
+import type { CreateChiefInputRaw, UpdateChiefInput, ChiefPersonality, ChiefProfile, ChiefProfileName, GovernanceActionInput, ChiefBudgetConfig, PrecedentConfig, RoleType } from './schemas/chief';
 import { GOVERNANCE_PERMISSIONS } from './schemas/chief';
 import type { AdapterType, ContextMode } from './schemas/heartbeat';
 import type { ConstitutionStore } from './constitution-store';
@@ -38,6 +38,8 @@ export interface Chief {
   context_mode: ContextMode;
   adapter_config: Record<string, unknown>;
   budget_config: ChiefBudgetConfig | null;
+  use_precedents: boolean;
+  precedent_config: PrecedentConfig | null;
   pause_reason: string | null;
   paused_at: string | null;
   last_heartbeat_at: string | null;
@@ -194,6 +196,8 @@ export class ChiefEngine {
       context_mode: input.context_mode,
       adapter_config: input.adapter_config,
       budget_config: input.budget_config ?? null,
+      use_precedents: input.use_precedents,
+      precedent_config: input.precedent_config ?? null,
       pause_reason: null,
       paused_at: null,
       last_heartbeat_at: null,
@@ -205,8 +209,8 @@ export class ChiefEngine {
     };
 
     this.db.prepare(`
-      INSERT INTO chiefs (id, village_id, name, role, role_type, parent_chief_id, version, status, skills, pipelines, permissions, personality, constraints, profile, adapter_type, context_mode, adapter_config, budget_config, pause_reason, paused_at, last_heartbeat_at, current_run_id, current_run_status, timeout_count, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO chiefs (id, village_id, name, role, role_type, parent_chief_id, version, status, skills, pipelines, permissions, personality, constraints, profile, adapter_type, context_mode, adapter_config, budget_config, use_precedents, precedent_config, pause_reason, paused_at, last_heartbeat_at, current_run_id, current_run_status, timeout_count, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       chief.id, villageId, chief.name, chief.role, chief.role_type, chief.parent_chief_id,
       chief.version, chief.status,
@@ -216,6 +220,8 @@ export class ChiefEngine {
       chief.profile, chief.adapter_type, chief.context_mode,
       JSON.stringify(chief.adapter_config),
       chief.budget_config ? JSON.stringify(chief.budget_config) : null,
+      chief.use_precedents ? 1 : 0,
+      chief.precedent_config ? JSON.stringify(chief.precedent_config) : null,
       chief.pause_reason, chief.paused_at,
       chief.last_heartbeat_at, chief.current_run_id, chief.current_run_status, chief.timeout_count,
       chief.created_at, chief.updated_at,
@@ -308,6 +314,8 @@ export class ChiefEngine {
       ...(input.context_mode !== undefined && { context_mode: input.context_mode }),
       ...(input.adapter_config !== undefined && { adapter_config: input.adapter_config }),
       ...(input.budget_config !== undefined && { budget_config: input.budget_config }),
+      ...(input.use_precedents !== undefined && { use_precedents: input.use_precedents }),
+      ...(input.precedent_config !== undefined && { precedent_config: input.precedent_config }),
       personality: resolvedPersonality,
       constraints: resolvedConstraints,
       profile: resolvedProfile,
@@ -318,7 +326,7 @@ export class ChiefEngine {
     const result = this.db.prepare(`
       UPDATE chiefs SET name=?, role=?, version=?, skills=?, pipelines=?, permissions=?,
         personality=?, constraints=?, profile=?, adapter_type=?, context_mode=?, adapter_config=?,
-        budget_config=?, pause_reason=?, paused_at=?,
+        budget_config=?, use_precedents=?, precedent_config=?, pause_reason=?, paused_at=?,
         updated_at=? WHERE id=? AND version=?
     `).run(
       updated.name, updated.role, updated.version,
@@ -328,6 +336,8 @@ export class ChiefEngine {
       updated.profile, updated.adapter_type, updated.context_mode,
       JSON.stringify(updated.adapter_config),
       updated.budget_config ? JSON.stringify(updated.budget_config) : null,
+      updated.use_precedents ? 1 : 0,
+      updated.precedent_config ? JSON.stringify(updated.precedent_config) : null,
       updated.pause_reason, updated.paused_at,
       now, id, existing.version,
     );
@@ -554,6 +564,8 @@ export class ChiefEngine {
       context_mode: (row.context_mode as ContextMode | null) ?? 'fat',
       adapter_config: JSON.parse((row.adapter_config as string) || '{}') as Record<string, unknown>,
       budget_config: row.budget_config ? JSON.parse(row.budget_config as string) as ChiefBudgetConfig : null,
+      use_precedents: row.use_precedents === 1 || row.use_precedents === true,
+      precedent_config: row.precedent_config ? JSON.parse(row.precedent_config as string) as PrecedentConfig : null,
       pause_reason: (row.pause_reason as string | null) ?? null,
       paused_at: (row.paused_at as string | null) ?? null,
       last_heartbeat_at: (row.last_heartbeat_at as string | null) ?? null,

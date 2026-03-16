@@ -404,6 +404,15 @@ export function initSchema(db: Database): void {
     try { db.run(sql); } catch { /* column already exists */ }
   }
 
+  // Edda precedent query columns (#222)
+  const chiefPrecedentAlters = [
+    "ALTER TABLE chiefs ADD COLUMN use_precedents INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE chiefs ADD COLUMN precedent_config TEXT DEFAULT NULL",
+  ];
+  for (const sql of chiefPrecedentAlters) {
+    try { db.run(sql); } catch { /* column already exists */ }
+  }
+
   // Stale heartbeat detection columns (#231)
   const chiefStaleAlters = [
     "ALTER TABLE chiefs ADD COLUMN last_heartbeat_at TEXT DEFAULT NULL",

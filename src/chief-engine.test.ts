@@ -227,7 +227,7 @@ describe('buildChiefPrompt', () => {
       ],
       profile: null,
       adapter_type: 'local' as const, context_mode: 'fat' as const, adapter_config: {},
-      budget_config: null, pause_reason: null, paused_at: null,
+      budget_config: null, use_precedents: false, precedent_config: null, pause_reason: null, paused_at: null,
       last_heartbeat_at: null, current_run_id: null, current_run_status: 'idle' as const, timeout_count: 0,
       created_at: '', updated_at: '',
     };
@@ -253,7 +253,7 @@ describe('buildChiefPrompt', () => {
       constraints: [],
       profile: null,
       adapter_type: 'local' as const, context_mode: 'fat' as const, adapter_config: {},
-      budget_config: null, pause_reason: null, paused_at: null,
+      budget_config: null, use_precedents: false, precedent_config: null, pause_reason: null, paused_at: null,
       last_heartbeat_at: null, current_run_id: null, current_run_status: 'idle' as const, timeout_count: 0,
       created_at: '', updated_at: '',
     };
@@ -271,7 +271,7 @@ describe('buildChiefPrompt', () => {
       constraints: [],
       profile: 'analyst' as const,
       adapter_type: 'local' as const, context_mode: 'fat' as const, adapter_config: {},
-      budget_config: null, pause_reason: null, paused_at: null,
+      budget_config: null, use_precedents: false, precedent_config: null, pause_reason: null, paused_at: null,
       last_heartbeat_at: null, current_run_id: null, current_run_status: 'idle' as const, timeout_count: 0,
       created_at: '', updated_at: '',
     };
@@ -290,7 +290,7 @@ describe('buildChiefPrompt', () => {
       constraints: [],
       profile: null,
       adapter_type: 'local' as const, context_mode: 'fat' as const, adapter_config: {},
-      budget_config: null, pause_reason: null, paused_at: null,
+      budget_config: null, use_precedents: false, precedent_config: null, pause_reason: null, paused_at: null,
       last_heartbeat_at: null, current_run_id: null, current_run_status: 'idle' as const, timeout_count: 0,
       created_at: '', updated_at: '',
     };
@@ -309,7 +309,7 @@ describe('buildChiefPrompt', () => {
       constraints: [],
       profile: null,
       adapter_type: 'local' as const, context_mode: 'fat' as const, adapter_config: {},
-      budget_config: null, pause_reason: null, paused_at: null,
+      budget_config: null, use_precedents: false, precedent_config: null, pause_reason: null, paused_at: null,
       last_heartbeat_at: null, current_run_id: null, current_run_status: 'idle' as const, timeout_count: 0,
       created_at: '', updated_at: '',
     };
@@ -325,7 +325,7 @@ describe('buildChiefPrompt', () => {
       constraints: [],
       profile: null,
       adapter_type: 'local' as const, context_mode: 'fat' as const, adapter_config: {},
-      budget_config: null, pause_reason: null, paused_at: null,
+      budget_config: null, use_precedents: false, precedent_config: null, pause_reason: null, paused_at: null,
       last_heartbeat_at: null, current_run_id: null, current_run_status: 'idle' as const, timeout_count: 0,
       created_at: '', updated_at: '',
     };

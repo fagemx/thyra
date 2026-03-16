@@ -155,6 +155,8 @@ function applyChiefAppoint(
     context_mode: 'fat',
     adapter_config: {},
     budget_config: null,
+    use_precedents: false,
+    precedent_config: null,
     pause_reason: null,
     paused_at: null,
     last_heartbeat_at: null,
