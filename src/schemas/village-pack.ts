@@ -22,6 +22,11 @@ const VillagePackConstitutionSchema = z.object({
   budget: VillagePackBudgetSchema,
 });
 
+// Skill/pipeline name pattern: allows lowercase letters, digits, underscores, hyphens.
+// Must start with a letter. Spec §8 says /^[a-z0-9-]+$/ but example YAML uses
+// underscores (research_topic, draft_content). Using permissive pattern.
+const SKILL_NAME_PATTERN = /^[a-z][a-z0-9_-]*$/;
+
 const VillagePackChiefSchema = z.object({
   name: z.string().min(1).max(100),
   role: z.string().min(1),
@@ -35,6 +40,9 @@ const VillagePackChiefSchema = z.object({
     description: z.string().min(1),
   })).default([]),
   permissions: z.array(PermissionEnum).default([]),
+  pipelines: z.array(
+    z.string().regex(SKILL_NAME_PATTERN, 'Pipeline name must match /^[a-z][a-z0-9_-]*$/')
+  ).default([]),
 });
 
 const VillagePackLawSchema = z.object({
@@ -48,11 +56,6 @@ const VillagePackLawSchema = z.object({
     reasoning: z.string().min(1, 'Law evidence reasoning must be non-empty'),
   }),
 });
-
-// Skill name pattern: allows lowercase letters, digits, underscores, hyphens.
-// Must start with a letter. Spec §8 says /^[a-z0-9-]+$/ but example YAML uses
-// underscores (research_topic, draft_content). Using permissive pattern.
-const SKILL_NAME_PATTERN = /^[a-z][a-z0-9_-]*$/;
 
 // --- Top-level schema ---
 

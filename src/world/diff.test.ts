@@ -52,6 +52,7 @@ function makeChief(overrides: Partial<Chief> = {}): Chief {
     version: 1,
     status: 'active',
     skills: [],
+    pipelines: [],
     permissions: ['dispatch_task'],
     personality: { risk_tolerance: 'moderate', communication_style: 'concise', decision_speed: 'deliberate' },
     constraints: [],

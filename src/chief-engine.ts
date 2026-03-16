@@ -24,6 +24,7 @@ export interface Chief {
   version: number;
   status: 'active' | 'inactive';
   skills: SkillBindingType[];
+  pipelines: string[];
   permissions: Permission[];
   personality: ChiefPersonality;
   constraints: ChiefConstraint[];
@@ -142,6 +143,7 @@ export class ChiefEngine {
       version: 1,
       status: 'active',
       skills: input.skills,
+      pipelines: input.pipelines ?? [],
       permissions: input.permissions,
       personality: resolved.personality,
       constraints: resolved.constraints,
@@ -151,11 +153,12 @@ export class ChiefEngine {
     };
 
     this.db.prepare(`
-      INSERT INTO chiefs (id, village_id, name, role, version, status, skills, permissions, personality, constraints, profile, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO chiefs (id, village_id, name, role, version, status, skills, pipelines, permissions, personality, constraints, profile, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       chief.id, villageId, chief.name, chief.role, chief.version, chief.status,
-      JSON.stringify(chief.skills), JSON.stringify(chief.permissions),
+      JSON.stringify(chief.skills), JSON.stringify(chief.pipelines),
+      JSON.stringify(chief.permissions),
       JSON.stringify(chief.personality), JSON.stringify(chief.constraints),
       chief.profile, chief.created_at, chief.updated_at,
     );
@@ -221,6 +224,7 @@ export class ChiefEngine {
       ...(input.name !== undefined && { name: input.name }),
       ...(input.role !== undefined && { role: input.role }),
       ...(input.skills !== undefined && { skills: input.skills }),
+      ...(input.pipelines !== undefined && { pipelines: input.pipelines }),
       ...(input.permissions !== undefined && { permissions: input.permissions }),
       personality: resolvedPersonality,
       constraints: resolvedConstraints,
@@ -230,11 +234,12 @@ export class ChiefEngine {
     };
 
     const result = this.db.prepare(`
-      UPDATE chiefs SET name=?, role=?, version=?, skills=?, permissions=?,
+      UPDATE chiefs SET name=?, role=?, version=?, skills=?, pipelines=?, permissions=?,
         personality=?, constraints=?, profile=?, updated_at=? WHERE id=? AND version=?
     `).run(
       updated.name, updated.role, updated.version,
-      JSON.stringify(updated.skills), JSON.stringify(updated.permissions),
+      JSON.stringify(updated.skills), JSON.stringify(updated.pipelines),
+      JSON.stringify(updated.permissions),
       JSON.stringify(updated.personality), JSON.stringify(updated.constraints),
       updated.profile, now, id, existing.version,
     );
@@ -369,6 +374,7 @@ export class ChiefEngine {
       version: row.version as number,
       status: row.status as Chief['status'],
       skills: JSON.parse((row.skills as string) || '[]') as Chief['skills'],
+      pipelines: JSON.parse((row.pipelines as string) || '[]') as string[],
       permissions: JSON.parse((row.permissions as string) || '[]') as Chief['permissions'],
       personality: JSON.parse((row.personality as string) || '{}') as Chief['personality'],
       constraints: JSON.parse((row.constraints as string) || '[]') as Chief['constraints'],
@@ -446,6 +452,16 @@ export function buildChiefPrompt(chief: Chief, skillRegistry: SkillRegistry): st
       lines.push('## Skills');
       lines.push(skillPrompt);
     }
+  }
+
+  // Pipelines
+  if (chief.pipelines.length > 0) {
+    lines.push('## Pipelines');
+    lines.push('You are bound to the following execution pipelines:');
+    for (const p of chief.pipelines) {
+      lines.push(`- ${p}`);
+    }
+    lines.push('');
   }
 
   return lines.join('\n');

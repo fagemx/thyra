@@ -53,6 +53,7 @@ function toCompilerPack(parsed: SchemaPack): CompilerPack {
       permissions: parsed.chief.permissions,
       personality: parsed.chief.personality,
       constraints: parsed.chief.constraints,
+      pipelines: parsed.chief.pipelines,
       skills: parsed.skills,
     },
     laws: parsed.laws.map((l) => ({

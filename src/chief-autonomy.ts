@@ -168,7 +168,7 @@ export function loreStrategy(_chief: Chief, state: WorldState): ChiefProposal[] 
       change: {
         type: 'village.update',
         metadata: {
-          ...(state.village.metadata as Record<string, unknown>),
+          ...(state.village.metadata as unknown as Record<string, unknown>),
           lore_flags: flags,
           lore_flagged_at: new Date().toISOString(),
         },

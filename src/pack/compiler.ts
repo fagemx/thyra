@@ -112,6 +112,7 @@ export interface PackChief {
   name: string;
   role: string;
   permissions: Permission[];
+  pipelines?: string[];
   personality?: {
     risk_tolerance?: 'conservative' | 'moderate' | 'aggressive';
     communication_style?: 'concise' | 'detailed' | 'minimal';
@@ -214,7 +215,10 @@ function diffChief(
   const skillsSame =
     JSON.stringify(resolvedBindings.map((b) => b.skill_id).sort()) ===
     JSON.stringify(current.skills.map((b) => b.skill_id).sort());
-  if (permsSame && nameSame && roleSame && skillsSame) return 'skip';
+  const pipelinesSame =
+    JSON.stringify([...(pack.pipelines ?? [])].sort()) ===
+    JSON.stringify([...(current.pipelines ?? [])].sort());
+  if (permsSame && nameSame && roleSame && skillsSame && pipelinesSame) return 'skip';
   return 'update';
 }
 
@@ -478,6 +482,7 @@ export class VillagePackCompiler {
         name: pack.name,
         role: pack.role,
         permissions: pack.permissions,
+        pipelines: pack.pipelines ?? [],
         personality: pack.personality ?? {},
         constraints: pack.constraints ?? [],
         skills: bindings,
@@ -495,6 +500,7 @@ export class VillagePackCompiler {
         name: pack.name,
         role: pack.role,
         permissions: pack.permissions,
+        pipelines: pack.pipelines ?? [],
         personality: pack.personality ? {
           risk_tolerance: pack.personality.risk_tolerance ?? 'moderate',
           communication_style: pack.personality.communication_style ?? 'concise',

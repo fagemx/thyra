@@ -52,6 +52,7 @@ function makeYamlChief(overrides?: Partial<VillagePackChief>): VillagePackChief 
     personality: { risk_tolerance: 'conservative', communication_style: 'concise', decision_speed: 'deliberate' },
     constraints: [{ type: 'must', description: 'verify all sources' }],
     permissions: ['dispatch_task', 'propose_law'],
+    pipelines: [],
     ...overrides,
   };
 }
@@ -65,6 +66,7 @@ function makeDbChief(overrides?: Partial<Chief>): Chief {
     version: 1,
     status: 'active',
     skills: [],
+    pipelines: [],
     permissions: ['dispatch_task', 'propose_law'],
     personality: { risk_tolerance: 'conservative', communication_style: 'concise', decision_speed: 'deliberate' },
     constraints: [{ type: 'must', description: 'verify all sources' }],
