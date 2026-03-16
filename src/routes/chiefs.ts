@@ -10,6 +10,7 @@ import type { KarviBridge } from '../karvi-bridge';
 import type { Constitution } from '../constitution-store';
 import { appendAudit } from '../db';
 import type { Database } from 'bun:sqlite';
+import { ReputationTracker } from '../reputation-tracker';
 
 export interface ChiefRouteDeps {
   riskAssessor?: RiskAssessor;
@@ -241,6 +242,25 @@ export function chiefRoutes(engine: ChiefEngine, skillRegistry: SkillRegistry, d
       }
       return c.json({ ok: false, error: { code: 'BAD_REQUEST', message: msg } }, 400);
     }
+  });
+
+  /**
+   * #216: 查詢 chief 聲望記錄
+   * 若尚無記錄，自動建立（score=100）。
+   */
+  app.get('/api/villages/:vid/chiefs/:id/reputation', (c) => {
+    if (!deps?.db) {
+      return c.json({ ok: false, error: { code: 'NO_DB', message: 'Database not configured' } }, 500);
+    }
+    const chief = engine.get(c.req.param('id'));
+    if (!chief) {
+      return c.json({ ok: false, error: { code: 'NOT_FOUND', message: 'Chief not found' } }, 404);
+    }
+    if (chief.village_id !== c.req.param('vid')) {
+      return c.json({ ok: false, error: { code: 'NOT_FOUND', message: 'Chief not in this village' } }, 404);
+    }
+    const reputation = ReputationTracker.getOrCreate(deps.db, chief.id, chief.village_id);
+    return c.json({ ok: true, data: reputation });
   });
 
   /**

@@ -488,6 +488,22 @@ export function initSchema(db: Database): void {
   } catch {
     // column already exists
   }
+
+  // Chief reputation table (#216: reputation & reward system)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS chief_reputation (
+      chief_id TEXT PRIMARY KEY,
+      village_id TEXT NOT NULL,
+      score INTEGER NOT NULL DEFAULT 100,
+      proposals_applied INTEGER NOT NULL DEFAULT 0,
+      proposals_rejected INTEGER NOT NULL DEFAULT 0,
+      rollbacks_triggered INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (chief_id) REFERENCES chiefs(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_reputation_village
+      ON chief_reputation(village_id);
+  `);
 }
 
 /**
