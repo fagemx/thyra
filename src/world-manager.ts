@@ -166,11 +166,22 @@ export class WorldManager {
       reason,
     }, 'system');
 
-    // 7. fire-and-forget Edda precedent recording (#185)
+    // 7. fire-and-forget Edda precedent recording (#185, #223 enriched)
+    const judgeBreakdown = `safety=${judgeResult.safety_check},legality=${judgeResult.legality_check},boundary=${judgeResult.boundary_check},evaluator=${judgeResult.evaluator_check},consistency=${judgeResult.consistency_check}`;
+    const chiefsCount = diff.chiefs.added.length + diff.chiefs.removed.length + diff.chiefs.changed.length;
+    const lawsCount = diff.laws.added.length + diff.laws.removed.length + diff.laws.changed.length;
+    const diffSummary = diff.has_changes
+      ? `changed=[${[
+          diff.village ? `village(${diff.village.fields_changed.join(',')})` : '',
+          diff.constitution ? `constitution(${diff.constitution.action})` : '',
+          chiefsCount > 0 ? `chiefs(${chiefsCount})` : '',
+          lawsCount > 0 ? `laws(${lawsCount})` : '',
+        ].filter(Boolean).join(',')}]`
+      : 'no_changes';
     this.recordToEdda(
       `${villageId}.change`,
       change.type,
-      `applied: ${change.type}, snapshot=${snapshotBefore}, has_changes=${diff.has_changes}${reason ? `, reason=${reason}` : ''}`,
+      `applied: ${change.type}, snapshot=${snapshotBefore}, judge={${judgeBreakdown}}, diff=${diffSummary}${reason ? `, reason=${reason}` : ''}`,
     );
 
     // 8. 若需要 Karvi 執行，fire-and-forget dispatch（THY-06 graceful degradation）
