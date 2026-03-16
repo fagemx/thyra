@@ -180,7 +180,7 @@ function checkBoundary(state: WorldState, change: WorldChange): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// Layer 4: Consistency — apply 後狀態是否一致
+// Layer 5: Consistency — apply 後狀態是否一致
 // ---------------------------------------------------------------------------
 
 function checkConsistency(state: WorldState, change: WorldChange): string[] {
@@ -242,8 +242,7 @@ export function judgeChange(state: WorldState, change: WorldChange): JudgeResult
   const boundaryReasons = checkBoundary(state, change);
 
   // Layer 4: Evaluator — 用戶定義的品質標準
-  const evaluatorRules: EvaluatorRule[] =
-    (state.constitution as Record<string, unknown> | null)?.evaluator_rules as EvaluatorRule[] ?? [];
+  const evaluatorRules: EvaluatorRule[] = state.constitution?.evaluator_rules ?? [];
   const evaluatorResult = checkEvaluator(state, change, evaluatorRules);
   const evaluatorReasons: string[] = [];
   for (const rr of evaluatorResult.rule_results) {

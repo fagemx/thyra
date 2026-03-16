@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { appendAudit } from './db';
 import { CreateConstitutionInput as CreateConstitutionSchema } from './schemas/constitution';
 import type { CreateConstitutionInputRaw, Permission } from './schemas/constitution';
+import type { EvaluatorRule } from './schemas/evaluator';
 import type { KarviBridge } from './karvi-bridge';
 
 export interface ConstitutionRule {
@@ -29,6 +30,7 @@ export interface Constitution {
   rules: ConstitutionRule[];
   allowed_permissions: Permission[];
   budget_limits: BudgetLimits;
+  evaluator_rules?: EvaluatorRule[];
   superseded_by: string | null;
 }
 

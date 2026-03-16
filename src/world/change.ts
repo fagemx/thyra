@@ -60,7 +60,7 @@ function applyConstitutionSupersede(
   now: string,
 ): WorldState {
   const oldConst = state.constitution;
-  const newConst: Constitution & { evaluator_rules?: unknown[] } = {
+  const newConst: Constitution = {
     id: `const-${crypto.randomUUID()}`,
     village_id: state.village.id,
     version: oldConst ? oldConst.version + 1 : 1,
@@ -75,13 +75,11 @@ function applyConstitutionSupersede(
     })),
     allowed_permissions: [...change.allowed_permissions],
     budget_limits: { ...change.budget_limits },
+    // Carry evaluator_rules into the new constitution
+    evaluator_rules: change.evaluator_rules.length > 0 ? [...change.evaluator_rules] : undefined,
     superseded_by: null,
   };
-  // Carry evaluator_rules into the new constitution
-  if (change.evaluator_rules && change.evaluator_rules.length > 0) {
-    newConst.evaluator_rules = [...change.evaluator_rules];
-  }
-  return { ...state, constitution: newConst as Constitution, assembled_at: now };
+  return { ...state, constitution: newConst, assembled_at: now };
 }
 
 function applyLawPropose(
