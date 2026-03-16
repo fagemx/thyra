@@ -16,6 +16,7 @@
 
 import type { Chief } from './chief-engine';
 import type { WorldManager, ApplyResult } from './world-manager';
+import type { KarviBridge, KarviProjectResponse } from './karvi-bridge';
 import type { WorldState } from './world/state';
 import type { WorldChange } from './schemas/world-change';
 
@@ -367,4 +368,72 @@ export function executeChiefCycle(
     applied,
     skipped,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline Dispatch（Karvi 整合 — #212）
+// ---------------------------------------------------------------------------
+
+/** 單一 pipeline dispatch 結果 */
+export interface PipelineDispatchResult {
+  chief_id: string;
+  village_id: string;
+  pipeline_id: string;
+  dispatched: boolean;
+  project_response: KarviProjectResponse | null;
+  error?: string;
+}
+
+/**
+ * 將 chief 的 pipelines 派發到 Karvi 執行。
+ *
+ * 每個 pipeline_id 對應一個 Karvi project（single-task），
+ * task.skill = pipeline_id。Karvi 側負責解析 pipeline 並執行。
+ *
+ * Graceful degradation（THY-06）：Karvi 離線時 dispatched=false，
+ * 不 throw，不 fallback 到 local rule-based（pipeline 邏輯不同）。
+ */
+export async function dispatchChiefPipelines(
+  karviBridge: KarviBridge,
+  villageId: string,
+  chief: Chief,
+): Promise<PipelineDispatchResult[]> {
+  const results: PipelineDispatchResult[] = [];
+
+  for (const pipelineId of chief.pipelines) {
+    const taskId = `${villageId}:${chief.id}:${pipelineId}:${Date.now()}`;
+    try {
+      const response = await karviBridge.dispatchProject({
+        title: `${chief.name}:pipeline:${pipelineId}`,
+        tasks: [{
+          id: taskId,
+          skill: pipelineId,
+          description: `Pipeline execution for chief "${chief.name}" in village ${villageId}`,
+        }],
+        goal: `Chief ${chief.name} autonomous governance cycle`,
+        autoStart: true,
+      });
+
+      results.push({
+        chief_id: chief.id,
+        village_id: villageId,
+        pipeline_id: pipelineId,
+        dispatched: response !== null,
+        project_response: response,
+        error: response === null ? 'Karvi unreachable' : undefined,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'unknown';
+      results.push({
+        chief_id: chief.id,
+        village_id: villageId,
+        pipeline_id: pipelineId,
+        dispatched: false,
+        project_response: null,
+        error: message,
+      });
+    }
+  }
+
+  return results;
 }

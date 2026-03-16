@@ -17,8 +17,10 @@ import {
   shouldPropose,
   makeChiefDecision,
   executeChiefCycle,
+  dispatchChiefPipelines,
   type ChiefProposal,
 } from './chief-autonomy';
+import type { KarviBridge, KarviProjectResponse } from './karvi-bridge';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -589,5 +591,108 @@ describe('Edge cases', () => {
     const proposals = makeChiefDecision(chief, state);
     // Both should pass moderate threshold (0.5 >= 0.5)
     expect(proposals).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F. Pipeline Dispatch Tests (#212)
+// ---------------------------------------------------------------------------
+
+describe('dispatchChiefPipelines', () => {
+  function makeMockKarviBridge(
+    response: KarviProjectResponse | null = { ok: true, title: 'test', taskCount: 1 },
+    shouldThrow = false,
+  ): KarviBridge {
+    return {
+      dispatchProject: async () => {
+        if (shouldThrow) throw new Error('Karvi dispatch failed: 500');
+        return response;
+      },
+    } as unknown as KarviBridge;
+  }
+
+  it('should dispatch each pipeline as a Karvi project', async () => {
+    const calls: unknown[] = [];
+    const bridge = {
+      dispatchProject: async (input: unknown) => {
+        calls.push(input);
+        return { ok: true, title: 'test', taskCount: 1 } as KarviProjectResponse;
+      },
+    } as unknown as KarviBridge;
+
+    const chief = makeChief({
+      id: 'chief-1',
+      name: 'PipelineChief',
+      pipelines: ['analyze-market', 'optimize-stalls'],
+    });
+
+    const results = await dispatchChiefPipelines(bridge, 'village-1', chief);
+
+    expect(results).toHaveLength(2);
+    expect(results[0].dispatched).toBe(true);
+    expect(results[0].pipeline_id).toBe('analyze-market');
+    expect(results[1].dispatched).toBe(true);
+    expect(results[1].pipeline_id).toBe('optimize-stalls');
+    expect(calls).toHaveLength(2);
+  });
+
+  it('should return dispatched=false when Karvi is offline', async () => {
+    const bridge = makeMockKarviBridge(null);
+    const chief = makeChief({ pipelines: ['some-pipeline'] });
+
+    const results = await dispatchChiefPipelines(bridge, 'village-1', chief);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].dispatched).toBe(false);
+    expect(results[0].error).toBe('Karvi unreachable');
+    expect(results[0].project_response).toBeNull();
+  });
+
+  it('should handle Karvi dispatch error gracefully', async () => {
+    const bridge = makeMockKarviBridge(null, true);
+    const chief = makeChief({ pipelines: ['failing-pipeline'] });
+
+    const results = await dispatchChiefPipelines(bridge, 'village-1', chief);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].dispatched).toBe(false);
+    expect(results[0].error).toBe('Karvi dispatch failed: 500');
+  });
+
+  it('should return empty array for chief with no pipelines', async () => {
+    const bridge = makeMockKarviBridge();
+    const chief = makeChief({ pipelines: [] });
+
+    const results = await dispatchChiefPipelines(bridge, 'village-1', chief);
+
+    expect(results).toHaveLength(0);
+  });
+
+  it('should include correct metadata in dispatch input', async () => {
+    let capturedInput: Record<string, unknown> | null = null;
+    const bridge = {
+      dispatchProject: async (input: unknown) => {
+        capturedInput = input as Record<string, unknown>;
+        return { ok: true, title: 'test', taskCount: 1 } as KarviProjectResponse;
+      },
+    } as unknown as KarviBridge;
+
+    const chief = makeChief({
+      id: 'chief-xyz',
+      name: 'MarketChief',
+      pipelines: ['market-analysis'],
+    });
+
+    await dispatchChiefPipelines(bridge, 'village-abc', chief);
+
+    expect(capturedInput).not.toBeNull();
+    expect(capturedInput!.title).toBe('MarketChief:pipeline:market-analysis');
+    expect(capturedInput!.autoStart).toBe(true);
+    expect(capturedInput!.goal).toContain('MarketChief');
+    const tasks = capturedInput!.tasks as Array<Record<string, unknown>>;
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].skill).toBe('market-analysis');
+    expect((tasks[0].id as string)).toContain('village-abc');
+    expect((tasks[0].id as string)).toContain('chief-xyz');
   });
 });

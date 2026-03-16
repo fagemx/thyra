@@ -19,7 +19,7 @@
 import type { Database } from 'bun:sqlite';
 import { randomUUID } from 'crypto';
 import { appendAudit } from './db';
-import { executeChiefCycle, type ChiefCycleResult } from './chief-autonomy';
+import { executeChiefCycle, dispatchChiefPipelines, type ChiefCycleResult, type PipelineDispatchResult } from './chief-autonomy';
 import type { ChiefEngine } from './chief-engine';
 import type { WorldManager } from './world-manager';
 import type { VillageManager } from './village-manager';
@@ -30,6 +30,7 @@ import {
   buildHeartbeatContext,
   processHeartbeatResult,
 } from './execution-adapter';
+import type { KarviBridge } from './karvi-bridge';
 
 // ---------------------------------------------------------------------------
 // 型別定義
@@ -54,6 +55,8 @@ export interface GovernanceCycleResult {
   total_skipped: number;
   chief_results: ChiefCycleResult[];
   errors: ChiefError[];
+  /** Pipeline dispatch 結果（chief 有 pipelines 時） */
+  pipeline_dispatches: PipelineDispatchResult[];
   skipped?: boolean;
   skip_reason?: string;
 }
@@ -64,6 +67,8 @@ export interface GovernanceSchedulerOpts {
   chiefEngine: ChiefEngine;
   villageManager: VillageManager;
   db: Database;
+  /** Karvi bridge（可選）。有 pipeline 的 chief 需要此 bridge 才能 dispatch。 */
+  karviBridge?: KarviBridge;
   /** 排程間隔（ms），預設 60000（CHIEF-02） */
   intervalMs?: number;
   /** 每輪結束後的 callback hook（adapter / summary generator 用） */
@@ -83,6 +88,7 @@ export class GovernanceScheduler {
   private readonly chiefEngine: ChiefEngine;
   private readonly villageManager: VillageManager;
   private readonly db: Database;
+  private readonly karviBridge: KarviBridge | undefined;
   private readonly intervalMs: number;
   private readonly onCycleComplete?: (result: GovernanceCycleResult) => void;
   private readonly adapterRegistry: AdapterRegistry;
@@ -100,6 +106,7 @@ export class GovernanceScheduler {
     this.chiefEngine = opts.chiefEngine;
     this.villageManager = opts.villageManager;
     this.db = opts.db;
+    this.karviBridge = opts.karviBridge;
     this.intervalMs = opts.intervalMs ?? 60_000;
     this.onCycleComplete = opts.onCycleComplete;
     this.useHeartbeat = opts.useHeartbeat ?? false;
@@ -164,6 +171,7 @@ export class GovernanceScheduler {
         total_skipped: 0,
         chief_results: [],
         errors: [],
+        pipeline_dispatches: [],
         skipped: true,
         skip_reason: 'already_running',
       };
@@ -179,6 +187,7 @@ export class GovernanceScheduler {
 
       const allChiefResults: ChiefCycleResult[] = [];
       const allErrors: ChiefError[] = [];
+      const allPipelineDispatches: PipelineDispatchResult[] = [];
       let villagesProcessed = 0;
 
       // 3. 對每個 village 執行
@@ -189,7 +198,26 @@ export class GovernanceScheduler {
         // 4. Sequential execution per chief with error isolation
         for (const chief of chiefs) {
           try {
-            if (this.useHeartbeat) {
+            // Pipeline dispatch: chief 有 pipelines 且 KarviBridge 可用時 dispatch 到 Karvi
+            if (chief.pipelines.length > 0 && this.karviBridge) {
+              const dispatches = await dispatchChiefPipelines(this.karviBridge, village.id, chief);
+              allPipelineDispatches.push(...dispatches);
+
+              appendAudit(this.db, 'governance', cycleId, 'pipeline_dispatch', {
+                chief_id: chief.id,
+                village_id: village.id,
+                pipelines: chief.pipelines,
+                dispatched_count: dispatches.filter(d => d.dispatched).length,
+                failed_count: dispatches.filter(d => !d.dispatched).length,
+              }, 'scheduler');
+            } else if (chief.pipelines.length > 0 && !this.karviBridge) {
+              appendAudit(this.db, 'governance', cycleId, 'pipeline_skip', {
+                chief_id: chief.id,
+                village_id: village.id,
+                reason: 'no_karvi_bridge',
+                pipelines: chief.pipelines,
+              }, 'scheduler');
+            } else if (this.useHeartbeat) {
               // Heartbeat protocol path
               const adapter = this.adapterRegistry.get(chief.adapter_type ?? 'local');
               const state = this.worldManager.getState(village.id);
@@ -198,7 +226,6 @@ export class GovernanceScheduler {
               const processed = processHeartbeatResult(
                 this.worldManager, this.db, village.id, chief, hbResult,
               );
-              // Map ProcessedHeartbeat → ChiefCycleResult for backward compat
               allChiefResults.push(this.toChiefCycleResult(chief.id, processed));
             } else {
               // Legacy path — direct executeChiefCycle
@@ -235,6 +262,7 @@ export class GovernanceScheduler {
         total_skipped: totalSkipped,
         chief_results: allChiefResults,
         errors: allErrors,
+        pipeline_dispatches: allPipelineDispatches,
       };
 
       // 6. Audit log（THY-07）

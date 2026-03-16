@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { KarviBridge } from '../karvi-bridge';
 import type { EddaBridge } from '../edda-bridge';
+import type { PipelineReactor } from '../pipeline-reactor';
 import { KarviWebhookPayloadSchema, normalizeKarviEvent } from '../schemas/karvi-event';
 import { EddaQueryInput, EddaDecideInput } from '../schemas/edda-bridge';
 import { EddaNoteInput } from '../schemas/edda-note';
@@ -13,7 +14,7 @@ function clampLimit(raw: string | undefined, def = 20, max = 100): number {
   return Math.max(1, Math.min(Math.round(n), max));
 }
 
-export function bridgeRoutes(karvi: KarviBridge, edda: EddaBridge): Hono {
+export function bridgeRoutes(karvi: KarviBridge, edda: EddaBridge, pipelineReactor?: PipelineReactor): Hono {
   const app = new Hono();
 
   // === Karvi Bridge ===
@@ -117,7 +118,13 @@ export function bridgeRoutes(karvi: KarviBridge, edda: EddaBridge): Hono {
         return c.json({ ok: true, data: { duplicate: true } });
       }
 
-      return c.json({ ok: true, data: { event_id: event.event_id } });
+      // Pipeline reactor: 如果有 reactor，嘗試將 pipeline 完成事件寫入 world
+      let reactorResult: { reacted: boolean; reason: string } | undefined;
+      if (pipelineReactor) {
+        reactorResult = pipelineReactor.onKarviEvent(event);
+      }
+
+      return c.json({ ok: true, data: { event_id: event.event_id, reactor: reactorResult } });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
       return c.json({ ok: false, error: { code: 'BAD_REQUEST', message: msg } }, 400);
