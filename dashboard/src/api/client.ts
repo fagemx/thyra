@@ -8,9 +8,14 @@ import type {
   ApiResponse,
   ApplyResult,
   AuditEntry,
-  JudgeVerdict,
+  BudgetStatus,
+  Chief,
+  JudgeResult,
+  TelemetryEntry,
+  TelemetrySummary,
   Village,
   WorldChange,
+  WorldHealth,
   WorldState,
 } from './types'
 
@@ -57,8 +62,8 @@ export async function getWorldState(villageId: string): Promise<WorldState> {
 export async function judgeChange(
   villageId: string,
   change: WorldChange,
-): Promise<JudgeVerdict> {
-  return request<JudgeVerdict>('POST', `/villages/${villageId}/world/judge`, change)
+): Promise<JudgeResult> {
+  return request<JudgeResult>('POST', `/villages/${villageId}/world/judge`, { change })
 }
 
 export async function applyChange(
@@ -67,7 +72,7 @@ export async function applyChange(
   reason?: string,
 ): Promise<ApplyResult> {
   return request<ApplyResult>('POST', `/villages/${villageId}/world/apply`, {
-    ...change,
+    change,
     reason,
   })
 }
@@ -85,6 +90,70 @@ export async function getVillageAudit(
 
 export async function getHealth(): Promise<{ status: string }> {
   return request<{ status: string }>('GET', '/health')
+}
+
+// --- Operator: Chiefs ---
+
+export async function listChiefs(villageId: string): Promise<Chief[]> {
+  return request<Chief[]>('GET', `/villages/${villageId}/chiefs`)
+}
+
+export async function resumeChief(chiefId: string): Promise<Chief> {
+  return request<Chief>('POST', `/chiefs/${chiefId}/resume`)
+}
+
+// --- Operator: Audit ---
+
+export async function listAudit(villageId: string, limit = 30): Promise<AuditEntry[]> {
+  return request<AuditEntry[]>('GET', `/villages/${villageId}/audit?limit=${limit}`)
+}
+
+// --- Operator: Telemetry ---
+
+export async function listTelemetry(villageId: string, limit = 20): Promise<TelemetryEntry[]> {
+  return request<TelemetryEntry[]>('GET', `/villages/${villageId}/telemetry?limit=${limit}`)
+}
+
+export async function getTelemetrySummary(villageId: string): Promise<TelemetrySummary> {
+  return request<TelemetrySummary>('GET', `/villages/${villageId}/telemetry/summary`)
+}
+
+// --- Operator: Budget ---
+
+export async function getBudget(villageId: string): Promise<BudgetStatus> {
+  return request<BudgetStatus>('GET', `/villages/${villageId}/budget`)
+}
+
+// --- Operator: SSE Pulse ---
+
+export function subscribePulse(
+  villageId: string,
+  onPulse: (health: WorldHealth) => void,
+  onError?: (err: Event) => void,
+): () => void {
+  const url = `${BASE}/villages/${villageId}/world/pulse?interval=5000`
+  const source = new EventSource(url)
+
+  source.addEventListener('pulse', (event) => {
+    const data = JSON.parse(event.data) as WorldHealth
+    onPulse(data)
+  })
+
+  // Also handle generic message events (some SSE implementations use default)
+  source.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data) as WorldHealth
+      onPulse(data)
+    } catch {
+      // Ignore non-JSON messages (e.g., heartbeats)
+    }
+  }
+
+  source.onerror = (event) => {
+    onError?.(event)
+  }
+
+  return () => source.close()
 }
 
 export { ApiError }
