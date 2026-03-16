@@ -19,6 +19,35 @@ export interface ChiefConstraint {
   description: string;
 }
 
+/** Chief config snapshot — 存可修改的 config 欄位，排除 runtime/identity 欄位 */
+export interface ChiefConfigSnapshot {
+  name: string;
+  role: string;
+  skills: SkillBindingType[];
+  pipelines: string[];
+  permissions: Permission[];
+  personality: ChiefPersonality;
+  constraints: ChiefConstraint[];
+  profile: ChiefProfileName | null;
+  adapter_type: AdapterType;
+  context_mode: ContextMode;
+  adapter_config: Record<string, unknown>;
+  budget_config: ChiefBudgetConfig | null;
+  use_precedents: boolean;
+  precedent_config: PrecedentConfig | null;
+}
+
+/** Chief config revision — 版本記錄 (#227) */
+export interface ChiefConfigRevision {
+  id: string;
+  chief_id: string;
+  version: number;
+  config_snapshot: ChiefConfigSnapshot;
+  changed_by: string | null;
+  change_reason: string | null;
+  created_at: string;
+}
+
 export interface Chief {
   id: string;
   village_id: string;
@@ -262,7 +291,7 @@ export class ChiefEngine {
     return (this.db.prepare('SELECT * FROM chiefs WHERE parent_chief_id = ? ORDER BY created_at DESC').all(chiefId) as Record<string, unknown>[]).map((r) => this.deserialize(r));
   }
 
-  update(id: string, input: UpdateChiefInput, actor: string): Chief {
+  update(id: string, input: UpdateChiefInput, actor: string, changeReason?: string): Chief {
     const existing = this.get(id);
     if (!existing) throw new Error('Chief not found');
 
@@ -344,6 +373,9 @@ export class ChiefEngine {
     if ((result as { changes: number }).changes === 0) {
       throw new Error('CONCURRENCY_CONFLICT: version mismatch');
     }
+
+    // #227: 自動存 revision（存 update 前的 config）
+    this.saveRevision(existing, actor, changeReason);
 
     appendAudit(this.db, 'chief', id, 'update', { before: existing, after: updated }, actor);
     return updated;
@@ -522,6 +554,109 @@ export class ChiefEngine {
     }
 
     return { chief, constitution };
+  }
+
+  // -----------------------------------------------------------------------
+  // Config revision methods (#227: chief config versioning with rollback)
+  // -----------------------------------------------------------------------
+
+  /** 從 Chief 提取 config snapshot（排除 runtime/identity 欄位） */
+  private extractConfigSnapshot(chief: Chief): ChiefConfigSnapshot {
+    return {
+      name: chief.name,
+      role: chief.role,
+      skills: chief.skills,
+      pipelines: chief.pipelines,
+      permissions: chief.permissions,
+      personality: chief.personality,
+      constraints: chief.constraints,
+      profile: chief.profile,
+      adapter_type: chief.adapter_type,
+      context_mode: chief.context_mode,
+      adapter_config: chief.adapter_config,
+      budget_config: chief.budget_config,
+      use_precedents: chief.use_precedents,
+      precedent_config: chief.precedent_config,
+    };
+  }
+
+  /** 存 config revision（update 成功後呼叫） */
+  private saveRevision(chief: Chief, actor: string, reason?: string): string {
+    const revisionId = `rev-${randomUUID()}`;
+    const snapshot = this.extractConfigSnapshot(chief);
+    this.db.prepare(`
+      INSERT INTO chief_config_revisions (id, chief_id, version, config_snapshot, changed_by, change_reason, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      revisionId,
+      chief.id,
+      chief.version,
+      JSON.stringify(snapshot),
+      actor,
+      reason ?? null,
+      new Date().toISOString(),
+    );
+    return revisionId;
+  }
+
+  /** 列出 chief 的版本歷史 */
+  listRevisions(chiefId: string, limit = 50): ChiefConfigRevision[] {
+    const rows = this.db.prepare(
+      'SELECT * FROM chief_config_revisions WHERE chief_id = ? ORDER BY version DESC LIMIT ?'
+    ).all(chiefId, limit) as Record<string, unknown>[];
+    return rows.map((r) => this.deserializeRevision(r));
+  }
+
+  /** 取得特定版本的 revision */
+  getRevision(chiefId: string, version: number): ChiefConfigRevision | null {
+    const row = this.db.prepare(
+      'SELECT * FROM chief_config_revisions WHERE chief_id = ? AND version = ?'
+    ).get(chiefId, version) as Record<string, unknown> | null;
+    return row ? this.deserializeRevision(row) : null;
+  }
+
+  /** 回溯到某版本 — 建新 revision（append-only），不刪歷史 */
+  rollbackToRevision(chiefId: string, version: number, actor: string): Chief {
+    const revision = this.getRevision(chiefId, version);
+    if (!revision) {
+      throw new Error(`REVISION_NOT_FOUND: no revision at version ${version} for chief ${chiefId}`);
+    }
+
+    const snapshot = revision.config_snapshot;
+    // 呼叫 update() 套用舊 config — 會自動觸發新 revision
+    return this.update(
+      chiefId,
+      {
+        name: snapshot.name,
+        role: snapshot.role,
+        skills: snapshot.skills,
+        pipelines: snapshot.pipelines,
+        permissions: snapshot.permissions,
+        personality: snapshot.personality,
+        constraints: snapshot.constraints,
+        profile: snapshot.profile ?? undefined,
+        adapter_type: snapshot.adapter_type,
+        context_mode: snapshot.context_mode,
+        adapter_config: snapshot.adapter_config,
+        budget_config: snapshot.budget_config ?? undefined,
+        use_precedents: snapshot.use_precedents,
+        precedent_config: snapshot.precedent_config ?? undefined,
+      },
+      actor,
+      `rollback to version ${version}`,
+    );
+  }
+
+  private deserializeRevision(row: Record<string, unknown>): ChiefConfigRevision {
+    return {
+      id: row.id as string,
+      chief_id: row.chief_id as string,
+      version: row.version as number,
+      config_snapshot: JSON.parse(row.config_snapshot as string) as ChiefConfigSnapshot,
+      changed_by: (row.changed_by as string | null) ?? null,
+      change_reason: (row.change_reason as string | null) ?? null,
+      created_at: row.created_at as string,
+    };
   }
 
   private validateSkillBindings(bindings: SkillBindingType[], villageId: string): void {
