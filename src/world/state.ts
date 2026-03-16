@@ -146,6 +146,8 @@ function deserializeChief(row: Record<string, unknown>): Chief {
     village_id: row.village_id as string,
     name: row.name as string,
     role: row.role as string,
+    role_type: (row.role_type as Chief['role_type'] | null) ?? 'chief',
+    parent_chief_id: (row.parent_chief_id as string | null) ?? null,
     version: row.version as number,
     status: row.status as Chief['status'],
     skills: JSON.parse((row.skills as string) || '[]') as Chief['skills'],

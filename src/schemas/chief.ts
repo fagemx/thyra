@@ -1,6 +1,14 @@
 import { z } from 'zod';
 import { PermissionEnum } from './constitution';
+import type { Permission } from './constitution';
 import { AdapterTypeEnum, ContextModeEnum } from './heartbeat';
+
+/** Chief 角色類型：chief（治理者）或 worker（純執行者） */
+export const RoleTypeEnum = z.enum(['chief', 'worker']);
+export type RoleType = z.infer<typeof RoleTypeEnum>;
+
+/** 治理相關權限 — worker 不可擁有 */
+export const GOVERNANCE_PERMISSIONS: readonly Permission[] = ['propose_law', 'enact_law_low'] as const;
 
 const SkillBindingInput = z.object({
   skill_id: z.string(),
@@ -47,6 +55,10 @@ export type ChiefBudgetConfig = z.infer<typeof ChiefBudgetConfigInput>;
 export const CreateChiefInput = z.object({
   name: z.string().min(1).max(100),
   role: z.string().min(1).max(500),
+  /** 角色類型：chief（預設，有治理權）或 worker（純執行，無 propose 權限） */
+  role_type: RoleTypeEnum.default('chief'),
+  /** 上級 chief ID — worker 必須指定 parent chief */
+  parent_chief_id: z.string().optional(),
   skills: z.array(SkillBindingInput).default([]),
   pipelines: z.array(z.string().min(1).max(100)).default([]),
   permissions: z.array(PermissionEnum).default([]),

@@ -395,6 +395,15 @@ export function initSchema(db: Database): void {
     try { db.run(sql); } catch { /* column already exists */ }
   }
 
+  // Worker role columns (#214)
+  const chiefWorkerAlters = [
+    "ALTER TABLE chiefs ADD COLUMN role_type TEXT NOT NULL DEFAULT 'chief'",
+    "ALTER TABLE chiefs ADD COLUMN parent_chief_id TEXT DEFAULT NULL",
+  ];
+  for (const sql of chiefWorkerAlters) {
+    try { db.run(sql); } catch { /* column already exists */ }
+  }
+
   // Stale heartbeat detection columns (#231)
   const chiefStaleAlters = [
     "ALTER TABLE chiefs ADD COLUMN last_heartbeat_at TEXT DEFAULT NULL",
