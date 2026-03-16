@@ -235,6 +235,82 @@ describe('world routes', () => {
     });
   });
 
+  // ---- GET /pulse (SSE) ----
+
+  describe('GET /api/villages/:id/world/pulse', () => {
+    it('200 — returns text/event-stream content type', async () => {
+      const res = await app.request(`/api/villages/${villageId}/world/pulse?interval=1000`);
+      expect(res.status).toBe(200);
+      const ct = res.headers.get('content-type');
+      expect(ct).toContain('text/event-stream');
+    });
+
+    it('streams valid pulse events with WorldHealth shape', async () => {
+      const res = await app.request(`/api/villages/${villageId}/world/pulse?interval=1000`);
+      expect(res.status).toBe(200);
+
+      // 讀取 response body stream 的第一個 SSE event
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      // 讀取直到收到完整的第一個 event（以 \n\n 結尾）
+      while (!buffer.includes('\n\n')) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+      }
+
+      // 取消 stream（模擬 client 斷線）
+      await reader.cancel();
+
+      // 解析 SSE event
+      const lines = buffer.split('\n').filter((l) => l.length > 0);
+      const eventLine = lines.find((l) => l.startsWith('event:'));
+      const dataLine = lines.find((l) => l.startsWith('data:'));
+      const idLine = lines.find((l) => l.startsWith('id:'));
+
+      expect(eventLine).toBe('event: pulse');
+      expect(idLine).toBe('id: 0');
+      expect(dataLine).toBeDefined();
+
+      // 解析 data JSON 並驗證 WorldHealth shape
+      const dataJson = dataLine!.replace('data: ', '');
+      const health = JSON.parse(dataJson) as Record<string, unknown>;
+      expect(typeof health.overall).toBe('number');
+      expect(typeof health.chief_count).toBe('number');
+      expect(typeof health.law_count).toBe('number');
+      expect(typeof health.constitution_active).toBe('boolean');
+      expect(health.scores).toBeDefined();
+    });
+
+    it('defaults interval to 5000ms and enforces min 1000ms', async () => {
+      // interval=100 should be clamped to 1000
+      const res = await app.request(`/api/villages/${villageId}/world/pulse?interval=100`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toContain('text/event-stream');
+
+      // 讀取第一個 event 確認 stream 正常
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (!buffer.includes('\n\n')) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+      }
+      await reader.cancel();
+
+      expect(buffer).toContain('event: pulse');
+    });
+
+    it('handles non-numeric interval gracefully', async () => {
+      const res = await app.request(`/api/villages/${villageId}/world/pulse?interval=abc`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toContain('text/event-stream');
+    });
+  });
+
   // ---- GET /continuity ----
 
   describe('GET /api/villages/:id/world/continuity', () => {
