@@ -218,7 +218,7 @@ describe('buildChiefPrompt', () => {
 
   it('includes name, role, personality, constraints', () => {
     const chief = {
-      id: 'chief-1', village_id: 'v', name: 'Reviewer', role: 'code reviewer',
+      id: 'chief-1', village_id: 'v', name: 'Reviewer', role: 'code reviewer', role_type: 'chief' as const, parent_chief_id: null,
       version: 1, status: 'active' as const, skills: [], pipelines: [], permissions: [],
       personality: { risk_tolerance: 'conservative' as const, communication_style: 'concise' as const, decision_speed: 'deliberate' as const },
       constraints: [
@@ -244,7 +244,7 @@ describe('buildChiefPrompt', () => {
     skillRegistry.verify(skill.id, 'u');
 
     const chief = {
-      id: 'chief-1', village_id: 'v', name: 'A', role: 'r',
+      id: 'chief-1', village_id: 'v', name: 'A', role: 'r', role_type: 'chief' as const, parent_chief_id: null,
       version: 1, status: 'active' as const,
       skills: [{ skill_id: skill.id, skill_version: 1 }],
       pipelines: [],
@@ -265,7 +265,7 @@ describe('buildChiefPrompt', () => {
 
   it('includes profile section when profile is set', () => {
     const chief = {
-      id: 'chief-1', village_id: 'v', name: 'Analyst', role: 'data analyst',
+      id: 'chief-1', village_id: 'v', name: 'Analyst', role: 'data analyst', role_type: 'chief' as const, parent_chief_id: null,
       version: 1, status: 'active' as const, skills: [], pipelines: [], permissions: [],
       personality: { risk_tolerance: 'conservative' as const, communication_style: 'detailed' as const, decision_speed: 'deliberate' as const },
       constraints: [],
@@ -282,7 +282,7 @@ describe('buildChiefPrompt', () => {
 
   it('includes pipelines section when pipelines are bound', () => {
     const chief = {
-      id: 'chief-1', village_id: 'v', name: 'Operator', role: 'pipeline operator',
+      id: 'chief-1', village_id: 'v', name: 'Operator', role: 'pipeline operator', role_type: 'chief' as const, parent_chief_id: null,
       version: 1, status: 'active' as const, skills: [],
       pipelines: ['quality-cycle', 'deploy-cycle'],
       permissions: [],
@@ -302,7 +302,7 @@ describe('buildChiefPrompt', () => {
 
   it('does not include pipelines section when pipelines are empty', () => {
     const chief = {
-      id: 'chief-1', village_id: 'v', name: 'A', role: 'r',
+      id: 'chief-1', village_id: 'v', name: 'A', role: 'r', role_type: 'chief' as const, parent_chief_id: null,
       version: 1, status: 'active' as const, skills: [], pipelines: [],
       permissions: [],
       personality: { risk_tolerance: 'moderate' as const, communication_style: 'concise' as const, decision_speed: 'deliberate' as const },
@@ -319,7 +319,7 @@ describe('buildChiefPrompt', () => {
 
   it('does not include profile section when profile is null', () => {
     const chief = {
-      id: 'chief-1', village_id: 'v', name: 'A', role: 'r',
+      id: 'chief-1', village_id: 'v', name: 'A', role: 'r', role_type: 'chief' as const, parent_chief_id: null,
       version: 1, status: 'active' as const, skills: [], pipelines: [], permissions: [],
       personality: { risk_tolerance: 'moderate' as const, communication_style: 'concise' as const, decision_speed: 'deliberate' as const },
       constraints: [],
@@ -668,5 +668,90 @@ describe('ChiefEngine.validateGovernanceAction', () => {
 
     const result = chiefEngine.validateGovernanceAction(chief.id, action);
     expect(result.chief.permissions).toContain('dispatch_task');
+  });
+});
+
+describe('Worker role (#214)', () => {
+  let db: Database;
+  let chiefEngine: ChiefEngine;
+  let constitutionStore: ConstitutionStore;
+  let skillRegistry: SkillRegistry;
+  let villageId: string;
+
+  beforeEach(() => {
+    db = createDb(':memory:');
+    initSchema(db);
+    const villageMgr = new VillageManager(db);
+    villageId = villageMgr.create({ name: 'test', target_repo: 'r' }, 'u').id;
+    constitutionStore = new ConstitutionStore(db);
+    skillRegistry = new SkillRegistry(db);
+    chiefEngine = new ChiefEngine(db, constitutionStore, skillRegistry);
+    constitutionStore.create(villageId, {
+      rules: [{ description: 'must review', enforcement: 'hard', scope: ['*'] }],
+      allowed_permissions: ['dispatch_task', 'propose_law', 'enact_law_low', 'query_edda'],
+      budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+    }, 'human');
+  });
+
+  it('creates worker with execution-only permissions', () => {
+    const worker = chiefEngine.create(villageId, { name: 'W', role: 'exec', role_type: 'worker', permissions: ['dispatch_task'] }, 'h');
+    expect(worker.role_type).toBe('worker');
+  });
+
+  it('defaults role_type to chief', () => {
+    const chief = chiefEngine.create(villageId, { name: 'C', role: 'mgr' }, 'h');
+    expect(chief.role_type).toBe('chief');
+  });
+
+  it('rejects worker with propose_law', () => {
+    expect(() => chiefEngine.create(villageId, { name: 'W', role: 'exec', role_type: 'worker', permissions: ['propose_law'] }, 'h')).toThrow('WORKER_GOVERNANCE_FORBIDDEN');
+  });
+
+  it('rejects worker with enact_law_low', () => {
+    expect(() => chiefEngine.create(villageId, { name: 'W', role: 'exec', role_type: 'worker', permissions: ['enact_law_low'] }, 'h')).toThrow('WORKER_GOVERNANCE_FORBIDDEN');
+  });
+
+  it('rejects update adding governance perms to worker', () => {
+    const w = chiefEngine.create(villageId, { name: 'W', role: 'exec', role_type: 'worker', permissions: ['dispatch_task'] }, 'h');
+    expect(() => chiefEngine.update(w.id, { permissions: ['dispatch_task', 'propose_law'] }, 'h')).toThrow('WORKER_GOVERNANCE_FORBIDDEN');
+  });
+
+  it('creates worker with parent_chief_id', () => {
+    const p = chiefEngine.create(villageId, { name: 'P', role: 'mgr' }, 'h');
+    const w = chiefEngine.create(villageId, { name: 'W', role: 'exec', role_type: 'worker', parent_chief_id: p.id }, 'h');
+    expect(w.parent_chief_id).toBe(p.id);
+  });
+
+  it('rejects nonexistent parent', () => {
+    expect(() => chiefEngine.create(villageId, { name: 'W', role: 'exec', role_type: 'worker', parent_chief_id: 'chief-none' }, 'h')).toThrow('PARENT_NOT_FOUND');
+  });
+
+  it('rejects worker parent', () => {
+    const wp = chiefEngine.create(villageId, { name: 'WP', role: 'exec', role_type: 'worker' }, 'h');
+    expect(() => chiefEngine.create(villageId, { name: 'W', role: 'exec', role_type: 'worker', parent_chief_id: wp.id }, 'h')).toThrow('PARENT_IS_WORKER');
+  });
+
+  it('listTopLevel excludes workers', () => {
+    chiefEngine.create(villageId, { name: 'C', role: 'mgr' }, 'h');
+    chiefEngine.create(villageId, { name: 'W', role: 'exec', role_type: 'worker' }, 'h');
+    const top = chiefEngine.listTopLevel(villageId);
+    expect(top).toHaveLength(1);
+    expect(top[0].role_type).toBe('chief');
+  });
+
+  it('listTeam returns direct reports', () => {
+    const p = chiefEngine.create(villageId, { name: 'P', role: 'mgr' }, 'h');
+    chiefEngine.create(villageId, { name: 'W1', role: 'exec', role_type: 'worker', parent_chief_id: p.id }, 'h');
+    chiefEngine.create(villageId, { name: 'W2', role: 'exec', role_type: 'worker', parent_chief_id: p.id }, 'h');
+    const team = chiefEngine.listTeam(p.id);
+    expect(team).toHaveLength(2);
+  });
+
+  it('persists role_type and parent_chief_id', () => {
+    const p = chiefEngine.create(villageId, { name: 'P', role: 'mgr' }, 'h');
+    const w = chiefEngine.create(villageId, { name: 'W', role: 'exec', role_type: 'worker', parent_chief_id: p.id }, 'h');
+    const fetched = chiefEngine.get(w.id);
+    expect(fetched?.role_type).toBe('worker');
+    expect(fetched?.parent_chief_id).toBe(p.id);
   });
 });

@@ -217,7 +217,7 @@ export class GovernanceScheduler {
       // 3. 對每個 village 執行
       for (const village of villages) {
         villagesProcessed++;
-        const chiefs = this.chiefEngine.list(village.id, { status: 'active' });
+        const chiefs = this.chiefEngine.listTopLevel(village.id, { status: 'active' });
 
         // 4. Separate pipeline chiefs from local chiefs
         const pipelineChiefs = chiefs.filter(c => c.pipelines.length > 0);

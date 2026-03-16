@@ -137,6 +137,8 @@ function applyChiefAppoint(
     village_id: state.village.id,
     name: change.name,
     role: change.role,
+    role_type: 'chief',
+    parent_chief_id: null,
     version: 1,
     status: 'active',
     skills: change.skills.map((id) => ({ skill_id: id, skill_version: 1 })),

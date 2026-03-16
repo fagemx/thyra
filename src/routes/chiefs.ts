@@ -132,6 +132,10 @@ export function chiefRoutes(engine: ChiefEngine, skillRegistry: SkillRegistry, d
       const msg = e instanceof Error ? e.message : 'Unknown error';
       const code = msg.includes('PERMISSION_EXCEEDS') ? 'PERMISSION_EXCEEDS_CONSTITUTION'
         : msg.includes('SKILL_NOT_VERIFIED') ? 'SKILL_NOT_VERIFIED'
+        : msg.includes('WORKER_GOVERNANCE_FORBIDDEN') ? 'WORKER_GOVERNANCE_FORBIDDEN'
+        : msg.includes('PARENT_NOT_FOUND') ? 'PARENT_NOT_FOUND'
+        : msg.includes('PARENT_WRONG_VILLAGE') ? 'PARENT_WRONG_VILLAGE'
+        : msg.includes('PARENT_IS_WORKER') ? 'PARENT_IS_WORKER'
         : 'BAD_REQUEST';
       return c.json({ ok: false, error: { code, message: msg } }, 400);
     }
@@ -171,6 +175,13 @@ export function chiefRoutes(engine: ChiefEngine, skillRegistry: SkillRegistry, d
     if (!chief) return c.json({ ok: false, error: { code: 'NOT_FOUND', message: 'Chief not found' } }, 404);
     const prompt = buildChiefPrompt(chief, skillRegistry);
     return c.json({ ok: true, data: { prompt } });
+  });
+
+  /** #214: 列出 chief 的直屬下級 */
+  app.get('/api/chiefs/:id/team', (c) => {
+    const chief = engine.get(c.req.param('id'));
+    if (!chief) return c.json({ ok: false, error: { code: 'NOT_FOUND', message: 'Chief not found' } }, 404);
+    return c.json({ ok: true, data: engine.listTeam(c.req.param('id')) });
   });
 
   /**

@@ -376,6 +376,11 @@ export function executeChiefCycleWithState(
     return { chief_id: chief.id, proposals: [], applied: [], skipped: [] };
   }
 
+  // #214: Workers do not participate in governance cycles (safety net)
+  if (chief.role_type === 'worker') {
+    return { chief_id: chief.id, proposals: [], applied: [], skipped: [] };
+  }
+
   const proposals = makeChiefDecision(chief, state);
   const applied: ApplyResult[] = [];
   const skipped: { proposal: ChiefProposal; reason: string }[] = [];

@@ -261,7 +261,7 @@ describe('LoopRunner', () => {
 
   it('decide: returns null in Phase 0', async () => {
     const result = await loopRunner.decide(
-      { id: chiefId, village_id: villageId, name: 'test', role: 'r', version: 1, status: 'active' as const, skills: [], pipelines: [], permissions: [], personality: { risk_tolerance: 'moderate' as const, communication_style: 'concise' as const, decision_speed: 'fast' as const }, constraints: [], profile: null, adapter_type: 'local' as const, context_mode: 'fat' as const, adapter_config: {}, budget_config: null, pause_reason: null, paused_at: null, last_heartbeat_at: null, current_run_id: null, current_run_status: 'idle' as const, timeout_count: 0, created_at: '', updated_at: '' },
+      { id: chiefId, village_id: villageId, name: 'test', role: 'r', role_type: 'chief' as const, parent_chief_id: null, version: 1, status: 'active' as const, skills: [], pipelines: [], permissions: [], personality: { risk_tolerance: 'moderate' as const, communication_style: 'concise' as const, decision_speed: 'fast' as const }, constraints: [], profile: null, adapter_type: 'local' as const, context_mode: 'fat' as const, adapter_config: {}, budget_config: null, pause_reason: null, paused_at: null, last_heartbeat_at: null, current_run_id: null, current_run_status: 'idle' as const, timeout_count: 0, created_at: '', updated_at: '' },
       [],
       [],
     );
@@ -296,7 +296,7 @@ describe('LoopRunner', () => {
       } as unknown as import('./edda-bridge').EddaBridge;
 
       const runner = new LoopRunner(db, constitutionStore, chiefEngine, lawEngine, ra, mockBridge);
-      const chief = { id: chiefId, village_id: villageId, name: 'test', role: 'r', version: 1, status: 'active' as const, skills: [], pipelines: [], permissions: [], personality: { risk_tolerance: 'moderate' as const, communication_style: 'concise' as const, decision_speed: 'fast' as const }, constraints: [], profile: null, adapter_type: 'local' as const, context_mode: 'fat' as const, adapter_config: {}, budget_config: null, pause_reason: null, paused_at: null, last_heartbeat_at: null, current_run_id: null, current_run_status: 'idle' as const, timeout_count: 0, created_at: '', updated_at: '' };
+      const chief = { id: chiefId, village_id: villageId, name: 'test', role: 'r', role_type: 'chief' as const, parent_chief_id: null, version: 1, status: 'active' as const, skills: [], pipelines: [], permissions: [], personality: { risk_tolerance: 'moderate' as const, communication_style: 'concise' as const, decision_speed: 'fast' as const }, constraints: [], profile: null, adapter_type: 'local' as const, context_mode: 'fat' as const, adapter_config: {}, budget_config: null, pause_reason: null, paused_at: null, last_heartbeat_at: null, current_run_id: null, current_run_status: 'idle' as const, timeout_count: 0, created_at: '', updated_at: '' };
 
       await runner.decide(chief, [], [{ some: 'obs' }], villageId);
 
@@ -306,7 +306,7 @@ describe('LoopRunner', () => {
 
     it('decide works without EddaBridge (graceful degradation)', async () => {
       // loopRunner from beforeEach has no eddaBridge
-      const chief = { id: chiefId, village_id: villageId, name: 'test', role: 'r', version: 1, status: 'active' as const, skills: [], pipelines: [], permissions: [], personality: { risk_tolerance: 'moderate' as const, communication_style: 'concise' as const, decision_speed: 'fast' as const }, constraints: [], profile: null, adapter_type: 'local' as const, context_mode: 'fat' as const, adapter_config: {}, budget_config: null, pause_reason: null, paused_at: null, last_heartbeat_at: null, current_run_id: null, current_run_status: 'idle' as const, timeout_count: 0, created_at: '', updated_at: '' };
+      const chief = { id: chiefId, village_id: villageId, name: 'test', role: 'r', role_type: 'chief' as const, parent_chief_id: null, version: 1, status: 'active' as const, skills: [], pipelines: [], permissions: [], personality: { risk_tolerance: 'moderate' as const, communication_style: 'concise' as const, decision_speed: 'fast' as const }, constraints: [], profile: null, adapter_type: 'local' as const, context_mode: 'fat' as const, adapter_config: {}, budget_config: null, pause_reason: null, paused_at: null, last_heartbeat_at: null, current_run_id: null, current_run_status: 'idle' as const, timeout_count: 0, created_at: '', updated_at: '' };
 
       const result = await loopRunner.decide(chief, [], [{ some: 'obs' }], villageId);
       expect(result).toBeNull();
@@ -326,7 +326,7 @@ describe('LoopRunner', () => {
       } as unknown as import('./edda-bridge').EddaBridge;
 
       const runner = new LoopRunner(db, constitutionStore, chiefEngine, lawEngine, ra, mockBridge);
-      const chief = { id: chiefId, village_id: villageId, name: 'test', role: 'r', version: 1, status: 'active' as const, skills: [], pipelines: [], permissions: [], personality: { risk_tolerance: 'moderate' as const, communication_style: 'concise' as const, decision_speed: 'fast' as const }, constraints: [], profile: null, adapter_type: 'local' as const, context_mode: 'fat' as const, adapter_config: {}, budget_config: null, pause_reason: null, paused_at: null, last_heartbeat_at: null, current_run_id: null, current_run_status: 'idle' as const, timeout_count: 0, created_at: '', updated_at: '' };
+      const chief = { id: chiefId, village_id: villageId, name: 'test', role: 'r', role_type: 'chief' as const, parent_chief_id: null, version: 1, status: 'active' as const, skills: [], pipelines: [], permissions: [], personality: { risk_tolerance: 'moderate' as const, communication_style: 'concise' as const, decision_speed: 'fast' as const }, constraints: [], profile: null, adapter_type: 'local' as const, context_mode: 'fat' as const, adapter_config: {}, budget_config: null, pause_reason: null, paused_at: null, last_heartbeat_at: null, current_run_id: null, current_run_status: 'idle' as const, timeout_count: 0, created_at: '', updated_at: '' };
 
       // Should not throw — graceful degradation
       const result = await runner.decide(chief, [], [{ some: 'obs' }], villageId);
