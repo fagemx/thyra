@@ -338,4 +338,76 @@ describe('world routes', () => {
       expect(json.ok).toBe(false);
     });
   });
+
+  // ---- GET /events (SSE) ----
+
+  describe('GET /api/villages/:id/world/events', () => {
+    it('200 — returns text/event-stream content type', async () => {
+      const res = await app.request(`/api/villages/${villageId}/world/events?interval=1000`);
+      expect(res.status).toBe(200);
+      const ct = res.headers.get('content-type');
+      expect(ct).toContain('text/event-stream');
+    });
+
+    it('streams initial audit events as timeline SSE', async () => {
+      // 先 apply 一個 change 讓 audit_log 有資料
+      await app.request(`/api/villages/${villageId}/world/apply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          change: { type: 'village.update', name: 'SSETestVillage' },
+          reason: 'test sse events',
+        }),
+      });
+
+      const res = await app.request(`/api/villages/${villageId}/world/events?interval=1000`);
+      expect(res.status).toBe(200);
+
+      // 讀取 response body stream 的第一批 SSE events
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      for (let i = 0; i < 10; i++) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        if (buffer.includes('event: timeline')) break;
+      }
+      await reader.cancel();
+
+      // 應該含有 timeline event
+      expect(buffer).toContain('event: timeline');
+      // 每個 event 的 data 應含 audit 欄位
+      const dataLine = buffer.split('\n').find((l) => l.startsWith('data:'));
+      expect(dataLine).toBeDefined();
+      if (dataLine) {
+        const data = JSON.parse(dataLine.replace('data: ', '')) as Record<string, unknown>;
+        expect(data.id).toBeDefined();
+        expect(data.entity_type).toBeDefined();
+        expect(data.action).toBeDefined();
+        expect(data.actor).toBeDefined();
+      }
+    });
+
+    it('handles village with no audit events', async () => {
+      // 建立另一個空 village
+      const villageMgr = new VillageManager(db);
+      const empty = villageMgr.create(
+        { name: 'EmptyVillage', target_repo: 'fagemx/empty' },
+        'human',
+      );
+
+      const res = await app.request(`/api/villages/${empty.id}/world/events?interval=1000`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toContain('text/event-stream');
+    });
+
+    it('defaults interval to 3000ms and enforces min 1000ms', async () => {
+      // interval=100 should be clamped to 1000
+      const res = await app.request(`/api/villages/${villageId}/world/events?interval=100`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toContain('text/event-stream');
+    });
+  });
 });

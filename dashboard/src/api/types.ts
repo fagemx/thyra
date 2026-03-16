@@ -239,17 +239,17 @@ export interface WorldHealth {
   scores: WorldHealthScores
 }
 
-// --- Audit Entry (mirrors audit_log row) ---
+// --- Audit Entry (mirrors audit-query.ts AuditEvent) ---
 
 export interface AuditEntry {
-  id: string
-  village_id: string
-  category: string
+  id: number
+  entity_type: string
   entity_id: string
   action: string
-  details: Record<string, unknown>
+  payload: unknown
   actor: string
   created_at: string
+  event_id: string | null
 }
 
 // --- Telemetry (mirrors CycleTelemetry) ---
@@ -290,6 +290,32 @@ export interface SnapshotMeta {
   village_id: string
   trigger: string
   created_at: string
+}
+
+// --- Timeline ---
+
+export type TimelineCategory =
+  | 'governance'
+  | 'change'
+  | 'rollback'
+  | 'policy'
+  | 'alert'
+  | 'system'
+
+export type TimelineSeverity = 'info' | 'warning' | 'error'
+
+export interface TimelineEvent {
+  id: number
+  entity_type: string
+  entity_id: string
+  action: string
+  payload: Record<string, unknown>
+  actor: string
+  created_at: string
+  event_id: string | null
+  category: TimelineCategory
+  title: string
+  severity: TimelineSeverity
 }
 
 // --- Pending Change Proposal ---

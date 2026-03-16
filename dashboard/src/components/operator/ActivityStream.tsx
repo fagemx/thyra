@@ -10,9 +10,21 @@ interface ActivityStreamProps {
 
 type DotColor = 'dotGreen' | 'dotRed' | 'dotBlue' | 'dotYellow' | 'dotGray'
 
+function parsePayload(entry: AuditEntry): Record<string, unknown> {
+  if (typeof entry.payload === 'string') {
+    try { return JSON.parse(entry.payload) as Record<string, unknown> }
+    catch { return {} }
+  }
+  if (typeof entry.payload === 'object' && entry.payload !== null) {
+    return entry.payload as Record<string, unknown>
+  }
+  return {}
+}
+
 function formatAuditEntry(entry: AuditEntry): { message: string; dot: DotColor } {
   const action = entry.action
-  const details = entry.details
+  const details = parsePayload(entry)
+  const entityType = entry.entity_type
 
   switch (action) {
     case 'cycle_complete':
@@ -23,7 +35,7 @@ function formatAuditEntry(entry: AuditEntry): { message: string; dot: DotColor }
     case 'apply':
     case 'applied':
       return {
-        message: `Applied ${entry.category}: ${String(details.name ?? details.type ?? entry.entity_id)}`,
+        message: `Applied ${entityType}: ${String(details.name ?? details.type ?? entry.entity_id)}`,
         dot: 'dotGreen',
       }
     case 'rollback':
@@ -44,29 +56,29 @@ function formatAuditEntry(entry: AuditEntry): { message: string; dot: DotColor }
     case 'create':
     case 'created':
       return {
-        message: `Created ${entry.category}: ${String(details.name ?? entry.entity_id)}`,
+        message: `Created ${entityType}: ${String(details.name ?? entry.entity_id)}`,
         dot: 'dotGreen',
       }
     case 'revoke':
     case 'revoked':
       return {
-        message: `Revoked ${entry.category}: ${String(details.name ?? entry.entity_id)}`,
+        message: `Revoked ${entityType}: ${String(details.name ?? entry.entity_id)}`,
         dot: 'dotRed',
       }
     case 'supersede':
     case 'superseded':
       return {
-        message: `Superseded ${entry.category}: ${String(details.name ?? entry.entity_id)}`,
+        message: `Superseded ${entityType}: ${String(details.name ?? entry.entity_id)}`,
         dot: 'dotYellow',
       }
     case 'error':
       return {
-        message: `Error in ${entry.category}: ${String(details.message ?? entry.entity_id)}`,
+        message: `Error in ${entityType}: ${String(details.message ?? entry.entity_id)}`,
         dot: 'dotRed',
       }
     default:
       return {
-        message: `${entry.category}.${action}: ${entry.entity_id}`,
+        message: `${entityType}.${action}: ${entry.entity_id}`,
         dot: 'dotGray',
       }
   }
