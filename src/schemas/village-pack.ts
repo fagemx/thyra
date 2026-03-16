@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { PermissionEnum } from './constitution';
+import { EvaluatorRuleSchema } from './evaluator';
 import { GoalMetricSchema, GoalLevelEnum } from './goal';
 import { VillagePackLlmSchema } from './llm-config';
 
@@ -23,6 +24,7 @@ const VillagePackConstitutionSchema = z.object({
   rules: z.array(VillagePackConstitutionRuleSchema).min(1, 'At least 1 constitution rule required'),
   allowed_permissions: z.array(PermissionEnum).min(1, 'At least 1 allowed permission required'),
   budget: VillagePackBudgetSchema,
+  evaluators: z.array(EvaluatorRuleSchema).default([]),
 });
 
 // Skill/pipeline name pattern: allows lowercase letters, digits, underscores, hyphens.

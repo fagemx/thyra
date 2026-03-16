@@ -5,6 +5,7 @@
  */
 import { z } from 'zod';
 import { PermissionEnum } from './constitution';
+import { EvaluatorRuleSchema } from './evaluator';
 
 // ---------------------------------------------------------------------------
 // 13 WorldChange variants
@@ -25,6 +26,7 @@ const ConstitutionSupersedeChange = z.object({
     max_cost_per_loop: z.number().min(0),
     max_cost_per_month: z.number().min(0).default(0),
   }),
+  evaluator_rules: z.array(EvaluatorRuleSchema).default([]),
   actor: z.string(),
 });
 

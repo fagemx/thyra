@@ -75,6 +75,8 @@ function applyConstitutionSupersede(
     })),
     allowed_permissions: [...change.allowed_permissions],
     budget_limits: { ...change.budget_limits },
+    // Carry evaluator_rules into the new constitution
+    evaluator_rules: change.evaluator_rules.length > 0 ? [...change.evaluator_rules] : undefined,
     superseded_by: null,
   };
   return { ...state, constitution: newConst, assembled_at: now };
