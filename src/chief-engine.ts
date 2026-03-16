@@ -2,7 +2,8 @@ import type { Database } from 'bun:sqlite';
 import { randomUUID } from 'crypto';
 import { appendAudit } from './db';
 import { CreateChiefInput as CreateChiefSchema } from './schemas/chief';
-import type { CreateChiefInputRaw, UpdateChiefInput, ChiefPersonality, ChiefProfile, ChiefProfileName, GovernanceActionInput, ChiefBudgetConfig } from './schemas/chief';
+import type { CreateChiefInputRaw, UpdateChiefInput, ChiefPersonality, ChiefProfile, ChiefProfileName, GovernanceActionInput, ChiefBudgetConfig, PrecedentConfig, RoleType } from './schemas/chief';
+import { GOVERNANCE_PERMISSIONS } from './schemas/chief';
 import type { AdapterType, ContextMode } from './schemas/heartbeat';
 import type { ConstitutionStore } from './constitution-store';
 import type { SkillRegistry } from './skill-registry';
@@ -23,6 +24,8 @@ export interface Chief {
   village_id: string;
   name: string;
   role: string;
+  role_type: RoleType;
+  parent_chief_id: string | null;
   version: number;
   status: 'active' | 'inactive' | 'paused';
   skills: SkillBindingType[];
@@ -35,6 +38,10 @@ export interface Chief {
   context_mode: ContextMode;
   adapter_config: Record<string, unknown>;
   budget_config: ChiefBudgetConfig | null;
+  /** 是否查詢 Edda 先例輔助決策（#222） */
+  use_precedents: boolean;
+  /** 先例查詢配置（#222） */
+  precedent_config: PrecedentConfig | null;
   pause_reason: string | null;
   paused_at: string | null;
   last_heartbeat_at: string | null;
@@ -138,6 +145,30 @@ export class ChiefEngine {
       }
     }
 
+    // #214: Worker cannot have governance permissions
+    if (input.role_type === 'worker') {
+      const forbidden = input.permissions.filter(p =>
+        (GOVERNANCE_PERMISSIONS as readonly string[]).includes(p),
+      );
+      if (forbidden.length > 0) {
+        throw new Error(`WORKER_GOVERNANCE_FORBIDDEN: workers cannot have governance permissions [${forbidden.join(', ')}]`);
+      }
+    }
+
+    // #214: Validate parent_chief_id
+    if (input.parent_chief_id) {
+      const parent = this.get(input.parent_chief_id);
+      if (!parent) {
+        throw new Error('PARENT_NOT_FOUND: parent_chief_id does not exist');
+      }
+      if (parent.village_id !== villageId) {
+        throw new Error('PARENT_WRONG_VILLAGE: parent chief must be in the same village');
+      }
+      if (parent.role_type === 'worker') {
+        throw new Error('PARENT_IS_WORKER: a worker cannot be parent of another chief/worker');
+      }
+    }
+
     // THY-14: only verified skills
     this.validateSkillBindings(input.skills, villageId);
 
@@ -159,6 +190,8 @@ export class ChiefEngine {
       village_id: villageId,
       name: input.name,
       role: input.role,
+      role_type: input.role_type,
+      parent_chief_id: input.parent_chief_id ?? null,
       version: 1,
       status: 'active',
       skills: input.skills,
@@ -171,6 +204,8 @@ export class ChiefEngine {
       context_mode: input.context_mode,
       adapter_config: input.adapter_config,
       budget_config: input.budget_config ?? null,
+      use_precedents: input.use_precedents,
+      precedent_config: input.precedent_config ?? null,
       pause_reason: null,
       paused_at: null,
       last_heartbeat_at: null,
@@ -182,10 +217,11 @@ export class ChiefEngine {
     };
 
     this.db.prepare(`
-      INSERT INTO chiefs (id, village_id, name, role, version, status, skills, pipelines, permissions, personality, constraints, profile, adapter_type, context_mode, adapter_config, budget_config, pause_reason, paused_at, last_heartbeat_at, current_run_id, current_run_status, timeout_count, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO chiefs (id, village_id, name, role, role_type, parent_chief_id, version, status, skills, pipelines, permissions, personality, constraints, profile, adapter_type, context_mode, adapter_config, budget_config, pause_reason, paused_at, last_heartbeat_at, current_run_id, current_run_status, timeout_count, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      chief.id, villageId, chief.name, chief.role, chief.version, chief.status,
+      chief.id, villageId, chief.name, chief.role, chief.role_type, chief.parent_chief_id,
+      chief.version, chief.status,
       JSON.stringify(chief.skills), JSON.stringify(chief.pipelines),
       JSON.stringify(chief.permissions),
       JSON.stringify(chief.personality), JSON.stringify(chief.constraints),
@@ -218,6 +254,33 @@ export class ChiefEngine {
     return rows.map((r) => this.deserialize(r));
   }
 
+  /**
+   * 列出 village 中的 top-level chiefs（排除 workers）。
+   * Governance scheduler 用此方法取得參與治理循環的 chiefs (#214)。
+   */
+  listTopLevel(villageId: string, opts?: { status?: string }): Chief[] {
+    let sql = "SELECT * FROM chiefs WHERE village_id = ? AND role_type != 'worker'";
+    const params: string[] = [villageId];
+    if (opts?.status) {
+      sql += ' AND status = ?';
+      params.push(opts.status);
+    }
+    sql += ' ORDER BY created_at DESC';
+    const rows = this.db.prepare(sql).all(...params) as Record<string, unknown>[];
+    return rows.map((r) => this.deserialize(r));
+  }
+
+  /**
+   * 列出某 chief 的直屬下級（team members）。
+   * 用於 GET /api/chiefs/:id/team endpoint (#214)。
+   */
+  listTeam(chiefId: string): Chief[] {
+    const rows = this.db.prepare(
+      'SELECT * FROM chiefs WHERE parent_chief_id = ? ORDER BY created_at DESC'
+    ).all(chiefId) as Record<string, unknown>[];
+    return rows.map((r) => this.deserialize(r));
+  }
+
   update(id: string, input: UpdateChiefInput, actor: string): Chief {
     const existing = this.get(id);
     if (!existing) throw new Error('Chief not found');
@@ -229,6 +292,16 @@ export class ChiefEngine {
         if (!constitution.allowed_permissions.includes(perm)) {
           throw new Error(`PERMISSION_EXCEEDS_CONSTITUTION: "${perm}"`);
         }
+      }
+    }
+
+    // #214: Worker governance permission check on update
+    if (input.permissions && existing.role_type === 'worker') {
+      const forbidden = input.permissions.filter(p =>
+        (GOVERNANCE_PERMISSIONS as readonly string[]).includes(p),
+      );
+      if (forbidden.length > 0) {
+        throw new Error(`WORKER_GOVERNANCE_FORBIDDEN: workers cannot have governance permissions [${forbidden.join(', ')}]`);
       }
     }
 
@@ -264,6 +337,8 @@ export class ChiefEngine {
       ...(input.context_mode !== undefined && { context_mode: input.context_mode }),
       ...(input.adapter_config !== undefined && { adapter_config: input.adapter_config }),
       ...(input.budget_config !== undefined && { budget_config: input.budget_config }),
+      ...(input.use_precedents !== undefined && { use_precedents: input.use_precedents }),
+      ...(input.precedent_config !== undefined && { precedent_config: input.precedent_config }),
       personality: resolvedPersonality,
       constraints: resolvedConstraints,
       profile: resolvedProfile,
@@ -496,6 +571,8 @@ export class ChiefEngine {
       village_id: row.village_id as string,
       name: row.name as string,
       role: row.role as string,
+      role_type: (row.role_type as RoleType | null) ?? 'chief',
+      parent_chief_id: (row.parent_chief_id as string | null) ?? null,
       version: row.version as number,
       status: row.status as Chief['status'],
       skills: JSON.parse((row.skills as string) || '[]') as Chief['skills'],
@@ -508,6 +585,8 @@ export class ChiefEngine {
       context_mode: (row.context_mode as ContextMode | null) ?? 'fat',
       adapter_config: JSON.parse((row.adapter_config as string) || '{}') as Record<string, unknown>,
       budget_config: row.budget_config ? JSON.parse(row.budget_config as string) as ChiefBudgetConfig : null,
+      use_precedents: row.use_precedents === 1 || row.use_precedents === true,
+      precedent_config: row.precedent_config ? JSON.parse(row.precedent_config as string) as PrecedentConfig : null,
       pause_reason: (row.pause_reason as string | null) ?? null,
       paused_at: (row.paused_at as string | null) ?? null,
       last_heartbeat_at: (row.last_heartbeat_at as string | null) ?? null,

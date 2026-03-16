@@ -17,6 +17,7 @@
 import type { Chief } from './chief-engine';
 import type { WorldManager, ApplyResult } from './world-manager';
 import type { KarviBridge, KarviProjectResponse } from './karvi-bridge';
+import type { EddaBridge, EddaDecisionHit } from './edda-bridge';
 import type { WorldState } from './world/state';
 import type { WorldChange } from './schemas/world-change';
 
@@ -350,33 +351,77 @@ export function shouldPropose(proposal: ChiefProposal, chief: Chief): boolean {
  * 流程：
  *   1. resolveStrategy → 取得策略函數
  *   2. strategy(chief, state) → 原始 proposals
- *   3. shouldPropose 過濾 → 最終 proposals
+ *   3. 若有 Edda precedents，調整信心度（#222）
+ *   4. shouldPropose 過濾 → 最終 proposals
  *
  * Pure function，不寫 DB。
+ *
+ * @param precedents 可選的 Edda 先例（use_precedents=true 時由 scheduler 預取注入）
  */
-export function makeChiefDecision(chief: Chief, state: WorldState): ChiefProposal[] {
+export function makeChiefDecision(
+  chief: Chief,
+  state: WorldState,
+  precedents?: EddaDecisionHit[],
+): ChiefProposal[] {
   const strategy = resolveStrategy(chief);
   if (!strategy) return [];
 
   const rawProposals = strategy(chief, state);
-  return rawProposals.filter(p => shouldPropose(p, chief));
+
+  // #222: 先例信心度調整
+  const adjusted = precedents && precedents.length > 0
+    ? rawProposals.map(p => adjustConfidenceWithPrecedents(p, precedents))
+    : rawProposals;
+
+  return adjusted.filter(p => shouldPropose(p, chief));
+}
+
+/**
+ * 根據 Edda 先例調整提案信心度（#222）。
+ *
+ * 有先例 → +0.1 信心度（上限 1.0）。
+ * 先例本身是 domain-matched，由 prefetchPrecedents 過濾。
+ */
+export function adjustConfidenceWithPrecedents(
+  proposal: ChiefProposal,
+  precedents: EddaDecisionHit[],
+): ChiefProposal {
+  if (precedents.length === 0) return proposal;
+
+  // 有匹配先例 → 提升信心度 0.1
+  const boost = 0.1;
+  const adjustedConfidence = Math.min(1.0, Math.round((proposal.confidence + boost) * 100) / 100);
+
+  return {
+    ...proposal,
+    confidence: adjustedConfidence,
+    reason: `${proposal.reason} [Precedent-informed: ${precedents.length} historical decision(s) found]`,
+  };
 }
 
 /**
  * 執行一輪 chief 決策週期（使用提供的 state 而非從 DB 讀取）。
  * 用於 coordinated execution：前一個 chief 的 state_after 作為下一個 chief 的輸入。
+ *
+ * @param precedents 可選的 Edda 先例（#222: scheduler 預取後注入）
  */
 export function executeChiefCycleWithState(
   worldManager: WorldManager,
   villageId: string,
   chief: Chief,
   state: WorldState,
+  precedents?: EddaDecisionHit[],
 ): ChiefCycleResult {
   if (chief.status !== 'active') {
     return { chief_id: chief.id, proposals: [], applied: [], skipped: [] };
   }
 
-  const proposals = makeChiefDecision(chief, state);
+  // #214: Workers do not participate in governance cycles (safety net)
+  if (chief.role_type === 'worker') {
+    return { chief_id: chief.id, proposals: [], applied: [], skipped: [] };
+  }
+
+  const proposals = makeChiefDecision(chief, state, precedents);
   const applied: ApplyResult[] = [];
   const skipped: { proposal: ChiefProposal; reason: string }[] = [];
 
@@ -436,11 +481,14 @@ export interface CoordinatedCycleResult {
  * 2. 首個 chief 用 DB state，後續 chief 用前一個的 state_after
  * 3. Judge 自然解決衝突（先到先得）
  * 4. Per-chief error isolation — 單一 chief 失敗不影響其他 chief
+ *
+ * @param precedentsMap 可選的 per-chief 先例映射（#222）
  */
 export function executeCoordinatedCycle(
   worldManager: WorldManager,
   villageId: string,
   chiefs: Chief[],
+  precedentsMap?: Map<string, EddaDecisionHit[]>,
 ): CoordinatedCycleResult {
   const sorted = sortChiefsByPriority(chiefs);
   let currentState = worldManager.getState(villageId);
@@ -451,7 +499,8 @@ export function executeCoordinatedCycle(
 
   for (const chief of sorted) {
     try {
-      const result = executeChiefCycleWithState(worldManager, villageId, chief, currentState);
+      const chiefPrecedents = precedentsMap?.get(chief.id);
+      const result = executeChiefCycleWithState(worldManager, villageId, chief, currentState, chiefPrecedents);
       results.push(result);
 
       // Thread state: use the last successful apply's state_after
@@ -544,4 +593,54 @@ export async function dispatchChiefPipelines(
   }
 
   return results;
+}
+
+// ---------------------------------------------------------------------------
+// Edda Precedent Pre-fetch（#222）
+// ---------------------------------------------------------------------------
+
+/**
+ * 為一組 chiefs 預取 Edda 先例。
+ *
+ * 只對 use_precedents=true 的 chiefs 查詢 Edda。
+ * Per-chief graceful degradation：單一查詢失敗不影響其他 chief。
+ * Client-side lookback_days 過濾。
+ *
+ * @returns Map<chief_id, EddaDecisionHit[]>（只包含 use_precedents=true 的 chiefs）
+ */
+export async function prefetchPrecedents(
+  eddaBridge: EddaBridge,
+  chiefs: Chief[],
+): Promise<Map<string, EddaDecisionHit[]>> {
+  const result = new Map<string, EddaDecisionHit[]>();
+  const precedentChiefs = chiefs.filter(c => c.use_precedents);
+
+  if (precedentChiefs.length === 0) return result;
+
+  const queries = precedentChiefs.map(async (chief) => {
+    try {
+      const config = chief.precedent_config;
+      const domain = config?.domain_filter ?? chief.role;
+      const limit = config?.max_precedents ?? 3;
+      const lookbackDays = config?.lookback_days ?? 30;
+
+      const queryResult = await eddaBridge.queryDecisions({
+        q: domain,
+        limit,
+      });
+
+      // Client-side lookback_days filter
+      const cutoff = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString();
+      const filtered = queryResult.decisions.filter(d => d.ts >= cutoff);
+
+      result.set(chief.id, filtered);
+    } catch {
+      // Per-chief graceful degradation: empty precedents on failure
+      result.set(chief.id, []);
+    }
+  });
+
+  // eslint-disable-next-line no-restricted-syntax
+  await Promise.all(queries);
+  return result;
 }

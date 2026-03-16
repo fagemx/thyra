@@ -18,6 +18,8 @@ import {
   sortChiefsByPriority,
   shouldPropose,
   makeChiefDecision,
+  adjustConfidenceWithPrecedents,
+  prefetchPrecedents,
   executeChiefCycle,
   executeChiefCycleWithState,
   executeCoordinatedCycle,
@@ -26,6 +28,7 @@ import {
   type ChiefProposal,
 } from './chief-autonomy';
 import type { KarviBridge, KarviProjectResponse } from './karvi-bridge';
+import type { EddaBridge, EddaDecisionHit, EddaQueryResult } from './edda-bridge';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -113,6 +116,8 @@ function makeChief(overrides?: Partial<Chief>): Chief {
     village_id: 'v-test',
     name: 'TestChief',
     role: 'economy advisor',
+    role_type: 'chief' as const,
+    parent_chief_id: null,
     version: 1,
     status: 'active' as const,
     skills: [],
@@ -121,6 +126,8 @@ function makeChief(overrides?: Partial<Chief>): Chief {
     constraints: [],
     profile: null,
     budget_config: null,
+    use_precedents: false,
+    precedent_config: null,
     pause_reason: null,
     paused_at: null,
     pipelines: [],
@@ -916,5 +923,304 @@ describe('executeCoordinatedCycle', () => {
     if (result.chief_results[0].applied.length > 0) {
       expect(result.state_transitions).toBeGreaterThan(0);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// I. Edda Precedent Tests (#222)
+// ---------------------------------------------------------------------------
+
+function makePrecedent(overrides?: Partial<EddaDecisionHit>): EddaDecisionHit {
+  return {
+    event_id: 'ev-1',
+    key: 'economy.budget_cut',
+    value: 'reduced_20pct',
+    reason: 'High activity detected',
+    domain: 'economy',
+    branch: 'main',
+    ts: new Date().toISOString(),
+    is_active: true,
+    ...overrides,
+  };
+}
+
+describe('adjustConfidenceWithPrecedents', () => {
+  it('should boost confidence by 0.1 when precedents exist', () => {
+    const proposal: ChiefProposal = {
+      change: { type: 'budget.adjust', max_cost_per_action: 8 },
+      reason: 'test reason',
+      confidence: 0.5,
+      trigger: 'test',
+    };
+    const precedents = [makePrecedent()];
+
+    const adjusted = adjustConfidenceWithPrecedents(proposal, precedents);
+
+    expect(adjusted.confidence).toBe(0.6);
+    expect(adjusted.reason).toContain('Precedent-informed');
+    expect(adjusted.reason).toContain('1 historical decision');
+  });
+
+  it('should cap confidence at 1.0', () => {
+    const proposal: ChiefProposal = {
+      change: { type: 'budget.adjust', max_cost_per_action: 8 },
+      reason: 'test',
+      confidence: 0.95,
+      trigger: 'test',
+    };
+
+    const adjusted = adjustConfidenceWithPrecedents(proposal, [makePrecedent()]);
+
+    expect(adjusted.confidence).toBe(1.0);
+  });
+
+  it('should return proposal unchanged when no precedents', () => {
+    const proposal: ChiefProposal = {
+      change: { type: 'budget.adjust', max_cost_per_action: 8 },
+      reason: 'test',
+      confidence: 0.5,
+      trigger: 'test',
+    };
+
+    const adjusted = adjustConfidenceWithPrecedents(proposal, []);
+
+    expect(adjusted.confidence).toBe(0.5);
+    expect(adjusted.reason).toBe('test');
+  });
+});
+
+describe('makeChiefDecision with precedents (#222)', () => {
+  it('should boost confidence when precedents provided', () => {
+    const chief = makeChief({
+      role: 'economy advisor',
+      personality: { risk_tolerance: 'moderate', communication_style: 'concise', decision_speed: 'deliberate' },
+    });
+    const state = makeMinimalState({
+      running_cycles: [{
+        id: 'cycle-1', village_id: 'v-test', chief_id: 'chief-test',
+        trigger: 'manual' as const, status: 'running' as const, version: 1,
+        budget_remaining: 50, cost_incurred: 0, iterations: 0,
+        max_iterations: 10, timeout_ms: 30000, actions: [], laws_proposed: [],
+        laws_enacted: [], abort_reason: null, intent: null,
+        created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      }],
+    });
+
+    const precedents = [makePrecedent()];
+    const proposals = makeChiefDecision(chief, state, precedents);
+
+    expect(proposals.length).toBeGreaterThan(0);
+    // Economy strategy confidence is 0.7, boosted to 0.8
+    expect(proposals[0].confidence).toBe(0.8);
+    expect(proposals[0].reason).toContain('Precedent-informed');
+  });
+
+  it('should work identically without precedents (backward compat)', () => {
+    const chief = makeChief({ role: 'economy advisor' });
+    const state = makeMinimalState({
+      running_cycles: [{
+        id: 'cycle-1', village_id: 'v-test', chief_id: 'chief-test',
+        trigger: 'manual' as const, status: 'running' as const, version: 1,
+        budget_remaining: 50, cost_incurred: 0, iterations: 0,
+        max_iterations: 10, timeout_ms: 30000, actions: [], laws_proposed: [],
+        laws_enacted: [], abort_reason: null, intent: null,
+        created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      }],
+    });
+
+    const withoutPrecedents = makeChiefDecision(chief, state);
+    const withEmptyPrecedents = makeChiefDecision(chief, state, []);
+
+    expect(withoutPrecedents).toHaveLength(withEmptyPrecedents.length);
+    if (withoutPrecedents.length > 0) {
+      expect(withoutPrecedents[0].confidence).toBe(withEmptyPrecedents[0].confidence);
+    }
+  });
+
+  it('should allow conservative chief proposals to pass with precedent boost', () => {
+    // Lore strategy confidence = 0.4, conservative threshold = 0.7
+    // Without precedents: 0.4 < 0.7 → filtered
+    // With precedents: 0.4 + 0.1 = 0.5 < 0.7 → still filtered
+    const chief = makeChief({
+      role: 'lore keeper',
+      personality: { risk_tolerance: 'conservative', communication_style: 'detailed', decision_speed: 'cautious' },
+    });
+    const state = makeMinimalState();
+    state.village.description = '';
+
+    // Without precedents: filtered (0.4 < 0.7)
+    const withoutPrecedents = makeChiefDecision(chief, state);
+    expect(withoutPrecedents).toHaveLength(0);
+
+    // With precedents: still filtered (0.5 < 0.7) — precedent boost is moderate
+    const withPrecedents = makeChiefDecision(chief, state, [makePrecedent()]);
+    expect(withPrecedents).toHaveLength(0);
+  });
+
+  it('should help moderate chief pass borderline proposals with precedent boost', () => {
+    // Growth/harmful law confidence = 0.5, moderate threshold = 0.5 → passes at boundary
+    // With precedents: 0.5 + 0.1 = 0.6 → clearly passes
+    const chief = makeChief({
+      role: 'growth analyst',
+      personality: { risk_tolerance: 'moderate', communication_style: 'concise', decision_speed: 'deliberate' },
+    });
+    const state = makeMinimalState({
+      active_laws: [{
+        id: 'law-bad', village_id: 'v-test', proposed_by: 'chief-test',
+        approved_by: null, version: 1, status: 'active' as const,
+        category: 'operational', content: { description: 'bad law', strategy: {} },
+        risk_level: 'low' as const,
+        evidence: { source: 'test', reasoning: 'test' },
+        effectiveness: { measured_at: new Date().toISOString(), metrics: {}, verdict: 'harmful' },
+        created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      }],
+    });
+
+    const proposals = makeChiefDecision(chief, state, [makePrecedent()]);
+
+    expect(proposals.length).toBeGreaterThan(0);
+    expect(proposals[0].confidence).toBe(0.6); // 0.5 + 0.1
+  });
+});
+
+describe('prefetchPrecedents (#222)', () => {
+  function makeMockEddaBridge(
+    decisions: EddaDecisionHit[] = [],
+    shouldThrow = false,
+  ): EddaBridge {
+    return {
+      queryDecisions: async (): Promise<EddaQueryResult> => {
+        if (shouldThrow) throw new Error('Edda unreachable');
+        return {
+          query: 'test',
+          input_type: 'domain',
+          decisions,
+          timeline: [],
+          related_commits: [],
+          related_notes: [],
+        };
+      },
+    } as unknown as EddaBridge;
+  }
+
+  it('should return empty map when no chiefs have use_precedents=true', async () => {
+    const bridge = makeMockEddaBridge();
+    const chiefs = [makeChief({ use_precedents: false })];
+
+    const result = await prefetchPrecedents(bridge, chiefs);
+
+    expect(result.size).toBe(0);
+  });
+
+  it('should query Edda for chiefs with use_precedents=true', async () => {
+    const precedent = makePrecedent();
+    const bridge = makeMockEddaBridge([precedent]);
+    const chief = makeChief({
+      id: 'chief-1',
+      use_precedents: true,
+      precedent_config: { max_precedents: 3, lookback_days: 30 },
+    });
+
+    const result = await prefetchPrecedents(bridge, [chief]);
+
+    expect(result.size).toBe(1);
+    expect(result.get('chief-1')).toHaveLength(1);
+    expect(result.get('chief-1')![0].key).toBe('economy.budget_cut');
+  });
+
+  it('should skip chiefs with use_precedents=false', async () => {
+    const calls: string[] = [];
+    const bridge = {
+      queryDecisions: async (opts: { q?: string }) => {
+        calls.push(opts.q ?? '');
+        return { query: '', input_type: 'domain', decisions: [], timeline: [], related_commits: [], related_notes: [] };
+      },
+    } as unknown as EddaBridge;
+
+    const chiefs = [
+      makeChief({ id: 'c-on', use_precedents: true }),
+      makeChief({ id: 'c-off', use_precedents: false }),
+    ];
+
+    const result = await prefetchPrecedents(bridge, chiefs);
+
+    expect(calls).toHaveLength(1); // only queried for c-on
+    expect(result.has('c-on')).toBe(true);
+    expect(result.has('c-off')).toBe(false);
+  });
+
+  it('should filter by lookback_days', async () => {
+    const recentPrecedent = makePrecedent({ ts: new Date().toISOString() });
+    const oldPrecedent = makePrecedent({
+      event_id: 'ev-old',
+      ts: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString(), // 60 days ago
+    });
+    const bridge = makeMockEddaBridge([recentPrecedent, oldPrecedent]);
+
+    const chief = makeChief({
+      id: 'chief-1',
+      use_precedents: true,
+      precedent_config: { max_precedents: 10, lookback_days: 30 },
+    });
+
+    const result = await prefetchPrecedents(bridge, [chief]);
+
+    expect(result.get('chief-1')).toHaveLength(1); // old one filtered out
+    expect(result.get('chief-1')![0].event_id).toBe('ev-1');
+  });
+
+  it('should gracefully degrade when Edda is unreachable', async () => {
+    const bridge = makeMockEddaBridge([], true);
+    const chief = makeChief({
+      id: 'chief-1',
+      use_precedents: true,
+    });
+
+    const result = await prefetchPrecedents(bridge, [chief]);
+
+    expect(result.size).toBe(1);
+    expect(result.get('chief-1')).toHaveLength(0); // empty, not throw
+  });
+
+  it('should use domain_filter from precedent_config when set', async () => {
+    let capturedQuery = '';
+    const bridge = {
+      queryDecisions: async (opts: { q?: string }) => {
+        capturedQuery = opts.q ?? '';
+        return { query: '', input_type: 'domain', decisions: [], timeline: [], related_commits: [], related_notes: [] };
+      },
+    } as unknown as EddaBridge;
+
+    const chief = makeChief({
+      id: 'chief-1',
+      role: 'economy advisor',
+      use_precedents: true,
+      precedent_config: { max_precedents: 3, lookback_days: 30, domain_filter: 'finance' },
+    });
+
+    await prefetchPrecedents(bridge, [chief]);
+
+    expect(capturedQuery).toBe('finance'); // uses domain_filter, not role
+  });
+
+  it('should use chief.role as default domain when domain_filter is not set', async () => {
+    let capturedQuery = '';
+    const bridge = {
+      queryDecisions: async (opts: { q?: string }) => {
+        capturedQuery = opts.q ?? '';
+        return { query: '', input_type: 'domain', decisions: [], timeline: [], related_commits: [], related_notes: [] };
+      },
+    } as unknown as EddaBridge;
+
+    const chief = makeChief({
+      id: 'chief-1',
+      role: 'economy advisor',
+      use_precedents: true,
+      precedent_config: { max_precedents: 3, lookback_days: 30 },
+    });
+
+    await prefetchPrecedents(bridge, [chief]);
+
+    expect(capturedQuery).toBe('economy advisor');
   });
 });

@@ -1,6 +1,14 @@
 import { z } from 'zod';
 import { PermissionEnum } from './constitution';
+import type { Permission } from './constitution';
 import { AdapterTypeEnum, ContextModeEnum } from './heartbeat';
+
+/** Chief 角色類型：chief（治理者）或 worker（純執行者） */
+export const RoleTypeEnum = z.enum(['chief', 'worker']);
+export type RoleType = z.infer<typeof RoleTypeEnum>;
+
+/** 治理相關權限 — worker 不可擁有 */
+export const GOVERNANCE_PERMISSIONS: readonly Permission[] = ['propose_law', 'enact_law_low'] as const;
 
 const SkillBindingInput = z.object({
   skill_id: z.string(),
@@ -44,9 +52,25 @@ export const ChiefBudgetConfigInput = z.object({
 
 export type ChiefBudgetConfig = z.infer<typeof ChiefBudgetConfigInput>;
 
+/** Precedent query 配置 — 控制 Edda 先例查詢行為 (#222) */
+export const PrecedentConfigInput = z.object({
+  /** 最大先例數量（預設 3） */
+  max_precedents: z.number().int().min(1).max(20).default(3),
+  /** 回溯天數（預設 30，client-side 過濾） */
+  lookback_days: z.number().int().min(1).max(365).default(30),
+  /** 查詢 domain 過濾（預設使用 chief.role） */
+  domain_filter: z.string().min(1).max(100).optional(),
+});
+
+export type PrecedentConfig = z.infer<typeof PrecedentConfigInput>;
+
 export const CreateChiefInput = z.object({
   name: z.string().min(1).max(100),
   role: z.string().min(1).max(500),
+  /** 角色類型：chief（預設，有治理權）或 worker（純執行，無 propose 權限） */
+  role_type: RoleTypeEnum.default('chief'),
+  /** 上級 chief ID — worker 必須指定 parent chief */
+  parent_chief_id: z.string().optional(),
   skills: z.array(SkillBindingInput).default([]),
   pipelines: z.array(z.string().min(1).max(100)).default([]),
   permissions: z.array(PermissionEnum).default([]),
@@ -60,6 +84,10 @@ export const CreateChiefInput = z.object({
   /** Adapter 專屬設定（如 HTTP endpoint URL） */
   adapter_config: z.record(z.unknown()).default({}),
   budget_config: ChiefBudgetConfigInput.optional(),
+  /** 是否查詢 Edda 先例來輔助決策（預設 false） (#222) */
+  use_precedents: z.boolean().default(false),
+  /** 先例查詢配置（use_precedents = true 時生效） (#222) */
+  precedent_config: PrecedentConfigInput.optional(),
 });
 
 export const UpdateChiefInput = z.object({
@@ -75,6 +103,8 @@ export const UpdateChiefInput = z.object({
   context_mode: ContextModeEnum.optional(),
   adapter_config: z.record(z.unknown()).optional(),
   budget_config: ChiefBudgetConfigInput.optional(),
+  use_precedents: z.boolean().optional(),
+  precedent_config: PrecedentConfigInput.optional(),
 });
 
 /**

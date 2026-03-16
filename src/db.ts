@@ -395,6 +395,24 @@ export function initSchema(db: Database): void {
     try { db.run(sql); } catch { /* column already exists */ }
   }
 
+  // Worker role columns (#214)
+  const chiefWorkerAlters = [
+    "ALTER TABLE chiefs ADD COLUMN role_type TEXT NOT NULL DEFAULT 'chief'",
+    "ALTER TABLE chiefs ADD COLUMN parent_chief_id TEXT DEFAULT NULL",
+  ];
+  for (const sql of chiefWorkerAlters) {
+    try { db.run(sql); } catch { /* column already exists */ }
+  }
+
+  // Edda precedent query columns (#222)
+  const chiefPrecedentAlters = [
+    "ALTER TABLE chiefs ADD COLUMN use_precedents INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE chiefs ADD COLUMN precedent_config TEXT DEFAULT NULL",
+  ];
+  for (const sql of chiefPrecedentAlters) {
+    try { db.run(sql); } catch { /* column already exists */ }
+  }
+
   // Stale heartbeat detection columns (#231)
   const chiefStaleAlters = [
     "ALTER TABLE chiefs ADD COLUMN last_heartbeat_at TEXT DEFAULT NULL",
@@ -404,6 +422,58 @@ export function initSchema(db: Database): void {
   ];
   for (const sql of chiefStaleAlters) {
     try { db.run(sql); } catch { /* column already exists */ }
+  }
+
+  // Alert system tables (#236)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS alerts (
+      id TEXT PRIMARY KEY,
+      village_id TEXT NOT NULL REFERENCES villages(id),
+      type TEXT NOT NULL CHECK(type IN (
+        'budget_warning','chief_timeout','consecutive_rollbacks',
+        'high_risk_proposal','health_drop','anomaly'
+      )),
+      severity TEXT NOT NULL CHECK(severity IN ('info','warning','critical','emergency')),
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN (
+        'active','acknowledged','resolved','auto_resolved','expired'
+      )),
+      title TEXT NOT NULL,
+      message TEXT NOT NULL,
+      details TEXT NOT NULL DEFAULT '{}',
+      occurrence_count INTEGER NOT NULL DEFAULT 1,
+      acknowledged_by TEXT,
+      acknowledged_at TEXT,
+      resolved_at TEXT,
+      auto_action_taken TEXT,
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_alert_village ON alerts(village_id, status);
+    CREATE INDEX IF NOT EXISTS idx_alert_type ON alerts(village_id, type, status);
+    CREATE INDEX IF NOT EXISTS idx_alert_severity ON alerts(village_id, severity);
+
+    CREATE TABLE IF NOT EXISTS alert_webhooks (
+      id TEXT PRIMARY KEY,
+      village_id TEXT NOT NULL REFERENCES villages(id),
+      url TEXT NOT NULL,
+      events TEXT NOT NULL DEFAULT '[]',
+      secret TEXT,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','disabled')),
+      last_delivery_at TEXT,
+      last_delivery_status TEXT,
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_webhook_village ON alert_webhooks(village_id, status);
+  `);
+
+  // Health delta tracking column (#236)
+  try {
+    db.run('ALTER TABLE villages ADD COLUMN last_health_score INTEGER DEFAULT NULL');
+  } catch {
+    // column already exists
   }
 }
 
