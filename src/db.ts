@@ -234,6 +234,23 @@ export function initSchema(db: Database): void {
   } catch {
     // "duplicate column name: intent" — 安全忽略
   }
+
+  // Skill extension columns (#219)
+  const skillAlters = [
+    "ALTER TABLE skills ADD COLUMN content TEXT DEFAULT NULL",
+    "ALTER TABLE skills ADD COLUMN source_type TEXT NOT NULL DEFAULT 'system'",
+    "ALTER TABLE skills ADD COLUMN source_origin TEXT DEFAULT NULL",
+    "ALTER TABLE skills ADD COLUMN source_author TEXT DEFAULT NULL",
+    "ALTER TABLE skills ADD COLUMN forked_from TEXT DEFAULT NULL",
+    "ALTER TABLE skills ADD COLUMN scope_type TEXT NOT NULL DEFAULT 'global'",
+    "ALTER TABLE skills ADD COLUMN team_id TEXT DEFAULT NULL",
+    "ALTER TABLE skills ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE skills ADD COLUMN used_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE skills ADD COLUMN last_used_at TEXT DEFAULT NULL",
+  ];
+  for (const sql of skillAlters) {
+    try { db.run(sql); } catch { /* column already exists */ }
+  }
 }
 
 /**

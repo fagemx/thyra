@@ -179,6 +179,16 @@ function deserializeSkill(row: Record<string, unknown>): Skill {
     updated_at: row.updated_at as string,
     verified_at: (row.verified_at as string) || null,
     verified_by: (row.verified_by as string) || null,
+    content: (row.content as string) || null,
+    source_type: (row.source_type as Skill['source_type'] | null) ?? 'system',
+    source_origin: (row.source_origin as string) || null,
+    source_author: (row.source_author as string) || null,
+    forked_from: (row.forked_from as string) || null,
+    scope_type: (row.scope_type as Skill['scope_type'] | null) ?? 'global',
+    team_id: (row.team_id as string) || null,
+    tags: JSON.parse((row.tags as string) || '[]') as string[],
+    used_count: (row.used_count as number) || 0,
+    last_used_at: (row.last_used_at as string) || null,
   };
 }
 
