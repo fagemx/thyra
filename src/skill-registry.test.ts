@@ -362,6 +362,154 @@ describe('SkillRegistry', () => {
       expect(mpOnly).toHaveLength(1);
       expect(mpOnly[0].name).toBe('mp-skill');
     });
+
+    it('list filter by tags — single tag', () => {
+      registry.create({ name: 'tagged-a', definition: SKILL_DEF, tags: ['market', 'ranking'] }, 'u');
+      registry.create({ name: 'tagged-b', definition: SKILL_DEF, tags: ['review'] }, 'u');
+
+      const result = registry.list({ tags: ['market'] });
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('tagged-a');
+    });
+
+    it('list filter by tags — multiple tags (AND logic)', () => {
+      registry.create({ name: 'both-tags', definition: SKILL_DEF, tags: ['market', 'ranking'] }, 'u');
+      registry.create({ name: 'one-tag', definition: SKILL_DEF, tags: ['market'] }, 'u');
+
+      const result = registry.list({ tags: ['market', 'ranking'] });
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('both-tags');
+    });
+
+    it('list filter by tags — no match', () => {
+      registry.create({ name: 'some-skill', definition: SKILL_DEF, tags: ['review'] }, 'u');
+      expect(registry.list({ tags: ['nonexistent'] })).toHaveLength(0);
+    });
+
+    it('list filter by search — matches name', () => {
+      registry.create({ name: 'stall-ranking', definition: SKILL_DEF }, 'u');
+      registry.create({ name: 'code-review', definition: SKILL_DEF }, 'u');
+
+      const result = registry.list({ search: 'stall' });
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('stall-ranking');
+    });
+
+    it('list filter by search — matches description', () => {
+      registry.create({ name: 'skill-a', definition: { ...SKILL_DEF, description: 'Ranks market stalls' } }, 'u');
+      registry.create({ name: 'skill-b', definition: SKILL_DEF }, 'u');
+
+      const result = registry.list({ search: 'stalls' });
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('skill-a');
+    });
+
+    it('list filter by search — no match', () => {
+      registry.create({ name: 'some-skill', definition: SKILL_DEF }, 'u');
+      expect(registry.list({ search: 'zzzzz' })).toHaveLength(0);
+    });
+  });
+
+  describe('getByNameWithScope', () => {
+    it('returns village-scoped skill when villageId provided', () => {
+      registry.create({
+        name: 'my-skill',
+        definition: SKILL_DEF,
+        scope_type: 'village',
+        village_id: villageId,
+        content: '# Village version',
+      }, 'u');
+      registry.create({
+        name: 'my-skill',
+        definition: SKILL_DEF,
+        scope_type: 'global',
+        content: '# Global version',
+      }, 'u');
+
+      const result = registry.getByNameWithScope('my-skill', villageId);
+      expect(result).not.toBeNull();
+      expect(result!.scope_type).toBe('village');
+      expect(result!.content).toBe('# Village version');
+    });
+
+    it('falls back to global when no village match', () => {
+      registry.create({
+        name: 'global-only',
+        definition: SKILL_DEF,
+        scope_type: 'global',
+        content: '# Global content',
+      }, 'u');
+
+      const result = registry.getByNameWithScope('global-only', villageId);
+      expect(result).not.toBeNull();
+      expect(result!.scope_type).toBe('global');
+    });
+
+    it('returns global when no villageId provided', () => {
+      registry.create({
+        name: 'any-skill',
+        definition: SKILL_DEF,
+        scope_type: 'global',
+        content: '# Content',
+      }, 'u');
+
+      const result = registry.getByNameWithScope('any-skill');
+      expect(result).not.toBeNull();
+      expect(result!.scope_type).toBe('global');
+    });
+
+    it('returns null when not found', () => {
+      expect(registry.getByNameWithScope('nonexistent')).toBeNull();
+    });
+
+    it('returns latest version', () => {
+      const v1 = registry.create({
+        name: 'versioned',
+        definition: SKILL_DEF,
+        scope_type: 'global',
+      }, 'u');
+      registry.update(v1.id, { content: 'v2 content' }, 'u');
+
+      const result = registry.getByNameWithScope('versioned');
+      expect(result).not.toBeNull();
+      expect(result!.version).toBe(2);
+    });
+  });
+
+  describe('updateContent', () => {
+    it('updates content in-place without version bump', () => {
+      const s = registry.create({
+        name: 'content-edit',
+        definition: SKILL_DEF,
+        content: 'original',
+      }, 'u');
+
+      const updated = registry.updateContent(s.id, 'new content', 'editor');
+      expect(updated.content).toBe('new content');
+      expect(updated.version).toBe(1);
+      expect(updated.id).toBe(s.id);
+
+      // Verify persisted
+      const fetched = registry.get(s.id)!;
+      expect(fetched.content).toBe('new content');
+    });
+
+    it('throws when skill not found', () => {
+      expect(() => registry.updateContent('nonexistent', 'content', 'u')).toThrow('Skill not found');
+    });
+
+    it('audit log recorded', () => {
+      const s = registry.create({
+        name: 'audit-content',
+        definition: SKILL_DEF,
+      }, 'u');
+      registry.updateContent(s.id, '# Updated', 'editor');
+
+      const logs = db.prepare(
+        `SELECT * FROM audit_log WHERE entity_type = 'skill' AND entity_id = ? AND action = 'update_content'`
+      ).all(s.id) as Record<string, unknown>[];
+      expect(logs).toHaveLength(1);
+    });
   });
 });
 
