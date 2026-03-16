@@ -312,6 +312,54 @@ describe('parseVillagePack', () => {
     expect(errorsForRule(result, 'VP-15')).toHaveLength(1);
   });
 
+  // --- VP-16: llm.provider must be valid ---
+
+  it('VP-16: rejects invalid LLM provider', () => {
+    const pack = validPack({ llm: { provider: 'openai', preset: 'balanced' } });
+    const result = parseVillagePack(pack);
+    expect(result.success).toBe(false);
+    expect(errorsForRule(result, 'VP-16')).toHaveLength(1);
+  });
+
+  // --- VP-17: llm.preset must be valid ---
+
+  it('VP-17: rejects invalid LLM preset', () => {
+    const pack = validPack({ llm: { provider: 'anthropic', preset: 'turbo' } });
+    const result = parseVillagePack(pack);
+    expect(result.success).toBe(false);
+    expect(errorsForRule(result, 'VP-17')).toHaveLength(1);
+  });
+
+  // --- llm section optional (backward compat) ---
+
+  it('accepts pack without llm section (backward compat)', () => {
+    const pack = validPack();
+    delete pack.llm;
+    const result = parseVillagePack(pack);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.llm).toBeUndefined();
+    }
+  });
+
+  it('accepts pack with valid llm section', () => {
+    const pack = validPack({ llm: { provider: 'anthropic', preset: 'economy' } });
+    const result = parseVillagePack(pack);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.llm).toEqual({ provider: 'anthropic', preset: 'economy' });
+    }
+  });
+
+  it('defaults llm.preset to balanced when omitted', () => {
+    const pack = validPack({ llm: { provider: 'anthropic' } });
+    const result = parseVillagePack(pack);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.llm?.preset).toBe('balanced');
+    }
+  });
+
   // --- Multiple errors ---
 
   it('returns multiple errors at once', () => {

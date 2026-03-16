@@ -3,6 +3,8 @@ import { randomUUID } from 'crypto';
 import { appendAudit } from './db';
 import { CreateVillageInput as CreateVillageSchema, SetBoardMappingInput as SetBoardMappingSchema } from './schemas/village';
 import type { CreateVillageInputRaw, UpdateVillageInput, SetBoardMappingInput } from './schemas/village';
+import { ResolvedLlmConfigSchema } from './schemas/llm-config';
+import type { ResolvedLlmConfig } from './schemas/llm-config';
 
 export interface BoardMapping {
   id: string;
@@ -200,6 +202,19 @@ export class VillageManager {
       'SELECT * FROM board_mappings ORDER BY created_at DESC'
     ).all() as Record<string, unknown>[];
     return rows.map((r) => this.deserializeBoardMapping(r));
+  }
+
+  /**
+   * 取得 village 的 resolved LLM 配置。
+   * 如果 village 不存在、metadata 沒有 llm_config、或格式不正確，回傳 null。
+   */
+  getLlmConfig(villageId: string): ResolvedLlmConfig | null {
+    const village = this.get(villageId);
+    if (!village) return null;
+    const raw = village.metadata.llm_config;
+    if (!raw) return null;
+    const parsed = ResolvedLlmConfigSchema.safeParse(raw);
+    return parsed.success ? parsed.data : null;
   }
 
   private deserializeBoardMapping(row: Record<string, unknown>): BoardMapping {

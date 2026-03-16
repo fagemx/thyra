@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { PermissionEnum } from './constitution';
 import { GoalMetricSchema, GoalLevelEnum } from './goal';
+import { VillagePackLlmSchema } from './llm-config';
 
 // --- Sub-schemas ---
 
@@ -81,6 +82,7 @@ export const VillagePackSchema = z.object({
     parent: z.string().optional(),
     metrics: z.array(GoalMetricSchema).default([]),
   })).default([]),
+  llm: VillagePackLlmSchema.optional(),
 }).superRefine((data, ctx) => {
   // VP-07: chief.permissions each in constitution.allowed_permissions
   const allowed = new Set(data.constitution.allowed_permissions);
@@ -119,6 +121,7 @@ export type VillagePack = z.infer<typeof VillagePackSchema>;
 export type VillagePackConstitution = z.infer<typeof VillagePackConstitutionSchema>;
 export type VillagePackChief = z.infer<typeof VillagePackChiefSchema>;
 export type VillagePackLaw = z.infer<typeof VillagePackLawSchema>;
+export type { VillagePackLlm } from './llm-config';
 
 // --- Validation Error ---
 
@@ -160,6 +163,9 @@ function mapZodIssueToRule(issue: z.ZodIssue): string {
   if (pathStr.match(/^laws\.\d+\.evidence\.source/)) return 'VP-12';
   if (pathStr.match(/^laws\.\d+\.evidence\.reasoning/)) return 'VP-13';
   if (pathStr.startsWith('skills')) return 'VP-14';
+  if (pathStr.startsWith('llm.provider')) return 'VP-16';
+  if (pathStr.startsWith('llm.preset')) return 'VP-17';
+  if (pathStr.startsWith('llm')) return 'VP-16';
 
   return 'VP-UNKNOWN';
 }

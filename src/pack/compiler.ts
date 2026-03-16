@@ -13,6 +13,8 @@ import type { LawEngine, Law } from '../law-engine';
 import type { SkillRegistry, Skill } from '../skill-registry';
 import type { Permission } from '../schemas/constitution';
 import type { SkillBinding } from '../schemas/skill';
+import type { ResolvedLlmConfig } from '../schemas/llm-config';
+import { resolvePreset } from '../schemas/llm-config';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -55,6 +57,7 @@ export interface CompileResult {
   skills: PhaseResult & { resolved: Array<{ name: string; skill_id: string }> };
   chief: PhaseResult;
   laws: { entries: LawPhaseEntry[] };
+  llm_config?: ResolvedLlmConfig;
   errors: string[];
   warnings: string[];
   completed_phases: number;
@@ -73,6 +76,7 @@ interface CompileContext {
   constitution: Constitution | null;
   chief: Chief | null;
   resolved_skills: Array<{ name: string; skill: Skill }>;
+  llm_config: ResolvedLlmConfig | null;
   // Phase results
   village_result: PhaseResult;
   constitution_result: PhaseResult;
@@ -136,12 +140,18 @@ export interface PackLaw {
   };
 }
 
+export interface PackLlmConfig {
+  provider: string;
+  preset: string;
+}
+
 export interface VillagePack {
   version: string;
   village: PackVillage;
   constitution: PackConstitution;
   chief: PackChief;
   laws: PackLaw[];
+  llm?: PackLlmConfig;
 }
 
 // ── Diff helpers ─────────────────────────────────────────────
@@ -168,16 +178,24 @@ function canonicalConstitutionFingerprint(c: {
 function diffVillage(
   pack: PackVillage,
   current: Village | null,
+  packLlm?: PackLlmConfig,
 ): 'create' | 'update' | 'skip' {
   if (!current) return 'create';
   if (
-    current.name === pack.name &&
-    current.description === pack.description &&
-    current.target_repo === pack.target_repo
+    current.name !== pack.name ||
+    current.description !== pack.description ||
+    current.target_repo !== pack.target_repo
   ) {
-    return 'skip';
+    return 'update';
   }
-  return 'update';
+  // 檢查 llm_config 是否有變
+  const currentLlm = current.metadata.llm_config as { provider?: string; preset?: string } | undefined;
+  const newProvider = packLlm?.provider ?? 'anthropic';
+  const newPreset = packLlm?.preset ?? 'balanced';
+  if (currentLlm?.provider !== newProvider || currentLlm?.preset !== newPreset) {
+    return 'update';
+  }
+  return 'skip';
 }
 
 function diffConstitution(
@@ -284,8 +302,8 @@ export class VillagePackCompiler {
     const ctx = this.initContext(pack, opts);
     const actor = `village-pack:human:${ctx.session.session_id}`;
 
-    // Phase 1: Village
-    this.compileVillage(ctx, pack.village, actor, opts.dry_run);
+    // Phase 1: Village (includes llm_config resolution)
+    this.compileVillage(ctx, pack.village, pack.llm, actor, opts.dry_run);
 
     // Phase 2: Constitution
     if (!ctx.aborted) {
@@ -315,20 +333,33 @@ export class VillagePackCompiler {
   private compileVillage(
     ctx: CompileContext,
     pack: PackVillage,
+    packLlm: PackLlmConfig | undefined,
     actor: string,
     dryRun: boolean,
   ): void {
+    // Resolve llm_config (default to balanced/anthropic)
+    const llmProvider = packLlm?.provider ?? 'anthropic';
+    const llmPreset = packLlm?.preset ?? 'balanced';
+    const resolvedLlm = resolvePreset(
+      llmProvider as 'anthropic',
+      llmPreset as 'economy' | 'balanced' | 'performance',
+    );
+    ctx.llm_config = resolvedLlm;
+
+    // Build metadata with llm_config
+    const metadata = { ...(pack.metadata ?? {}), llm_config: resolvedLlm };
+
     // Find existing village by name
     const all = this.villageMgr.list();
     const existing = all.find((v) => v.name === pack.name && v.status !== 'archived') ?? null;
-    const action = diffVillage(pack, existing);
+    const action = diffVillage(pack, existing, packLlm);
 
     if (action === 'create') {
       if (dryRun) {
         ctx.village_result = { action: 'create', detail: `would create village "${pack.name}"` };
       } else {
         const v = this.villageMgr.create(
-          { name: pack.name, description: pack.description, target_repo: pack.target_repo, metadata: pack.metadata ?? {} },
+          { name: pack.name, description: pack.description, target_repo: pack.target_repo, metadata },
           actor,
         );
         ctx.village_id = v.id;
@@ -341,7 +372,7 @@ export class VillagePackCompiler {
       } else {
         const v = this.villageMgr.update(
           existing.id,
-          { description: pack.description, target_repo: pack.target_repo, metadata: pack.metadata },
+          { description: pack.description, target_repo: pack.target_repo, metadata },
           actor,
         );
         ctx.village_id = v.id;
@@ -679,6 +710,7 @@ export class VillagePackCompiler {
       completed_phases: 0,
       aborted: false,
       village_id: '',
+      llm_config: null,
       constitution: null,
       chief: null,
       resolved_skills: [],
@@ -698,6 +730,7 @@ export class VillagePackCompiler {
       skills: ctx.skills_result,
       chief: ctx.chief_result,
       laws: { entries: ctx.law_entries },
+      llm_config: ctx.llm_config ?? undefined,
       errors: ctx.errors,
       warnings: ctx.warnings,
       completed_phases: ctx.completed_phases,
