@@ -99,6 +99,16 @@ function makeSkill(overrides: Partial<Skill> = {}): Skill {
     updated_at: '2026-01-01T00:00:00Z',
     verified_at: '2026-01-01T00:00:00Z',
     verified_by: 'human',
+    content: null,
+    source_type: 'system',
+    source_origin: null,
+    source_author: null,
+    forked_from: null,
+    scope_type: 'global',
+    team_id: null,
+    tags: [],
+    used_count: 0,
+    last_used_at: null,
     ...overrides,
   };
 }

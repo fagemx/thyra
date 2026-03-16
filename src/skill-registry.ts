@@ -2,7 +2,7 @@ import type { Database } from 'bun:sqlite';
 import { randomUUID } from 'crypto';
 import { appendAudit } from './db';
 import { CreateSkillInput as CreateSkillSchema } from './schemas/skill';
-import type { CreateSkillInputRaw, SkillDefinition, UpdateSkillInput, SkillBinding } from './schemas/skill';
+import type { CreateSkillInputRaw, SkillDefinition, UpdateSkillInput, SkillBinding, SourceType, ScopeType } from './schemas/skill';
 
 export interface Skill {
   id: string;
@@ -15,6 +15,16 @@ export interface Skill {
   updated_at: string;
   verified_at: string | null;
   verified_by: string | null;
+  content: string | null;
+  source_type: SourceType;
+  source_origin: string | null;
+  source_author: string | null;
+  forked_from: string | null;
+  scope_type: ScopeType;
+  team_id: string | null;
+  tags: string[];
+  used_count: number;
+  last_used_at: string | null;
 }
 
 export class SkillRegistry {
@@ -34,15 +44,29 @@ export class SkillRegistry {
       updated_at: now,
       verified_at: null,
       verified_by: null,
+      content: input.content ?? null,
+      source_type: input.source_type,
+      source_origin: input.source_origin ?? null,
+      source_author: actor,
+      forked_from: input.forked_from ?? null,
+      scope_type: input.scope_type,
+      team_id: input.team_id ?? null,
+      tags: input.tags,
+      used_count: 0,
+      last_used_at: null,
     };
 
     this.db.prepare(`
-      INSERT INTO skills (id, name, version, status, village_id, definition, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO skills (id, name, version, status, village_id, definition, created_at, updated_at,
+        content, source_type, source_origin, source_author, forked_from, scope_type, team_id, tags, used_count, last_used_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       skill.id, skill.name, skill.version, skill.status,
       skill.village_id, JSON.stringify(skill.definition),
-      skill.created_at, skill.updated_at
+      skill.created_at, skill.updated_at,
+      skill.content, skill.source_type, skill.source_origin, skill.source_author,
+      skill.forked_from, skill.scope_type, skill.team_id,
+      JSON.stringify(skill.tags), skill.used_count, skill.last_used_at
     );
 
     appendAudit(this.db, 'skill', skill.id, 'create', skill, actor);
@@ -65,7 +89,7 @@ export class SkillRegistry {
     return row ? this.deserialize(row) : null;
   }
 
-  list(filters?: { village_id?: string; status?: string; name?: string }): Skill[] {
+  list(filters?: { village_id?: string; status?: string; name?: string; scope_type?: string; source_type?: string }): Skill[] {
     let sql = 'SELECT * FROM skills WHERE 1=1';
     const params: string[] = [];
     if (filters?.village_id) {
@@ -79,6 +103,14 @@ export class SkillRegistry {
     if (filters?.name) {
       sql += ' AND name = ?';
       params.push(filters.name);
+    }
+    if (filters?.scope_type) {
+      sql += ' AND scope_type = ?';
+      params.push(filters.scope_type);
+    }
+    if (filters?.source_type) {
+      sql += ' AND source_type = ?';
+      params.push(filters.source_type);
     }
     sql += ' ORDER BY name, version DESC';
     const rows = this.db.prepare(sql).all(...params) as Record<string, unknown>[];
@@ -103,15 +135,29 @@ export class SkillRegistry {
       updated_at: now,
       verified_at: null,
       verified_by: null,
+      content: input.content !== undefined ? input.content : existing.content,
+      source_type: existing.source_type,
+      source_origin: existing.source_origin,
+      source_author: existing.source_author,
+      forked_from: existing.forked_from,
+      scope_type: input.scope_type ?? existing.scope_type,
+      team_id: input.team_id !== undefined ? input.team_id : existing.team_id,
+      tags: input.tags ?? existing.tags,
+      used_count: 0,
+      last_used_at: null,
     };
 
     this.db.prepare(`
-      INSERT INTO skills (id, name, version, status, village_id, definition, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO skills (id, name, version, status, village_id, definition, created_at, updated_at,
+        content, source_type, source_origin, source_author, forked_from, scope_type, team_id, tags, used_count, last_used_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       newSkill.id, newSkill.name, newSkill.version, newSkill.status,
       newSkill.village_id, JSON.stringify(newSkill.definition),
-      newSkill.created_at, newSkill.updated_at
+      newSkill.created_at, newSkill.updated_at,
+      newSkill.content, newSkill.source_type, newSkill.source_origin, newSkill.source_author,
+      newSkill.forked_from, newSkill.scope_type, newSkill.team_id,
+      JSON.stringify(newSkill.tags), newSkill.used_count, newSkill.last_used_at
     );
 
     appendAudit(this.db, 'skill', newSkill.id, 'update', { from: id, to: newSkill.id }, actor);
@@ -143,6 +189,15 @@ export class SkillRegistry {
 
     appendAudit(this.db, 'skill', id, 'deprecate', { actor }, actor);
     return { ...skill, status: 'deprecated', updated_at: now };
+  }
+
+  /**
+   * 記錄 skill 使用次數（usage tracking）
+   */
+  recordUsage(id: string): void {
+    this.db.prepare(`
+      UPDATE skills SET used_count = used_count + 1, last_used_at = ? WHERE id = ?
+    `).run(new Date().toISOString(), id);
   }
 
   /**
@@ -193,6 +248,16 @@ export class SkillRegistry {
       updated_at: row.updated_at as string,
       verified_at: (row.verified_at as string) || null,
       verified_by: (row.verified_by as string) || null,
+      content: (row.content as string) || null,
+      source_type: (row.source_type as SourceType | null) ?? 'system',
+      source_origin: (row.source_origin as string) || null,
+      source_author: (row.source_author as string) || null,
+      forked_from: (row.forked_from as string) || null,
+      scope_type: (row.scope_type as ScopeType | null) ?? 'global',
+      team_id: (row.team_id as string) || null,
+      tags: JSON.parse((row.tags as string) || '[]') as string[],
+      used_count: (row.used_count as number) || 0,
+      last_used_at: (row.last_used_at as string) || null,
     };
   }
 }

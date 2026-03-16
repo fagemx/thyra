@@ -24,6 +24,9 @@ import { AuditQuery } from './audit-query';
 import { auditRoutes } from './routes/audit';
 import { proposalRoutes } from './routes/proposals';
 import { governanceRoutes } from './routes/governance';
+import { packRoutes } from './routes/pack';
+import { WorldManager } from './world-manager';
+import { worldRoutes } from './routes/world';
 
 const app = new Hono();
 
@@ -47,6 +50,7 @@ const lawEngine = new LawEngine(db, constitutionStore, chiefEngine, eddaBridge);
 const decisionEngine = new DecisionEngine(db, constitutionStore, chiefEngine, lawEngine, skillRegistry, riskAssessor, eddaBridge);
 const loopRunner = new LoopRunner(db, constitutionStore, chiefEngine, lawEngine, riskAssessor, eddaBridge, skillRegistry, decisionEngine);
 const territoryCoordinator = new TerritoryCoordinator(db, constitutionStore, skillRegistry);
+const worldManager = new WorldManager(db, eddaBridge, karviBridge);
 const auditQuery = new AuditQuery(db);
 
 app.get('/api/health', (c) => {
@@ -71,6 +75,15 @@ app.route('', governanceRoutes({
   chiefEngine,
   lawEngine,
   riskAssessor,
+}));
+app.route('', worldRoutes(worldManager, db));
+app.route('', packRoutes({
+  db,
+  villageMgr,
+  constitutionStore,
+  chiefEngine,
+  lawEngine,
+  skillRegistry,
 }));
 
 const PORT = Number(process.env.THYRA_PORT ?? 3462);

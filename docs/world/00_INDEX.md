@@ -71,6 +71,39 @@
   - 討論局部財產權為何應該以 attestation / claim-check 為主，而不是原物直接跨世界移轉。
   - 對應一個 `<=10 worlds` 的 prototype runtime，幫助設計階段先把邊界說清楚。
 
+### 8. Working Contract v0
+
+- `08_WORKING_CONTRACT_V0.md`
+  - 固定 world 路線的主合約：最小世界、分層、proof、invariants。
+  - 10 條 invariants + 16 個 section。
+
+### 11. UI 視覺方向
+
+- `11_UI_VISION.md`
+  - 三種 UI 形式：傳統 dashboard / 場景式（Star-Office 啟發）/ 混合式。
+  - Star-Office-UI 的「用角色動作表達狀態」啟發。
+  - 四個設計原則：API-first、先功能後美學、「活著」不靠花俏、營運者 ≠ 觀眾。
+  - Phase 1-4 UI 路線。
+
+### 10. 距離評估
+
+- `10_DISTANCE_ASSESSMENT.md`
+  - 2026-03-15 snapshot：離 Product Vision v0 的誠實距離。
+  - 已完成 vs 未完成的完整盤點。
+  - 最短 demo 路徑（6 步，2-3 週）。
+  - 所有 open issues 追蹤表。
+
+### 9. 產品方向 v0
+
+- `09_PRODUCT_VISION_V0.md`
+  - 從 MiroFish 分析得到的產品教訓。
+  - 產品公式：`Template × Pack × Governance`。
+  - 三個世界模板（Market / Town / Port）+ Domain Pack 機制。
+  - 「活著的感覺」怎麼表達。
+  - 商業化三層 + 產品路徑（Phase 1-3）。
+  - 自治世界的 5 個判準。
+  - **一句話：不是模擬，是開服。**
+
 ---
 
 ## 使用方式
@@ -82,10 +115,11 @@
 - `01_WORLD_FIRST_PRINCIPLE.md`
 - `02_WHAT_COUNTS_AS_A_WORLD.md`
 
-### 當要討論產品 / UX 時
+### 當要討論產品方向、敘事、exemplar 時
 
 先讀：
 
+- `09_PRODUCT_VISION_V0.md`
 - `03_PRODUCT_LANGUAGE_AND_UI.md`
 
 ### 當要討論系統分層與元件責任時

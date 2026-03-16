@@ -172,6 +172,197 @@ describe('SkillRegistry', () => {
       expect(result!.name).toBe('shared-skill');
     });
   });
+
+  // New field tests (#219)
+  describe('content, source, and scope fields', () => {
+    it('create with content → round-trips through create/get', () => {
+      const s = registry.create({
+        name: 'with-content',
+        definition: SKILL_DEF,
+        content: '# My Skill\nDo things well.',
+      }, 'u');
+      expect(s.content).toBe('# My Skill\nDo things well.');
+      const fetched = registry.get(s.id)!;
+      expect(fetched.content).toBe('# My Skill\nDo things well.');
+    });
+
+    it('create with source fields → stored correctly', () => {
+      const s = registry.create({
+        name: 'sourced-skill',
+        definition: SKILL_DEF,
+        source_type: 'marketplace',
+        source_origin: 'https://marketplace.example.com/skills/123',
+      }, 'author-user');
+      expect(s.source_type).toBe('marketplace');
+      expect(s.source_origin).toBe('https://marketplace.example.com/skills/123');
+      expect(s.source_author).toBe('author-user');
+    });
+
+    it('create with scope_type=village → requires village_id', () => {
+      expect(() => registry.create({
+        name: 'village-scoped',
+        definition: SKILL_DEF,
+        scope_type: 'village',
+      }, 'u')).toThrow();
+    });
+
+    it('create with scope_type=village + village_id → works', () => {
+      const s = registry.create({
+        name: 'village-scoped',
+        definition: SKILL_DEF,
+        scope_type: 'village',
+        village_id: villageId,
+      }, 'u');
+      expect(s.scope_type).toBe('village');
+      expect(s.village_id).toBe(villageId);
+    });
+
+    it('create with scope_type=team → requires team_id', () => {
+      expect(() => registry.create({
+        name: 'team-scoped',
+        definition: SKILL_DEF,
+        scope_type: 'team',
+      }, 'u')).toThrow();
+    });
+
+    it('create with scope_type=team + team_id → works', () => {
+      const s = registry.create({
+        name: 'team-scoped',
+        definition: SKILL_DEF,
+        scope_type: 'team',
+        team_id: 'team-abc',
+      }, 'u');
+      expect(s.scope_type).toBe('team');
+      expect(s.team_id).toBe('team-abc');
+    });
+
+    it('create with tags → JSON array round-trips', () => {
+      const s = registry.create({
+        name: 'tagged-skill',
+        definition: SKILL_DEF,
+        tags: ['review', 'code', 'testing'],
+      }, 'u');
+      expect(s.tags).toEqual(['review', 'code', 'testing']);
+      const fetched = registry.get(s.id)!;
+      expect(fetched.tags).toEqual(['review', 'code', 'testing']);
+    });
+
+    it('create with forked_from → stored correctly', () => {
+      const original = registry.create({ name: 'original', definition: SKILL_DEF }, 'u');
+      const fork = registry.create({
+        name: 'forked-version',
+        definition: SKILL_DEF,
+        source_type: 'fork',
+        forked_from: original.id,
+      }, 'u');
+      expect(fork.forked_from).toBe(original.id);
+      expect(fork.source_type).toBe('fork');
+    });
+
+    it('update preserves source fields', () => {
+      const s = registry.create({
+        name: 'preserve-source',
+        definition: SKILL_DEF,
+        source_type: 'marketplace',
+        source_origin: 'https://example.com',
+      }, 'original-author');
+      const s2 = registry.update(s.id, { definition: { description: 'Updated' } }, 'updater');
+      expect(s2.source_type).toBe('marketplace');
+      expect(s2.source_origin).toBe('https://example.com');
+      expect(s2.source_author).toBe('original-author');
+    });
+
+    it('update resets used_count', () => {
+      const s = registry.create({ name: 'usage-test', definition: SKILL_DEF }, 'u');
+      registry.recordUsage(s.id);
+      registry.recordUsage(s.id);
+      const afterUsage = registry.get(s.id)!;
+      expect(afterUsage.used_count).toBe(2);
+
+      const s2 = registry.update(s.id, { definition: { description: 'v2' } }, 'u');
+      expect(s2.used_count).toBe(0);
+      expect(s2.last_used_at).toBeNull();
+    });
+
+    it('update allows content/tags override', () => {
+      const s = registry.create({
+        name: 'override-test',
+        definition: SKILL_DEF,
+        content: 'original content',
+        tags: ['old-tag'],
+      }, 'u');
+      const s2 = registry.update(s.id, {
+        content: 'new content',
+        tags: ['new-tag', 'another'],
+      }, 'u');
+      expect(s2.content).toBe('new content');
+      expect(s2.tags).toEqual(['new-tag', 'another']);
+    });
+
+    it('backward compat: create without new fields → defaults applied', () => {
+      const s = registry.create({ name: 'old-style', definition: SKILL_DEF }, 'u');
+      expect(s.content).toBeNull();
+      expect(s.source_type).toBe('user');
+      expect(s.source_origin).toBeNull();
+      expect(s.source_author).toBe('u');
+      expect(s.forked_from).toBeNull();
+      expect(s.scope_type).toBe('global');
+      expect(s.team_id).toBeNull();
+      expect(s.tags).toEqual([]);
+      expect(s.used_count).toBe(0);
+      expect(s.last_used_at).toBeNull();
+    });
+
+    it('recordUsage increments count and sets last_used_at', () => {
+      const s = registry.create({ name: 'usage-tracking', definition: SKILL_DEF }, 'u');
+      expect(s.used_count).toBe(0);
+      expect(s.last_used_at).toBeNull();
+
+      registry.recordUsage(s.id);
+      const after1 = registry.get(s.id)!;
+      expect(after1.used_count).toBe(1);
+      expect(after1.last_used_at).toBeTruthy();
+
+      registry.recordUsage(s.id);
+      const after2 = registry.get(s.id)!;
+      expect(after2.used_count).toBe(2);
+    });
+
+    it('list filter by scope_type', () => {
+      registry.create({ name: 'global-one', definition: SKILL_DEF }, 'u');
+      registry.create({
+        name: 'village-one',
+        definition: SKILL_DEF,
+        scope_type: 'village',
+        village_id: villageId,
+      }, 'u');
+
+      const globalOnly = registry.list({ scope_type: 'global' });
+      expect(globalOnly).toHaveLength(1);
+      expect(globalOnly[0].name).toBe('global-one');
+
+      const villageOnly = registry.list({ scope_type: 'village' });
+      expect(villageOnly).toHaveLength(1);
+      expect(villageOnly[0].name).toBe('village-one');
+    });
+
+    it('list filter by source_type', () => {
+      registry.create({ name: 'user-skill', definition: SKILL_DEF }, 'u');
+      registry.create({
+        name: 'mp-skill',
+        definition: SKILL_DEF,
+        source_type: 'marketplace',
+      }, 'u');
+
+      const userOnly = registry.list({ source_type: 'user' });
+      expect(userOnly).toHaveLength(1);
+      expect(userOnly[0].name).toBe('user-skill');
+
+      const mpOnly = registry.list({ source_type: 'marketplace' });
+      expect(mpOnly).toHaveLength(1);
+      expect(mpOnly[0].name).toBe('mp-skill');
+    });
+  });
 });
 
 describe('validateSkillBindings', () => {

@@ -193,6 +193,16 @@ function applySkillRegister(
     updated_at: now,
     verified_at: now,
     verified_by: 'system',
+    content: null,
+    source_type: 'system',
+    source_origin: null,
+    source_author: null,
+    forked_from: null,
+    scope_type: 'global',
+    team_id: null,
+    tags: [],
+    used_count: 0,
+    last_used_at: null,
   };
   return { ...state, skills: [...state.skills, newSkill], assembled_at: now };
 }
