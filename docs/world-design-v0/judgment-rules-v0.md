@@ -277,6 +277,10 @@ v0 應固定成四層。
 
 ## 8. Judgment Output Schema
 
+> ⚠️ 以下為 judgment-rules 專用的擴展版本。基礎定義見 `./shared-types.md` §6.6。
+> 本版本擴展了 `reasons: string[]`、`Constraint[]` typed objects、`RollbackRequirement[]` typed objects。
+> 如有衝突，shared-types.md 為 canonical baseline。
+
 ```ts
 type JudgmentReport = {
 id: string;
@@ -321,6 +325,10 @@ kind:
 payload: Record<string, unknown>;
 };
 ```
+
+> ⚠️ 本文件的 LayerResult 使用 4 值 layer-level verdict (`pass|fail|warn|needs_escalation`)，
+> 與 shared-types.md §6.6 的 `verdict: Verdict`（6 值 proposal-level verdict）不同。
+> 這是設計差異：layer verdict 判的是「這層通不通過」，proposal Verdict 判的是「整個 proposal 的最終結果」。
 
 ---
 
@@ -629,8 +637,10 @@ judge 應該有自己的明確邊界。
 
 ---
 
-下一個最自然就是：
-1. `world-cycle-api.md`
-2. `midnight-market-canonical-slice.md`
-
-如果照工程順序，我反而會先做 **1**。
+相關文件：
+- `canonical-cycle.md` — 世界循環定義
+- `change-proposal-schema-v0.md` — 變更提案 schema
+- `world-cycle-api.md` — API 映射
+- `pulse-and-outcome-metrics-v0.md` — 脈搏與後果
+- `midnight-market-canonical-slice.md` — 最小實例
+- `shared-types.md` — 跨文件型別

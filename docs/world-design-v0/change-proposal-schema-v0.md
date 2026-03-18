@@ -291,7 +291,7 @@ unit?: string;
 {
 "op": "set",
 "path": "entryGates.north_gate.throttle.maxPerMinute",
-"before": 120,
+"before": 100,
 "after": 80
 }
 ]
@@ -431,6 +431,9 @@ notes?: string[];
 
 proposal 之後一定接 judgment。
 
+> ⚠️ 以下為簡化版草稿。正式定義見 `./shared-types.md` §6.6 JudgmentReport。
+> 關鍵差異：正式版用 `finalVerdict`（非 `verdict`）、`rationale: string`（非 `reasons`）、`createdAt`（非 `generatedAt`）、含 `layerResults` 四層結構。
+
 ```ts
 type JudgmentReport = {
 id: string;
@@ -492,6 +495,8 @@ appliedAt: string;
 
 ## 15. Outcome Report Schema
 
+> ⚠️ 以下為簡化版。正式定義見 `./shared-types.md` §6.9 OutcomeReport。
+
 ```ts
 type OutcomeReport = {
 id: string;
@@ -527,6 +532,8 @@ matchedExpectation: boolean;
 ## 16. Precedent Record Schema
 
 這一層不是單純 log，而是 change → outcome 的壓縮知識。
+
+> ⚠️ 以下為簡化版。正式定義見 `./shared-types.md` §6.10 PrecedentRecord。
 
 ```ts
 type PrecedentRecord = {
@@ -686,7 +693,7 @@ createdAt: string;
 {
 "op": "set",
 "path": "entryGates.north_gate.throttle.maxPerMinute",
-"before": 120,
+"before": 100,
 "after": 80
 }
 ]
@@ -804,10 +811,10 @@ v0 只做三件事：
 
 ---
 
-如果你要，我下一步最自然就是接：
-
-1. `world-cycle-api.md`
-2. `midnight-market-canonical-slice.md`
-3. `judgment-rules-v0.md`
-
-我建議下一個接 **3**，因為 change schema 定完，下一個最需要落地的就是 judge。
+相關文件：
+- `canonical-cycle.md` — 世界循環定義
+- `judgment-rules-v0.md` — 判斷規則
+- `world-cycle-api.md` — API 映射
+- `pulse-and-outcome-metrics-v0.md` — 脈搏與後果
+- `midnight-market-canonical-slice.md` — 最小實例
+- `shared-types.md` — 跨文件型別

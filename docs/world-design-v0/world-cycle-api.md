@@ -200,6 +200,8 @@ POST /api/v1/worlds
 #### Response
 ```json
 {
+"ok": true,
+"data": {
 "id": "world_midnight_market_001",
 "worldType": "market",
 "slug": "midnight-market",
@@ -207,7 +209,11 @@ POST /api/v1/worlds
 "activeCycleId": null,
 "createdAt": "2026-03-18T20:00:00+08:00"
 }
+}
 ```
+
+> ⚠️ 以下所有 response 範例應包裹在 THY-11 envelope 中：`{ ok: true, data: <response> }`。
+> 部分範例為簡潔省略了 envelope，實際 API 必須包裹。
 
 ---
 
@@ -1086,8 +1092,10 @@ resource 和概念對齊，不會被 generic engine 吃掉。
 > 才會真的出現你說的那種：
 > **概念跟架構是對齊的感覺。**
 
-如果你要，下一步我會建議接：
-1. `midnight-market-canonical-slice.md`
-2. `pulse-and-outcome-metrics-v0.md`
-
-我偏向先做 **1**。
+相關文件：
+- `canonical-cycle.md` — 世界循環定義
+- `change-proposal-schema-v0.md` — 變更提案 schema
+- `judgment-rules-v0.md` — 判斷規則
+- `pulse-and-outcome-metrics-v0.md` — 脈搏與後果
+- `midnight-market-canonical-slice.md` — 最小實例
+- `shared-types.md` — 跨文件型別

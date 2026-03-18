@@ -102,8 +102,8 @@
 
 ### 區域
 - 2 個 zone：
-- `zone_a = Creator Lane`
-- `zone_b = Festival Square`
+- `zone_a = Festival Square`（stallCapacity: 8, spotlightWeight: 0.6）
+- `zone_b = Creator Lane`（stallCapacity: 6, spotlightWeight: 0.4）
 
 ### 入口
 - 2 個 gates：
@@ -528,9 +528,11 @@ Outcome report 出來
 
 ---
 
-如果你要，我下一步最順的就是：
-
-1. `pulse-and-outcome-metrics-v0.md`
-2. `midnight-market-governance-storyboard.md`
-
-我覺得現在該接 **1**，因為 demo path 有了，下一個最容易變空的就是 pulse 跟 outcome 到底怎麼定。
+相關文件：
+- `canonical-cycle.md` — 世界循環定義
+- `change-proposal-schema-v0.md` — 變更提案 schema
+- `judgment-rules-v0.md` — 判斷規則
+- `world-cycle-api.md` — API 映射
+- `pulse-and-outcome-metrics-v0.md` — 脈搏與後果
+- `midnight-market-canonical-slice.md` — 最小實例
+- `shared-types.md` — 跨文件型別

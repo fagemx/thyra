@@ -729,9 +729,10 @@ world / change / judgment / precedent 真的存在於程式與資料模型裡。
 
 ---
 
-如果你要，我下一步可以直接接：
-1. `midnight-market-canonical-slice.md`
-2. `change-proposal-schema-v0.md`
-3. `world-cycle-api.md`
-
-我會建議先做 2。
+相關文件：
+- `change-proposal-schema-v0.md` — 變更提案 schema
+- `judgment-rules-v0.md` — 判斷規則
+- `world-cycle-api.md` — API 映射
+- `pulse-and-outcome-metrics-v0.md` — 脈搏與後果
+- `midnight-market-canonical-slice.md` — 最小實例
+- `shared-types.md` — 跨文件型別

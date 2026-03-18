@@ -241,7 +241,7 @@ complaint 是很重要的早期警訊：
 ## 9. Pulse Mode v0
 
 v0 不要搞十種 mode。
-先只做五種：
+先只做六種：
 
 ```ts
 type WorldMode =
@@ -350,7 +350,7 @@ kind:
 | "zone_underfilled"
 | "conversion_drop"
 | "event_overheating";
-severity: "low" | "medium" | "high";
+severity: "low" | "medium" | "high" | "critical";
 targetId?: string;
 summary: string;
 };
@@ -556,7 +556,7 @@ metric: string;
 baseline: number;
 observed: number;
 delta: number;
-severity: "low" | "medium" | "high";
+severity: "negligible" | "minor" | "significant";
 acceptable: boolean;
 };
 ```
@@ -709,7 +709,7 @@ Outcome report 最後一定要有 recommendation，
 不然 precedent 很難用。
 
 ```ts
-type Recommendation =
+type OutcomeRecommendation =
 | "reinforce" // 可納成更穩定 law
 | "retune" // 方向對，但數值要調
 | "watch" // 先觀察，不立刻下結論
@@ -832,9 +832,10 @@ v0 不需要 predictive model。
 
 ---
 
-如果你要，我下一步最合理的是：
-
-1. `midnight-market-governance-storyboard.md`
-2. `thyra-v0-module-map.md`
-
-我覺得現在應該接 **2**，因為文件已經夠多了，下一步該把它們壓回工程模組圖。
+相關文件：
+- `canonical-cycle.md` — 世界循環定義
+- `change-proposal-schema-v0.md` — 變更提案 schema
+- `judgment-rules-v0.md` — 判斷規則
+- `world-cycle-api.md` — API 映射
+- `midnight-market-canonical-slice.md` — 最小實例
+- `shared-types.md` — 跨文件型別

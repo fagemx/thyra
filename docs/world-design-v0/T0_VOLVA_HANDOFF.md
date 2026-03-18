@@ -286,9 +286,9 @@ probe-commit → governance evaluator
       { "id": "south_gate", "name": "South Gate", "defaultThrottle": { "enabled": false, "maxPerMinute": 50 } }
     ],
     "chiefs": [
-      { "id": "economy_chief", "name": "Economy Chief", "role": "economy", "permissions": ["adjust_stall_capacity", "modify_pricing_rule", "adjust_spotlight_weight"] },
-      { "id": "safety_chief", "name": "Safety Chief", "role": "safety", "permissions": ["throttle_entry", "pause_event"] },
-      { "id": "event_chief", "name": "Event Chief", "role": "event", "permissions": ["adjust_spotlight_weight", "pause_event"] }
+      { "id": "chief_economy", "name": "Economy Chief", "role": "economy", "permissions": ["adjust_stall_capacity", "modify_pricing_rule", "adjust_spotlight_weight"] },
+      { "id": "chief_safety", "name": "Safety Chief", "role": "safety", "permissions": ["throttle_entry", "pause_event"] },
+      { "id": "chief_event", "name": "Event Chief", "role": "event", "permissions": ["adjust_spotlight_weight", "pause_event"] }
     ],
     "changeKinds": ["adjust_stall_capacity", "adjust_spotlight_weight", "throttle_entry", "pause_event", "modify_pricing_rule"],
     "metrics": [
