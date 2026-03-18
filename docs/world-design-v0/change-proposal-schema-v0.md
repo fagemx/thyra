@@ -298,17 +298,17 @@ unit?: string;
 }
 ```
 
-### 例子 3：提高 prime slot 價格
+### 例子 3：提高 spotlight 加價倍率
 ```json
 {
 "mode": "patch",
 "operations": [
 {
 "op": "inc",
-"path": "pricing.slotRules.prime.multiplier",
-"before": 1.2,
-"after": 1.32,
-"delta": 0.12,
+"path": "pricing.spotlightPremium",
+"before": 1.5,
+"after": 1.65,
+"delta": 0.15,
 "unit": "x"
 }
 ]

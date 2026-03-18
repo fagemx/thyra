@@ -108,8 +108,36 @@ type WorldSpec = {
   changeKinds: string[]; // 支援的 ChangeKind 列表
   metrics: MetricSpec[];
 
-  initialState: Record<string, unknown>; // world snapshot 初始值
+  initialState: MidnightMarketState; // 結構化初始值，見 canonical-slice §8
   cycleCadence: CycleCadence;
+};
+
+// v0: Midnight Market 專用。之後可抽成 generic WorldState interface。
+type MidnightMarketState = {
+  worldId: string;
+  version: number;
+  zones: Record<string, {
+    name: string;
+    stallCapacity: number;
+    currentStalls: number;
+    spotlightWeight: number;
+  }>;
+  entryGates: Record<string, {
+    throttle: { enabled: boolean; maxPerMinute: number };
+  }>;
+  pricing: {
+    baseStallFee: number;
+    spotlightPremium: number;
+  };
+  events: unknown[];
+  mode: WorldMode; // from shared-types.md §6.1
+  metrics: {
+    congestion_score: number;
+    stall_fill_rate: number;
+    checkout_conversion: number;
+    complaint_rate: number;
+    fairness_score: number;
+  };
 };
 
 type ZoneSpec = {
@@ -298,7 +326,22 @@ probe-commit → governance evaluator
       { "id": "complaint_rate", "name": "Complaint Rate", "range": { "min": 0, "max": 1 }, "initialValue": 0, "direction": "lower_is_better" },
       { "id": "fairness_score", "name": "Fairness", "range": { "min": 0, "max": 1 }, "initialValue": 1.0, "direction": "higher_is_better" }
     ],
-    "initialState": {},
+    "initialState": {
+      "worldId": "world_midnight_market_001",
+      "version": 1,
+      "zones": {
+        "zone_a": { "name": "Festival Square", "stallCapacity": 8, "currentStalls": 0, "spotlightWeight": 0.6 },
+        "zone_b": { "name": "Creator Lane", "stallCapacity": 6, "currentStalls": 0, "spotlightWeight": 0.4 }
+      },
+      "entryGates": {
+        "north_gate": { "throttle": { "enabled": false, "maxPerMinute": 100 } },
+        "south_gate": { "throttle": { "enabled": false, "maxPerMinute": 50 } }
+      },
+      "pricing": { "baseStallFee": 10, "spotlightPremium": 1.5 },
+      "events": [],
+      "mode": "setup",
+      "metrics": { "congestion_score": 0, "stall_fill_rate": 0, "checkout_conversion": 0, "complaint_rate": 0, "fairness_score": 1.0 }
+    },
     "cycleCadence": { "intervalMinutes": 15, "summarySchedule": "daily_morning", "outcomeWindowMinutes": 60 }
   },
   "decisionTrail": [

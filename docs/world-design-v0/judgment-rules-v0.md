@@ -63,7 +63,7 @@ Thyra 的核心不是「有很多 agent 在想」，
 - simulation_required
 - escalated
 - approved_with_constraints
-- approved_until_window_end
+- deferred
 
 ### 3.4 不是只看 proposal 本身
 judgment 一定要看 proposal + world + time window + precedent + actor authority。
