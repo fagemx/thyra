@@ -11,7 +11,7 @@
 | STORE-01 | Working state (L1) uses snapshot-overwrite + append-only dual track | Code review: current tables overwrite, `decision_events` is append-only | A |
 | STORE-02 | Spec docs (L2) are Git-backed only — no silent DB sync | Code review: no L1→L2 auto-sync path | All |
 | STORE-03 | Edda (L5) is append-only — no modify, no delete of precedent records | Code review: no UPDATE/DELETE on ingestion records | D |
-| ID-01 | All objects use stable ID prefixes per layer. L1: `ds_`, `card_`, `cand_`, `probe_`, `sig_`, `commit_`, `promo_`, `evt_`. Promotion: `handoff_`, `rollback_`. Edda: `prec_`, `dec_`, `sug_`. | `grep` all ID generation for correct prefix | A, B |
+| ID-01 | All objects use stable ID prefixes per layer. L1: `ds_`, `card_`, `cand_`, `probe_`, `sig_`, `commit_`, `promo_`, `evt_`. Promotion: `handoff_`, `rollback_`. Edda: `prec_`, `dec_`, `sug_`. Cross-repo: accept both `<prefix>_<nanoid>` (Thyra) and `<prefix>_<uuid>` (Völva) formats. | `grep` all ID generation for correct prefix; `isValidIdFormat()` tests both formats | A, B |
 | ID-02 | Every cross-layer promotion carries `sourceRefs` pointing upstream | Code review: handoff builder always populates `sourceRefs` | B, C, E |
 | ID-03 | SourceRef.layer must be one of `"L0" \| "L1" \| "L2" \| "L3" \| "L4" \| "L5"` | Zod schema validation | B |
 | PROMO-01 | Promotion handoff requires `promotionVerdict` + `stableObjects` + `sourceLinks` | Zod `.safeParse()` on handoff object | C |
@@ -50,7 +50,8 @@
 
 **Verification**:
 ```bash
-grep -rn "generateId\|nanoid\|uuid" src/storage/ src/cross-layer/ src/promotion/
+grep -rn "generateId\|nanoid\|randomUUID" src/cross-layer/ src/promotion/
+# For Völva: cd volva && grep -rn "randomUUID" src/decision/ src/schemas/decision.ts
 # Every call must include the correct prefix
 ```
 

@@ -73,6 +73,20 @@ export function extractPrefix(id: string): string | null {
   const match = id.match(/^([a-z]+)_/);
   return match ? match[1] : null;
 }
+
+/**
+ * Validate ID format. Accepts two random part formats:
+ * - Thyra/Edda: `<prefix>_<nanoid(12)>` (e.g., "ds_aBcDeFgHiJkL")
+ * - Völva: `<prefix>_<crypto.randomUUID()>` (e.g., "ds_550e8400-e29b-41d4-a716-446655440000")
+ * Both are valid — cross-layer operations must accept either format.
+ */
+export function isValidIdFormat(id: string): boolean {
+  const prefix = extractPrefix(id);
+  if (!prefix) return false;
+  const rest = id.slice(prefix.length + 1);
+  // Accept nanoid (12+ alphanumeric) or UUID (36 chars with dashes)
+  return rest.length >= 12;
+}
 ```
 
 ### Acceptance Criteria
@@ -128,7 +142,7 @@ export function isValidLayer(layer: string): boolean {
 2. Create barrel export `src/cross-layer/index.ts`:
 ```ts
 export { SourceRef, SourceRefSchema, LayerSchema, type Layer } from './source-ref';
-export { generateId, extractPrefix, ID_PREFIXES, type IdPrefix } from './id-generator';
+export { generateId, extractPrefix, isValidIdFormat, ID_PREFIXES, type IdPrefix } from './id-generator';
 export { validateSourceRef, validateIdPrefix, isValidLayer } from './validators';
 ```
 
@@ -140,6 +154,9 @@ export { validateSourceRef, validateIdPrefix, isValidLayer } from './validators'
 - `validateIdPrefix` accepts known, rejects unknown
 - L0 SourceRef accepted (layer: "L0", kind: "conversation", id: "user-message-xxx")
 - L2 spec:// URI format accepted
+- **Cross-repo ID format**: `isValidIdFormat("ds_aBcDeFgHiJkL")` → true (Thyra nanoid)
+- **Cross-repo ID format**: `isValidIdFormat("ds_550e8400-e29b-41d4-a716-446655440000")` → true (Völva UUID)
+- **Cross-repo ID format**: `isValidIdFormat("ds_")` → false (no random part)
 
 ### Acceptance Criteria
 ```bash

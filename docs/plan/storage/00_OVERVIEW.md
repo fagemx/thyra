@@ -13,6 +13,11 @@
 本 planning pack 只涵蓋 storage spec stack 定義的四個工程面向。
 不涵蓋：Thyra world runtime（canonical-cycle）、Völva intent-router、Karvi dispatch。
 
+> **Track A 已移至 Völva plan-world-design：** Track A (Völva Working State DB) 的完整實作由
+> `volva/docs/plan-world-design/TRACK_A_DECISION_STATE/` 負責（3 tasks: Zod schemas, DB tables, Session Manager）。
+> 本 plan 的 Track B-E 依賴該實作的 output（ID prefixes, table schema, event format）。
+> 詳見下方 Track A 的 redirect note。
+
 ## Dependency DAG
 
 ```
@@ -97,27 +102,20 @@ Batch 4（依賴 C）：
 
 ## Module Map
 
-### Völva repo (Track A)
+### Völva repo (Track A — implemented by volva/docs/plan-world-design/TRACK_A_DECISION_STATE/)
 ```
 src/
-  storage/
-    db.ts                          ← A1: createStorageDb, initStorageSchema
-    schemas/
-      decision-session.ts          ← A1: DecisionSession Zod schema
-      card-snapshot.ts             ← A1: CardSnapshot Zod schema
-      candidate-record.ts          ← A1: CandidateRecord Zod schema
-      probe-record.ts              ← A1: ProbeRecord Zod schema
-      signal-packet.ts             ← A1: SignalPacket Zod schema
-      commit-memo-draft.ts         ← A1: CommitMemoDraft Zod schema
-      promotion-check-draft.ts     ← A1: PromotionCheckDraft Zod schema
-      decision-event.ts            ← A1: DecisionEvent Zod schema
-    session-store.ts               ← A2: DecisionSessionStore CRUD
-    candidate-store.ts             ← A2: CandidateRecordStore CRUD
-    probe-store.ts                 ← A2: ProbeRecordStore CRUD
-    event-log.ts                   ← A3: DecisionEventLog append + query
-    routes/
-      storage.ts                   ← A3: Storage API routes
+  schemas/
+    decision.ts                    ← A1: All shared types in one file (Regime, IntentRoute, etc.)
+  db.ts                            ← A2: 8 new tables appended to existing initSchema()
+  decision/
+    session-manager.ts             ← A3: DecisionSessionManager (CRUD + stage machine)
+  routes/
+    decisions.ts                   ← (from plan-world-design Track F, not Track A)
 ```
+> Note: Völva uses `src/schemas/decision.ts` (single file) not `src/storage/schemas/*` (multi-file).
+> Völva uses `crypto.randomUUID()` for ID generation with prefix convention `<prefix>_<uuid>`.
+> ID prefix values match this plan's `ID_PREFIXES` map — only the random part format differs.
 
 ### Thyra repo (Track B, C, E)
 ```

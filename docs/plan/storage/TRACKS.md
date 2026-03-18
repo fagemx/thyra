@@ -29,12 +29,17 @@ L2 升格機制              L2 記憶機制
 ## Track → Step Mapping
 
 ### A: Völva Working State DB（L0, Völva repo）
-> 📍 完整 task file 在 `volva/docs/plan/storage/TRACK_A_VOLVA_WORKING_STATE.md`
+> 📍 **REDIRECT**: Track A 由 `volva/docs/plan-world-design/TRACK_A_DECISION_STATE/` 實作。
+> 原本的 `volva/docs/plan/storage/TRACK_A_VOLVA_WORKING_STATE.md` 已廢棄刪除。
 ```
-Step 1: Schema + DB init (8 tables + Zod schemas)
-Step 2: CRUD operations (7 entity stores)
-Step 3: Event log + routes + tests
+A1_ZOD_SCHEMAS.md              ← All shared types in src/schemas/decision.ts
+A2_DB_SCHEMA.md                ← 8 tables appended to existing initSchema() in src/db.ts
+A3_SESSION_MANAGER.md          ← DecisionSessionManager with stage machine + CRUD helpers
 ```
+> **ID convention note**: Völva uses `crypto.randomUUID()` producing `<prefix>_<uuid>` format.
+> Thyra's Track B uses `nanoid(12)` producing `<prefix>_<nanoid>` format.
+> Both share the same prefix map (`ds_`, `cand_`, `probe_`, etc.).
+> Cross-layer `validateIdPrefix()` must accept both random part formats.
 
 ### B: Cross-Layer ID Infrastructure（L1, Thyra repo）
 ```
@@ -71,42 +76,39 @@ TRACK_E_PROMOTION_ROLLBACK/
 
 ## Track A: Völva Working State DB
 
+> **⚠️ REDIRECT — 此 Track 由 Völva 的 plan-world-design 實作。**
+> 完整 task files: `volva/docs/plan-world-design/TRACK_A_DECISION_STATE/`（A1, A2, A3）
+> 本節只保留 summary 和 cross-plan interface contract。
+
 **Layer**: L0
-**Goal**: Build Völva's L1 persistent working state — 8 SQLite tables covering sessions, cards, candidates, probes, signals, commit memos, promotion checks, and decision events.
+**Goal**: Build Völva's L1 persistent working state — 8 SQLite tables + Zod schemas + session manager
 **Repo**: `C:\ai_agent\volva`
 
-**Input**:
-- `volva/docs/storage/volva-working-state-schema-v0.md` (canonical schema)
-- Existing Völva DB patterns (if any)
+**Output（由 Völva plan-world-design Track A 產出）**:
+- `src/schemas/decision.ts` — 所有 shared types 的 Zod schemas（single file）
+- `src/db.ts` 擴展 — 8 new tables appended to existing `initSchema()`
+- `src/decision/session-manager.ts` — DecisionSessionManager with stage machine
 
-**Output**:
-- 8 Zod schemas in `src/storage/schemas/`
-- `createStorageDb()` + `initStorageSchema()` in `src/storage/db.ts`
-- CRUD stores for all 7 entity types
-- Append-only `DecisionEventLog`
-- Storage API routes with tests
+**Cross-plan interface contract（Track B-E 依賴這些）**:
+- ID prefixes: `ds_`, `card_`, `cand_`, `probe_`, `sig_`, `commit_`, `promo_`, `evt_`
+- ID format: `<prefix>_<crypto.randomUUID()>` — random part 是 UUID 格式
+- Event types: 11 values in `decision_events.event_type` CHECK constraint
+- Stage enum: 9 values in `decision_sessions.stage` CHECK constraint
+- API: `POST /api/decisions/*`（not `/api/storage/*`）
 
 **Dependencies**:
 - blocks: B, C, D, E
-- blocked-by: none (can start immediately)
-
-**DoD**:
-- [ ] `bun run build` zero errors in Völva repo
-- [ ] All 8 tables created on `initStorageSchema()`
-- [ ] CRUD for sessions, cards, candidates, probes, signals, memos, promotions
-- [ ] Event log is append-only (no UPDATE/DELETE)
-- [ ] All IDs use correct prefixes (`ds_`, `card_`, `cand_`, `probe_`, `sig_`, `commit_`, `promo_`, `evt_`)
-- [ ] API routes return `{ ok: true, data }` format
-- [ ] Tests pass with `:memory:` SQLite
+- blocked-by: none
 
 **Smoke Test**:
 ```bash
 cd C:/ai_agent/volva
 bun run build
-bun test src/storage/
+bun test src/decision/session-manager.test.ts
+bun test src/schemas/decision.test.ts
 ```
 
-**Task Count**: 3
+**Task Count**: 3（see `volva/docs/plan-world-design/TRACK_A_DECISION_STATE/`）
 
 ---
 
@@ -272,8 +274,8 @@ bun test src/promotion/rollback-engine.test.ts
 ## Cross-Module Dependency Graph
 
 ```
-Völva:
-  storage/db ← storage/schemas/* ← storage/*-store ← storage/event-log ← storage/routes
+Völva (implemented by plan-world-design Track A):
+  schemas/decision ← decision/session-manager ← routes/decisions
 
 Thyra:
   cross-layer/source-ref ← cross-layer/id-validator

@@ -4,16 +4,18 @@
 
 ### Track A: Völva Working State DB
 
+> **Implemented by**: `volva/docs/plan-world-design/TRACK_A_DECISION_STATE/`
+> **Validation also in**: `volva/docs/plan-world-design/VALIDATION.md`
+
 | Item | Pass Criteria | Verification |
 |------|--------------|-------------|
 | Build | `bun run build` zero errors | `cd volva && bun run build 2>&1` |
-| Schema init | All 8 tables created | `initStorageSchema()` then query `sqlite_master` |
-| Session CRUD | Create/read/update/list sessions | `bun test src/storage/session-store.test.ts` |
-| Candidate CRUD | Full lifecycle: generated → pruned → committed | `bun test src/storage/candidate-store.test.ts` |
-| Probe CRUD | Full lifecycle: draft → running → completed | `bun test src/storage/probe-store.test.ts` |
-| Event log | Append-only, no UPDATE/DELETE | `bun test src/storage/event-log.test.ts` |
-| ID prefixes | All IDs use correct prefix | `grep -rn "generateId" src/storage/` |
-| API format | All routes return `{ ok, data/error }` | Route tests |
+| Schema init | 8 new tables in `initSchema()` | `cd volva && grep -c "CREATE TABLE" src/db.ts` ≥ 13 |
+| Session manager | Create/advance/reset/fastPath | `cd volva && bun test src/decision/session-manager.test.ts` |
+| Zod schemas | All shared types covered | `cd volva && bun test src/schemas/decision.test.ts` |
+| Event log | Append-only, no UPDATE/DELETE | Code review of session-manager `addEvent()` |
+| ID prefixes | All IDs use correct prefix (`ds_`, `cand_`, etc.) | `cd volva && grep -rn "randomUUID" src/decision/` |
+| Stage machine | Forward + fastPath + reset validated | `cd volva && bun test src/decision/session-manager.test.ts` |
 
 ### Track B: Cross-Layer ID Infrastructure
 
@@ -63,16 +65,16 @@
 
 **Description**: Create a decision session, generate candidates, run a probe, record a commit memo — all persisted to Völva DB.
 
-**Steps**:
-1. `POST /api/storage/sessions` → create session (ds_xxx)
-2. `POST /api/storage/candidates` → generate candidate (cand_xxx)
-3. `POST /api/storage/probes` → create probe (probe_xxx)
-4. `PATCH /api/storage/probes/:id` → complete probe
-5. `POST /api/storage/signals` → record signal (sig_xxx)
-6. `POST /api/storage/commit-memos` → create commit memo (commit_xxx)
-7. `GET /api/storage/events` → verify all transitions recorded as events
+> **Note**: Völva uses `/api/decisions/*` endpoints (from plan-world-design Track F), not `/api/storage/*`.
 
-**Verification**: 7 records across 6 tables, all IDs with correct prefixes, event log has 6+ entries.
+**Steps**:
+1. `POST /api/decisions/start` → create session + classify intent (ds_xxx)
+2. `POST /api/decisions/:id/path-check` → assess path certainty
+3. `POST /api/decisions/:id/space-build` → generate candidates (cand_xxx)
+4. `POST /api/decisions/:id/evaluate` → evaluate candidate → commit memo (commit_xxx)
+5. `GET /api/decisions/:id` → verify full session state with all records
+
+**Verification**: Session reaches `commit-review` stage, candidates/probes/signals/memo all persisted, all IDs with correct prefixes, decision_events have entries.
 
 ---
 
@@ -130,7 +132,7 @@
 
 | CONTRACT Rule | Metric | Baseline | Verification |
 |--------------|--------|----------|-------------|
-| STORE-01 | Event log is append-only | No UPDATE/DELETE in event-log code | `grep -rn "UPDATE\|DELETE" src/storage/event-log.ts` = 0 |
+| STORE-01 | Event log is append-only | No UPDATE/DELETE on decision_events | `cd volva && grep -rn "UPDATE.*decision_events\|DELETE.*decision_events" src/` = 0 |
 | ID-01 | All IDs use correct prefix | 100% correct | `bun test` prefix validation tests |
 | ID-02 | Promotions carry sourceRefs | 100% populated | Handoff builder tests |
 | PROMO-01 | Handoff has required fields | Zod validation passes | Schema tests |
