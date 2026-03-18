@@ -121,6 +121,8 @@ export function buildPromotionHandoff(input: BuildHandoffInput): PromotionHandof
   // Set createdAt
   return PromotionHandoffSchema.parse({ id, ...input, createdAt: new Date().toISOString() });
 }
+
+type BuildHandoffInput = Omit<z.infer<typeof PromotionHandoffSchema>, 'id' | 'createdAt'>;
 ```
 
 ### Acceptance Criteria
@@ -162,6 +164,21 @@ export const PromotionChecklistSchema = z.object({
 
 2. Create `src/promotion/checklist-evaluator.ts`:
 ```ts
+interface ChecklistContext {
+  coreTerminologyStable: boolean;
+  canonicalFormExists: boolean;
+  sharedTypesClear: boolean;
+  canonicalSliceExists: boolean;
+  demoPathRunnable: boolean;
+  moduleBoundariesClear: boolean;
+  // thyra-runtime specific
+  worldFormSelected?: boolean;
+  minimumWorldHasShape?: boolean;
+  closureTargetClear?: boolean;
+  changeJudgmentDefined?: boolean;
+  runtimeConstraintsExplicit?: boolean;
+}
+
 export function evaluatePromotionChecklist(
   targetLayer: 'project-plan' | 'thyra-runtime',
   context: ChecklistContext
@@ -199,7 +216,7 @@ bun test src/promotion/checklist-evaluator.test.ts
 # thyra-runtime checklist has 5 items
 # All passed → verdict "ready"
 # Some failed → verdict "partial" or "not_ready"
-# Checklist ID uses correct prefix
+# Checklist ID uses chk_ prefix
 ```
 
 ---

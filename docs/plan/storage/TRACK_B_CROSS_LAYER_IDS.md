@@ -40,7 +40,7 @@ export type SourceRef = z.infer<typeof SourceRefSchema>;
 ```ts
 import { nanoid } from 'nanoid';
 
-// All known ID prefixes across layers
+// ID prefixes for storage pack scope (L1, promotion, L5). L3/L4 prefixes defined separately.
 export const ID_PREFIXES = {
   // L1 — Völva Working State
   decision_session: 'ds',
@@ -50,6 +50,7 @@ export const ID_PREFIXES = {
   signal: 'sig',
   commit_memo: 'commit',
   promotion_check: 'promo',
+  checklist: 'chk',
   decision_event: 'evt',
 
   // Promotion layer
@@ -116,7 +117,7 @@ export function validateIdPrefix(id: string): boolean {
   const prefix = extractPrefix(id);
   if (!prefix) return false;
   const knownPrefixes = Object.values(ID_PREFIXES);
-  return knownPrefixes.includes(prefix as any);
+  return (knownPrefixes as readonly string[]).includes(prefix);
 }
 
 export function isValidLayer(layer: string): boolean {

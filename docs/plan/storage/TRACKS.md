@@ -134,7 +134,7 @@ bun test src/storage/
 - [ ] `bun run build` zero errors
 - [ ] `SourceRef` type validates layer + kind + id
 - [ ] `generateId("ds")` produces `ds_<nanoid>` format
-- [ ] All L1-L5 prefixes have test coverage
+- [ ] All storage-scope prefixes (L1 + promotion + L5) have test coverage
 - [ ] Invalid prefixes are rejected
 
 **Smoke Test**:

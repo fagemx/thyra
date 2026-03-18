@@ -125,6 +125,9 @@ POST /api/promotion/rollbacks
   → create PromotionRollbackMemo
   → markSuspended on downstream artifact
   → trigger Edda auto-ingest (decision.rollback event)
+  // Edda bridge: fire-and-forget HTTP POST to Edda's ingestion endpoint
+  // Uses existing edda-bridge pattern (see src/edda-bridge.ts)
+  // POST ${EDDA_URL}/api/ingestion/evaluate { eventType: "decision.rollback", sourceRefs: [...] }
   → return { ok: true, data: { memo, suspendResult } }
 ```
 

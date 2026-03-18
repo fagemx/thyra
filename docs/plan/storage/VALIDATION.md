@@ -96,6 +96,9 @@
 
 **Description**: A decision event triggers auto-ingest into Edda.
 
+> Note: In production, Völva fires events to Edda via HTTP bridge (fire-and-forget).
+> For GP-3 testing, manually call `POST /api/ingestion/evaluate` with the event payload.
+
 **Steps**:
 1. Complete GP-1 (commit memo created)
 2. `commit_drafted` event fires
