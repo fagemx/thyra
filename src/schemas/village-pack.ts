@@ -143,6 +143,30 @@ export type ParseResult =
  * 將 Zod issue path 映射到 VP 規則代碼。
  * 優先使用 superRefine params 中的 rule，否則由 path 推斷。
  */
+/** Prefix-based path → rule mapping (checked in order) */
+const PATH_PREFIX_RULES: Array<[string, string]> = [
+  ['pack_version', 'VP-01'],
+  ['village.name', 'VP-02'],
+  ['village.target_repo', 'VP-03'],
+  ['constitution.rules', 'VP-04'],
+  ['constitution.allowed_permissions', 'VP-05'],
+  ['constitution.budget', 'VP-06'],
+  ['chief.personality', 'VP-08'],
+  ['skills', 'VP-14'],
+  ['llm.provider', 'VP-16'],
+  ['llm.preset', 'VP-17'],
+  ['llm', 'VP-16'],
+];
+
+/** Regex-based path → rule mapping */
+const PATH_REGEX_RULES: Array<[RegExp, string]> = [
+  [/^chief\.constraints\.\d+\.type/, 'VP-09'],
+  [/^laws\.\d+\.category/, 'VP-10'],
+  [/^laws\.\d+\.content\.description/, 'VP-11'],
+  [/^laws\.\d+\.evidence\.source/, 'VP-12'],
+  [/^laws\.\d+\.evidence\.reasoning/, 'VP-13'],
+];
+
 function mapZodIssueToRule(issue: z.ZodIssue): string {
   // superRefine issues carry rule in params
   if (issue.code === 'custom' && issue.params && typeof issue.params === 'object' && 'rule' in issue.params) {
@@ -151,24 +175,17 @@ function mapZodIssueToRule(issue: z.ZodIssue): string {
 
   const pathStr = issue.path.join('.');
 
-  if (pathStr === 'pack_version') return 'VP-01';
-  if (pathStr.startsWith('village.name')) return 'VP-02';
-  if (pathStr.startsWith('village.target_repo')) return 'VP-03';
-  if (pathStr.startsWith('constitution.rules')) return 'VP-04';
-  if (pathStr.startsWith('constitution.allowed_permissions')) return 'VP-05';
-  if (pathStr.startsWith('constitution.budget')) return 'VP-06';
-  // VP-07 handled by superRefine
-  if (pathStr.startsWith('chief.personality')) return 'VP-08';
-  if (pathStr.match(/^chief\.constraints\.\d+\.type/)) return 'VP-09';
-  if (pathStr.match(/^laws\.\d+\.category/)) return 'VP-10';
-  if (pathStr.match(/^laws\.\d+\.content\.description/)) return 'VP-11';
-  if (pathStr.match(/^laws\.\d+\.evidence\.source/)) return 'VP-12';
-  if (pathStr.match(/^laws\.\d+\.evidence\.reasoning/)) return 'VP-13';
-  if (pathStr.startsWith('skills')) return 'VP-14';
-  if (pathStr.startsWith('llm.provider')) return 'VP-16';
-  if (pathStr.startsWith('llm.preset')) return 'VP-17';
-  if (pathStr.startsWith('llm')) return 'VP-16';
+  return mapPathToRule(pathStr);
+}
 
+/** Map a dotted path string to a VP rule code */
+function mapPathToRule(pathStr: string): string {
+  for (const [prefix, rule] of PATH_PREFIX_RULES) {
+    if (pathStr === prefix || pathStr.startsWith(prefix)) return rule;
+  }
+  for (const [regex, rule] of PATH_REGEX_RULES) {
+    if (regex.test(pathStr)) return rule;
+  }
   return 'VP-UNKNOWN';
 }
 

@@ -29,7 +29,7 @@ export type ChiefReputation = z.infer<typeof ChiefReputationSchema>;
 /** 預設 score 變動值（Phase 1 固定，Phase 2 可配置） */
 export const DEFAULT_REWARDS = {
   /** 提案被 judge 通過並 apply */
-  proposal_applied: +1,
+  proposal_applied: 1,
   /** 提案被 judge 拒絕 */
   proposal_rejected: -1,
   /** 觸發 rollback */

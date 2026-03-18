@@ -47,7 +47,9 @@ export class WebhookDispatcher {
 
     appendAudit(this.db, 'webhook', id, 'registered', { village_id: villageId, url, events }, 'system');
 
-    return this.getById(id)!;
+    const created = this.getById(id);
+    if (!created) throw new Error(`Webhook not found after register: ${id}`);
+    return created;
   }
 
   /** Remove a webhook */
@@ -173,9 +175,9 @@ export class WebhookDispatcher {
       url: row.url as string,
       events: typeof row.events === 'string' ? JSON.parse(row.events) as AlertType[] : [],
       status: row.status as 'active' | 'disabled',
-      last_delivery_at: (row.last_delivery_at as string) ?? null,
-      last_delivery_status: (row.last_delivery_status as string) ?? null,
-      secret: (row.secret as string) ?? undefined,
+      last_delivery_at: (row.last_delivery_at as string | null) ?? null,
+      last_delivery_status: (row.last_delivery_status as string | null) ?? null,
+      secret: (row.secret as string | undefined) ?? undefined,
       version: row.version as number,
       created_at: row.created_at as string,
       updated_at: row.updated_at as string,

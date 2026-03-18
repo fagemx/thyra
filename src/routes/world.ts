@@ -178,7 +178,6 @@ export function worldRoutes(worldManager: WorldManager, db: Database): Hono {
       // 增量推送 — poll audit_log WHERE id > lastId
       while (streamCtrl.alive) {
         await stream.sleep(interval);
-        if (!streamCtrl.alive) break;
 
         const rows = db.prepare(
           `SELECT * FROM audit_log WHERE id > ? ORDER BY id ASC LIMIT 50`

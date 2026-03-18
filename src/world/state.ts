@@ -142,6 +142,14 @@ function deserializeConstitution(row: Record<string, unknown>): Constitution {
 /** 來源: chief-engine.ts deserialize */
 function deserializeChief(row: Record<string, unknown>): Chief {
   return {
+    ...deserializeChiefCore(row),
+    ...deserializeChiefExtended(row),
+  };
+}
+
+/** Chief 核心欄位 */
+function deserializeChiefCore(row: Record<string, unknown>): Pick<Chief, 'id' | 'village_id' | 'name' | 'role' | 'role_type' | 'parent_chief_id' | 'version' | 'status' | 'skills' | 'pipelines' | 'permissions' | 'personality' | 'constraints' | 'profile' | 'created_at' | 'updated_at'> {
+  return {
     id: row.id as string,
     village_id: row.village_id as string,
     name: row.name as string,
@@ -156,6 +164,14 @@ function deserializeChief(row: Record<string, unknown>): Chief {
     personality: JSON.parse((row.personality as string) || '{}') as Chief['personality'],
     constraints: JSON.parse((row.constraints as string) || '[]') as Chief['constraints'],
     profile: (row.profile as Chief['profile']) ?? null,
+    created_at: row.created_at as string,
+    updated_at: row.updated_at as string,
+  };
+}
+
+/** Chief 延伸欄位（adapter、budget、run tracking） */
+function deserializeChiefExtended(row: Record<string, unknown>): Pick<Chief, 'adapter_type' | 'context_mode' | 'adapter_config' | 'budget_config' | 'use_precedents' | 'precedent_config' | 'pause_reason' | 'paused_at' | 'last_heartbeat_at' | 'current_run_id' | 'current_run_status' | 'timeout_count'> {
+  return {
     adapter_type: (row.adapter_type as Chief['adapter_type'] | null) ?? 'local',
     context_mode: (row.context_mode as Chief['context_mode'] | null) ?? 'fat',
     adapter_config: JSON.parse((row.adapter_config as string) || '{}') as Record<string, unknown>,
@@ -168,8 +184,6 @@ function deserializeChief(row: Record<string, unknown>): Chief {
     current_run_id: (row.current_run_id as string | null) ?? null,
     current_run_status: (row.current_run_status as Chief['current_run_status'] | null) ?? 'idle',
     timeout_count: (row.timeout_count as number | null) ?? 0,
-    created_at: row.created_at as string,
-    updated_at: row.updated_at as string,
   };
 }
 

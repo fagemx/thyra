@@ -393,7 +393,8 @@ async function queryHistoricalContext(
     limit: 10,
   }).catch(() => []);
 
-  const [patterns, recurring] = await Promise.all([patternsP, recurringP]);
+  const patterns = await patternsP;
+  const recurring = await recurringP;
 
   const decisions = patterns?.decisions ?? [];
 
@@ -527,11 +528,11 @@ function generateInsights(
  *
  * 契約：THY-07（audit_log）、BRIDGE-01（Edda optional）
  */
-export async function recordNightSummary(
+export function recordNightSummary(
   db: Database,
   summary: NightSummary,
   eddaBridge?: EddaBridge,
-): Promise<void> {
+): void {
   // THY-07: audit_log
   appendAudit(db, 'night_summary', summary.village_id, 'generated', {
     date: summary.date,

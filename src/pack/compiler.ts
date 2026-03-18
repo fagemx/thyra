@@ -194,7 +194,7 @@ function diffVillage(
   const currentLlm = current.metadata.llm_config as { provider?: string; preset?: string } | undefined;
   const newProvider = packLlm?.provider ?? 'anthropic';
   const newPreset = packLlm?.preset ?? 'balanced';
-  if (currentLlm?.provider !== newProvider || currentLlm?.preset !== newPreset) {
+  if (currentLlm?.provider !== newProvider || currentLlm.preset !== newPreset) {
     return 'update';
   }
   return 'skip';

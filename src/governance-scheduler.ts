@@ -439,7 +439,7 @@ export class GovernanceScheduler {
       for (let i = 0; i < chiefOps.length; i++) {
         const { ops } = chiefOps[i];
         const chiefResult = coordResult.chief_results[i];
-        const hadError = coordResult.errors.some(e => e.chief_id === chiefResult?.chief_id);
+        const hadError = coordResult.errors.some(e => e.chief_id === chiefResult.chief_id);
         ops.end('decide', hadError ? 'error' : 'ok');
       }
       allChiefResults.push(...coordResult.chief_results);

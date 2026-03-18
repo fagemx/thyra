@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import { resolve, basename } from 'path';
 import { Hono } from 'hono';
 import { CreateSkillInput, UpdateSkillInput, ScopeTypeEnum, SourceTypeEnum } from '../schemas/skill';
+import type { ScopeType, SourceType } from '../schemas/skill';
 import type { SkillRegistry } from '../skill-registry';
 
 /** 解析 SKILL.md 的 frontmatter + body */
@@ -30,7 +31,7 @@ export function parseSkillMarkdown(raw: string): ParsedSkill {
   }
 
   // 推斷 name：frontmatter > 第一個 # heading (slugify)
-  let name: string | null = meta.name ?? null;
+  let name: string | null = meta.name || null;
   if (!name) {
     const headingMatch = body.match(/^#\s+(.+)$/m);
     if (headingMatch) {
@@ -39,7 +40,7 @@ export function parseSkillMarkdown(raw: string): ParsedSkill {
   }
 
   // 推斷 description：frontmatter > 第一段非標題文字
-  let description: string | null = meta.description ?? null;
+  let description: string | null = meta.description || null;
   if (!description) {
     const lines = body.split('\n');
     for (const line of lines) {
@@ -59,18 +60,153 @@ function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
+/** Import result entry */
+interface ImportResult {
+  path: string;
+  status: 'imported' | 'skipped' | 'error';
+  skill_id?: string;
+  reason?: string;
+}
+
+/** Options for scanning directory entries */
+interface ScanOpts {
+  registry: SkillRegistry;
+  scopeType: ScopeType;
+  sourceType: SourceType;
+  villageId?: string;
+  dryRun: boolean;
+}
+
+/** Scan directory entries and import skills */
+function scanDirectoryEntries(
+  entries: string[],
+  absDir: string,
+  opts: ScanOpts,
+): ImportResult[] {
+  const results: ImportResult[] = [];
+  const MAX_FILES = 100;
+  let scanned = 0;
+
+  for (const entry of entries) {
+    if (scanned >= MAX_FILES) break;
+
+    const entryPath = resolve(absDir, entry);
+    let stat;
+    try { stat = statSync(entryPath); } catch { continue; }
+
+    if (stat.isDirectory()) {
+      const result = processSubdirectory(entryPath, entry, opts);
+      if (result) { scanned++; results.push(result); }
+    } else if (entry.endsWith('.md')) {
+      scanned++;
+      results.push(processMarkdownFile(entryPath, entry, opts));
+    }
+  }
+
+  return results;
+}
+
+/** Process a subdirectory containing SKILL.md */
+function processSubdirectory(
+  entryPath: string,
+  entry: string,
+  opts: ScanOpts,
+): ImportResult | null {
+  const skillFile = resolve(entryPath, 'SKILL.md');
+  if (!existsSync(skillFile)) return null;
+
+  const relativePath = `${entry}/SKILL.md`;
+
+  try {
+    const raw = readFileSync(skillFile, 'utf-8');
+    const parsedMd = parseSkillMarkdown(raw);
+    const name = parsedMd.name ?? slugify(basename(entryPath));
+
+    if (!name || !/^[a-z0-9-]+$/.test(name)) {
+      return { path: relativePath, status: 'error', reason: `Invalid name: "${name}"` };
+    }
+
+    const existingSkill = opts.registry.list({ name, scope_type: opts.scopeType });
+    if (existingSkill.length > 0) {
+      return { path: relativePath, status: 'skipped', reason: `Skill "${name}" already exists` };
+    }
+
+    if (opts.dryRun) {
+      return { path: relativePath, status: 'imported', reason: `Would create skill "${name}"` };
+    }
+
+    const desc = parsedMd.description ?? `Imported from ${relativePath}`;
+    const skill = opts.registry.create({
+      name,
+      definition: { description: desc, prompt_template: parsedMd.body || desc },
+      content: raw,
+      source_type: opts.sourceType,
+      source_origin: relativePath,
+      scope_type: opts.scopeType,
+      village_id: opts.villageId,
+    }, 'human');
+
+    return { path: relativePath, status: 'imported', skill_id: skill.id };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    return { path: relativePath, status: 'error', reason: msg };
+  }
+}
+
+/** Process a top-level .md file */
+function processMarkdownFile(
+  entryPath: string,
+  entry: string,
+  opts: ScanOpts,
+): ImportResult {
+  try {
+    const raw = readFileSync(entryPath, 'utf-8');
+    const parsedMd = parseSkillMarkdown(raw);
+    const name = parsedMd.name ?? slugify(entry.replace(/\.md$/i, ''));
+
+    if (!name || !/^[a-z0-9-]+$/.test(name)) {
+      return { path: entry, status: 'error', reason: `Invalid name: "${name}"` };
+    }
+
+    const existingSkill = opts.registry.list({ name, scope_type: opts.scopeType });
+    if (existingSkill.length > 0) {
+      return { path: entry, status: 'skipped', reason: `Skill "${name}" already exists` };
+    }
+
+    if (opts.dryRun) {
+      return { path: entry, status: 'imported', reason: `Would create skill "${name}"` };
+    }
+
+    const desc = parsedMd.description ?? `Imported from ${entry}`;
+    const skill = opts.registry.create({
+      name,
+      definition: { description: desc, prompt_template: parsedMd.body || desc },
+      content: raw,
+      source_type: opts.sourceType,
+      source_origin: entry,
+      scope_type: opts.scopeType,
+      village_id: opts.villageId,
+    }, 'human');
+
+    return { path: entry, status: 'imported', skill_id: skill.id };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    return { path: entry, status: 'error', reason: msg };
+  }
+}
+
 export function skillRoutes(registry: SkillRegistry): Hono {
   const app = new Hono();
 
   app.get('/api/skills', (c) => {
     const status = c.req.query('status') || undefined;
-    const name = c.req.query('name') || undefined;
+    const name = c.req.query('name') ?? undefined;
     const scope_type = c.req.query('scope_type') || undefined;
     const source_type = c.req.query('source_type') || undefined;
     const village_id = c.req.query('village_id') || undefined;
     const tagsParam = c.req.query('tags') || undefined;
     const tags = tagsParam ? tagsParam.split(',').map((t) => t.trim()).filter(Boolean) : undefined;
-    const search = c.req.query('search') || undefined;
+    const search = c.req.query('search') ?? undefined;
     return c.json({ ok: true, data: registry.list({ status, name, scope_type, source_type, village_id, tags, search }) });
   });
 
@@ -178,13 +314,6 @@ export function skillRoutes(registry: SkillRegistry): Hono {
       return c.json({ ok: false, error: { code: 'VALIDATION', message: `Directory not found: ${directory}` } }, 400);
     }
 
-    const results: Array<{
-      path: string;
-      status: 'imported' | 'skipped' | 'error';
-      skill_id?: string;
-      reason?: string;
-    }> = [];
-
     let entries: string[];
     try {
       entries = readdirSync(absDir);
@@ -192,112 +321,9 @@ export function skillRoutes(registry: SkillRegistry): Hono {
       return c.json({ ok: false, error: { code: 'VALIDATION', message: `Cannot read directory: ${directory}` } }, 400);
     }
 
-    // 限制掃描量
-    const MAX_FILES = 100;
-    let scanned = 0;
-
-    for (const entry of entries) {
-      if (scanned >= MAX_FILES) break;
-
-      const entryPath = resolve(absDir, entry);
-      let stat;
-      try { stat = statSync(entryPath); } catch { continue; }
-
-      if (stat.isDirectory()) {
-        // 檢查子目錄中的 SKILL.md
-        const skillFile = resolve(entryPath, 'SKILL.md');
-        if (!existsSync(skillFile)) continue;
-
-        scanned++;
-        const relativePath = `${entry}/SKILL.md`;
-
-        try {
-          const raw = readFileSync(skillFile, 'utf-8');
-          const parsedMd = parseSkillMarkdown(raw);
-          const name = parsedMd.name ?? slugify(basename(entryPath));
-
-          if (!name || !/^[a-z0-9-]+$/.test(name)) {
-            results.push({ path: relativePath, status: 'error', reason: `Invalid name: "${name}"` });
-            continue;
-          }
-
-          // 檢查重複
-          const existingSkill = registry.list({ name, scope_type: scopeParsed.data });
-          if (existingSkill.length > 0) {
-            results.push({ path: relativePath, status: 'skipped', reason: `Skill "${name}" already exists` });
-            continue;
-          }
-
-          if (dryRun) {
-            results.push({ path: relativePath, status: 'imported', reason: `Would create skill "${name}"` });
-            continue;
-          }
-
-          const desc = parsedMd.description ?? `Imported from ${relativePath}`;
-          const skill = registry.create({
-            name,
-            definition: {
-              description: desc,
-              prompt_template: parsedMd.body || desc,
-            },
-            content: raw,
-            source_type: sourceParsed.data,
-            source_origin: relativePath,
-            scope_type: scopeParsed.data,
-            village_id: villageId,
-          }, 'human');
-
-          results.push({ path: relativePath, status: 'imported', skill_id: skill.id });
-        } catch (e: unknown) {
-          const msg = e instanceof Error ? e.message : 'Unknown error';
-          results.push({ path: relativePath, status: 'error', reason: msg });
-        }
-      } else if (entry.endsWith('.md')) {
-        // 頂層 .md 檔案
-        scanned++;
-
-        try {
-          const raw = readFileSync(entryPath, 'utf-8');
-          const parsedMd = parseSkillMarkdown(raw);
-          const name = parsedMd.name ?? slugify(entry.replace(/\.md$/i, ''));
-
-          if (!name || !/^[a-z0-9-]+$/.test(name)) {
-            results.push({ path: entry, status: 'error', reason: `Invalid name: "${name}"` });
-            continue;
-          }
-
-          const existingSkill = registry.list({ name, scope_type: scopeParsed.data });
-          if (existingSkill.length > 0) {
-            results.push({ path: entry, status: 'skipped', reason: `Skill "${name}" already exists` });
-            continue;
-          }
-
-          if (dryRun) {
-            results.push({ path: entry, status: 'imported', reason: `Would create skill "${name}"` });
-            continue;
-          }
-
-          const desc = parsedMd.description ?? `Imported from ${entry}`;
-          const skill = registry.create({
-            name,
-            definition: {
-              description: desc,
-              prompt_template: parsedMd.body || desc,
-            },
-            content: raw,
-            source_type: sourceParsed.data,
-            source_origin: entry,
-            scope_type: scopeParsed.data,
-            village_id: villageId,
-          }, 'human');
-
-          results.push({ path: entry, status: 'imported', skill_id: skill.id });
-        } catch (e: unknown) {
-          const msg = e instanceof Error ? e.message : 'Unknown error';
-          results.push({ path: entry, status: 'error', reason: msg });
-        }
-      }
-    }
+    const results = scanDirectoryEntries(entries, absDir, {
+      registry, scopeType: scopeParsed.data, sourceType: sourceParsed.data, villageId, dryRun,
+    });
 
     const imported = results.filter((r) => r.status === 'imported').length;
     const skippedCount = results.filter((r) => r.status === 'skipped').length;

@@ -112,16 +112,16 @@ export class LocalAdapter implements ExecutionAdapter {
     private chiefLookup: (chiefId: string) => Chief | null,
   ) {}
 
-  async invoke(context: HeartbeatContext): Promise<HeartbeatResult> {
+  invoke(context: HeartbeatContext): Promise<HeartbeatResult> {
     const startMs = Date.now();
 
     const chief = this.chiefLookup(context.chief_id);
     if (!chief) {
-      return {
+      return Promise.resolve({
         heartbeat_id: context.heartbeat_id,
         status: 'failed',
         usage: { duration_ms: Date.now() - startMs },
-      };
+      });
     }
 
     // 取得最新 WorldState
@@ -135,12 +135,12 @@ export class LocalAdapter implements ExecutionAdapter {
 
     const durationMs = Date.now() - startMs;
 
-    return {
+    return Promise.resolve({
       heartbeat_id: context.heartbeat_id,
       status: 'completed',
       proposals: proposals.length > 0 ? proposals : undefined,
       usage: { duration_ms: durationMs },
-    };
+    });
   }
 }
 
@@ -184,7 +184,7 @@ export class KarviPipelineAdapter implements ExecutionAdapter {
         status: allDispatched ? 'in_progress' : 'failed',
         usage: { duration_ms: durationMs },
       };
-    } catch (_err: unknown) {
+    } catch {
       const durationMs = Date.now() - startMs;
       return {
         heartbeat_id: context.heartbeat_id,
@@ -194,9 +194,9 @@ export class KarviPipelineAdapter implements ExecutionAdapter {
     }
   }
 
-  async healthCheck(): Promise<boolean> {
+  healthCheck(): Promise<boolean> {
     // Phase 2: implement Karvi health endpoint check
-    return true;
+    return Promise.resolve(true);
   }
 }
 

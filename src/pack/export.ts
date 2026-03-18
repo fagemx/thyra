@@ -133,7 +133,7 @@ export function exportVillage(villageId: string, deps: ExportDeps): ExportResult
 
   // 6. LLM config (from village metadata, emit declared form only)
   const llmConfig = village.metadata.llm_config as { provider?: string; preset?: string } | undefined;
-  const llmSection = llmConfig?.provider && llmConfig?.preset
+  const llmSection = llmConfig?.provider && llmConfig.preset
     ? { provider: llmConfig.provider, preset: llmConfig.preset }
     : undefined;
 

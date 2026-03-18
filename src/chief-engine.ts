@@ -165,40 +165,7 @@ export class ChiefEngine {
       throw new Error('No active constitution. Cannot create Chief without a constitution framework.');
     }
 
-    // THY-09: permissions ⊆ constitution.allowed_permissions
-    for (const perm of input.permissions) {
-      if (!constitution.allowed_permissions.includes(perm)) {
-        throw new Error(`PERMISSION_EXCEEDS_CONSTITUTION: "${perm}" not in constitution's allowed_permissions`);
-      }
-    }
-
-    // #214: Worker cannot have governance permissions
-    if (input.role_type === 'worker') {
-      const forbidden = input.permissions.filter(p =>
-        (GOVERNANCE_PERMISSIONS as readonly string[]).includes(p),
-      );
-      if (forbidden.length > 0) {
-        throw new Error(`WORKER_GOVERNANCE_FORBIDDEN: workers cannot have governance permissions [${forbidden.join(', ')}]`);
-      }
-    }
-
-    // #214: Validate parent_chief_id
-    if (input.parent_chief_id) {
-      const parent = this.get(input.parent_chief_id);
-      if (!parent) throw new Error('PARENT_NOT_FOUND: parent_chief_id does not exist');
-      if (parent.village_id !== villageId) throw new Error('PARENT_WRONG_VILLAGE: parent chief must be in the same village');
-      if (parent.role_type === 'worker') throw new Error('PARENT_IS_WORKER: a worker cannot be parent of another chief/worker');
-    }
-
-    // THY-14: only verified skills
-    this.validateSkillBindings(input.skills, villageId);
-
-    // THY-09 pattern: Chief budget_config.max_monthly <= Constitution max_cost_per_month
-    if (input.budget_config?.max_monthly !== undefined && constitution.budget_limits.max_cost_per_month > 0) {
-      if (input.budget_config.max_monthly > constitution.budget_limits.max_cost_per_month) {
-        throw new Error(`BUDGET_EXCEEDS_CONSTITUTION: chief max_monthly (${input.budget_config.max_monthly}) exceeds constitution max_cost_per_month (${constitution.budget_limits.max_cost_per_month})`);
-      }
-    }
+    this.validateCreateInput(input, villageId, constitution);
 
     // 解析 profile：profile 提供預設值，只有用戶明確指定的 personality/constraints 覆蓋
     // 需要檢查 rawInput 來判斷哪些欄位是用戶明確提供的
@@ -237,6 +204,56 @@ export class ChiefEngine {
       updated_at: now,
     };
 
+    this.insertChief(chief, villageId);
+
+    appendAudit(this.db, 'chief', chief.id, 'create', chief, actor);
+    return chief;
+  }
+
+  /** 驗證 create 輸入的業務規則 */
+  private validateCreateInput(
+    input: ReturnType<typeof CreateChiefSchema.parse>,
+    villageId: string,
+    constitution: import('./constitution-store').Constitution,
+  ): void {
+    // THY-09: permissions ⊆ constitution.allowed_permissions
+    for (const perm of input.permissions) {
+      if (!constitution.allowed_permissions.includes(perm)) {
+        throw new Error(`PERMISSION_EXCEEDS_CONSTITUTION: "${perm}" not in constitution's allowed_permissions`);
+      }
+    }
+
+    // #214: Worker cannot have governance permissions
+    if (input.role_type === 'worker') {
+      const forbidden = input.permissions.filter(p =>
+        (GOVERNANCE_PERMISSIONS as readonly string[]).includes(p),
+      );
+      if (forbidden.length > 0) {
+        throw new Error(`WORKER_GOVERNANCE_FORBIDDEN: workers cannot have governance permissions [${forbidden.join(', ')}]`);
+      }
+    }
+
+    // #214: Validate parent_chief_id
+    if (input.parent_chief_id) {
+      const parent = this.get(input.parent_chief_id);
+      if (!parent) throw new Error('PARENT_NOT_FOUND: parent_chief_id does not exist');
+      if (parent.village_id !== villageId) throw new Error('PARENT_WRONG_VILLAGE: parent chief must be in the same village');
+      if (parent.role_type === 'worker') throw new Error('PARENT_IS_WORKER: a worker cannot be parent of another chief/worker');
+    }
+
+    // THY-14: only verified skills
+    this.validateSkillBindings(input.skills, villageId);
+
+    // THY-09 pattern: Chief budget_config.max_monthly <= Constitution max_cost_per_month
+    if (input.budget_config?.max_monthly !== undefined && constitution.budget_limits.max_cost_per_month > 0) {
+      if (input.budget_config.max_monthly > constitution.budget_limits.max_cost_per_month) {
+        throw new Error(`BUDGET_EXCEEDS_CONSTITUTION: chief max_monthly (${input.budget_config.max_monthly}) exceeds constitution max_cost_per_month (${constitution.budget_limits.max_cost_per_month})`);
+      }
+    }
+  }
+
+  /** INSERT chief 到 DB */
+  private insertChief(chief: Chief, villageId: string): void {
     this.db.prepare(`
       INSERT INTO chiefs (id, village_id, name, role, role_type, parent_chief_id, version, status, skills, pipelines, permissions, personality, constraints, profile, adapter_type, context_mode, adapter_config, budget_config, use_precedents, precedent_config, pause_reason, paused_at, last_heartbeat_at, current_run_id, current_run_status, timeout_count, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -255,9 +272,6 @@ export class ChiefEngine {
       chief.last_heartbeat_at, chief.current_run_id, chief.current_run_status, chief.timeout_count,
       chief.created_at, chief.updated_at,
     );
-
-    appendAudit(this.db, 'chief', chief.id, 'create', chief, actor);
-    return chief;
   }
 
   get(id: string): Chief | null {
@@ -295,6 +309,26 @@ export class ChiefEngine {
     const existing = this.get(id);
     if (!existing) throw new Error('Chief not found');
 
+    this.validateUpdateInput(input, existing);
+
+    // 解析 profile 更新：profile 變更時重新計算 personality/constraints
+    const { personality: resolvedPersonality, constraints: resolvedConstraints, profile: resolvedProfile } =
+      this.resolveUpdateProfile(input, existing);
+
+    const now = new Date().toISOString();
+    const updated = this.mergeUpdateFields(existing, input, resolvedPersonality, resolvedConstraints, resolvedProfile, now);
+
+    this.persistUpdate(updated, id, existing.version, now);
+
+    // #227: 自動存 revision（存 update 前的 config）
+    this.saveRevision(existing, actor, changeReason);
+
+    appendAudit(this.db, 'chief', id, 'update', { before: existing, after: updated }, actor);
+    return updated;
+  }
+
+  /** 驗證 update 輸入的業務規則 */
+  private validateUpdateInput(input: UpdateChiefInput, existing: Chief): void {
     if (input.permissions) {
       const constitution = this.constitutionStore.getActive(existing.village_id);
       if (!constitution) throw new Error('No active constitution');
@@ -314,8 +348,13 @@ export class ChiefEngine {
     if (input.skills) {
       this.validateSkillBindings(input.skills, existing.village_id);
     }
+  }
 
-    // 解析 profile 更新：profile 變更時重新計算 personality/constraints
+  /** 解析 update 時的 profile / personality / constraints */
+  private resolveUpdateProfile(
+    input: UpdateChiefInput,
+    existing: Chief,
+  ): { personality: ChiefPersonality; constraints: ChiefConstraint[]; profile: ChiefProfileName | null } {
     let resolvedPersonality = input.personality ?? existing.personality;
     let resolvedConstraints = input.constraints ?? existing.constraints;
     const resolvedProfile = input.profile !== undefined ? input.profile : existing.profile;
@@ -331,8 +370,19 @@ export class ChiefEngine {
       resolvedConstraints = resolved.constraints;
     }
 
-    const now = new Date().toISOString();
-    const updated: Chief = {
+    return { personality: resolvedPersonality, constraints: resolvedConstraints, profile: resolvedProfile };
+  }
+
+  /** 合併 update 欄位到 Chief 物件 */
+  private mergeUpdateFields(
+    existing: Chief,
+    input: UpdateChiefInput,
+    personality: ChiefPersonality,
+    constraints: ChiefConstraint[],
+    profile: ChiefProfileName | null,
+    now: string,
+  ): Chief {
+    return {
       ...existing,
       ...(input.name !== undefined && { name: input.name }),
       ...(input.role !== undefined && { role: input.role }),
@@ -345,13 +395,16 @@ export class ChiefEngine {
       ...(input.budget_config !== undefined && { budget_config: input.budget_config }),
       ...(input.use_precedents !== undefined && { use_precedents: input.use_precedents }),
       ...(input.precedent_config !== undefined && { precedent_config: input.precedent_config }),
-      personality: resolvedPersonality,
-      constraints: resolvedConstraints,
-      profile: resolvedProfile,
+      personality,
+      constraints,
+      profile,
       version: existing.version + 1,
       updated_at: now,
     };
+  }
 
+  /** 寫入 update 到 DB with optimistic locking */
+  private persistUpdate(updated: Chief, id: string, existingVersion: number, now: string): void {
     const result = this.db.prepare(`
       UPDATE chiefs SET name=?, role=?, version=?, skills=?, pipelines=?, permissions=?,
         personality=?, constraints=?, profile=?, adapter_type=?, context_mode=?, adapter_config=?,
@@ -368,17 +421,11 @@ export class ChiefEngine {
       updated.use_precedents ? 1 : 0,
       updated.precedent_config ? JSON.stringify(updated.precedent_config) : null,
       updated.pause_reason, updated.paused_at,
-      now, id, existing.version,
+      now, id, existingVersion,
     );
     if ((result as { changes: number }).changes === 0) {
       throw new Error('CONCURRENCY_CONFLICT: version mismatch');
     }
-
-    // #227: 自動存 revision（存 update 前的 config）
-    this.saveRevision(existing, actor, changeReason);
-
-    appendAudit(this.db, 'chief', id, 'update', { before: existing, after: updated }, actor);
-    return updated;
   }
 
   deactivate(id: string, actor: string): void {
@@ -681,6 +728,13 @@ export class ChiefEngine {
 
   private deserialize(row: Record<string, unknown>): Chief {
     return {
+      ...this.deserializeCore(row),
+      ...this.deserializeExtended(row),
+    };
+  }
+
+  private deserializeCore(row: Record<string, unknown>): Pick<Chief, 'id' | 'village_id' | 'name' | 'role' | 'role_type' | 'parent_chief_id' | 'version' | 'status' | 'skills' | 'pipelines' | 'permissions' | 'personality' | 'constraints' | 'profile' | 'created_at' | 'updated_at'> {
+    return {
       id: row.id as string,
       village_id: row.village_id as string,
       name: row.name as string,
@@ -695,6 +749,13 @@ export class ChiefEngine {
       personality: JSON.parse((row.personality as string) || '{}') as Chief['personality'],
       constraints: JSON.parse((row.constraints as string) || '[]') as Chief['constraints'],
       profile: (row.profile as ChiefProfileName | null) ?? null,
+      created_at: row.created_at as string,
+      updated_at: row.updated_at as string,
+    };
+  }
+
+  private deserializeExtended(row: Record<string, unknown>): Pick<Chief, 'adapter_type' | 'context_mode' | 'adapter_config' | 'budget_config' | 'use_precedents' | 'precedent_config' | 'pause_reason' | 'paused_at' | 'last_heartbeat_at' | 'current_run_id' | 'current_run_status' | 'timeout_count'> {
+    return {
       adapter_type: (row.adapter_type as AdapterType | null) ?? 'local',
       context_mode: (row.context_mode as ContextMode | null) ?? 'fat',
       adapter_config: JSON.parse((row.adapter_config as string) || '{}') as Record<string, unknown>,
@@ -707,8 +768,6 @@ export class ChiefEngine {
       current_run_id: (row.current_run_id as string | null) ?? null,
       current_run_status: (row.current_run_status as Chief['current_run_status'] | null) ?? 'idle',
       timeout_count: (row.timeout_count as number | null) ?? 0,
-      created_at: row.created_at as string,
-      updated_at: row.updated_at as string,
     };
   }
 }

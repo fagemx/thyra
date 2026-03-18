@@ -585,7 +585,7 @@ export class LoopRunner {
   /** 檢查月預算累計，超限則自動暫停 chief (#226) */
   private checkAndPauseIfExceeded(chief: Chief, constitution: Constitution): void {
     const resetDay = chief.budget_config?.budget_reset_day ?? 1;
-    const constitutionLimit = constitution.budget_limits.max_cost_per_month ?? 0;
+    const constitutionLimit = constitution.budget_limits.max_cost_per_month;
     const chiefLimit = chief.budget_config?.max_monthly;
     const effectiveLimit = chiefLimit ?? constitutionLimit;
 

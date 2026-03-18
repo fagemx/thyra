@@ -24,8 +24,9 @@ export class XAdapter implements Adapter {
     this.config = config;
   }
 
-  async execute(action: AdapterAction): Promise<void> {
+  execute(action: AdapterAction): Promise<void> {
     // MVP: structured log only. Phase 2: X API v2.
     console.info(`[XAdapter] ${action.type}: ${JSON.stringify(action.content)}`);
+    return Promise.resolve();
   }
 }

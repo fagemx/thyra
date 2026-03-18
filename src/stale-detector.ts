@@ -109,7 +109,7 @@ export class StaleDetector {
       // chief.timeout_count is pre-increment value; markTimeout already incremented in DB
       const newCount = chief.timeout_count + 1;
       if (newCount >= this.autoPauseThreshold) {
-        await this.autoPause(chief, newCount);
+        this.autoPause(chief, newCount);
         result.auto_paused.push(chief.id);
       }
 
@@ -153,7 +153,7 @@ export class StaleDetector {
   }
 
   /** Auto-pause chief after consecutive timeouts */
-  private async autoPause(chief: Chief, timeoutCount: number): Promise<void> {
+  private autoPause(chief: Chief, timeoutCount: number): void {
     const reason = `CONSECUTIVE_HEARTBEAT_TIMEOUT: ${timeoutCount} consecutive timeouts, possible adapter failure`;
 
     // Reset to active+idle so pauseChief works (it requires status = 'active')

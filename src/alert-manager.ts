@@ -69,7 +69,9 @@ export class AlertManager {
 
     appendAudit(this.db, 'alert', alertId, 'acknowledged', { actor }, actor);
 
-    return this.get(alertId)!;
+    const updated = this.get(alertId);
+    if (!updated) throw new Error(`Alert not found after acknowledge: ${alertId}`);
+    return updated;
   }
 
   /** Resolve: active|acknowledged -> resolved */
@@ -88,7 +90,9 @@ export class AlertManager {
 
     appendAudit(this.db, 'alert', alertId, 'resolved', { actor, note }, actor);
 
-    return this.get(alertId)!;
+    const updated = this.get(alertId);
+    if (!updated) throw new Error(`Alert not found after resolve: ${alertId}`);
+    return updated;
   }
 
   /** Auto-resolve: active -> auto_resolved (system action) */
@@ -107,7 +111,9 @@ export class AlertManager {
 
     appendAudit(this.db, 'alert', alertId, 'auto_resolved', { reason }, 'system');
 
-    return this.get(alertId)!;
+    const updated = this.get(alertId);
+    if (!updated) throw new Error(`Alert not found after auto-resolve: ${alertId}`);
+    return updated;
   }
 
   /** Get a single alert by ID */
@@ -201,7 +207,9 @@ export class AlertManager {
       WHERE id = ?
     `).run(effectiveSeverity, message, JSON.stringify(mergedDetails), now, existing.id);
 
-    return this.get(existing.id)!;
+    const updated = this.get(existing.id);
+    if (!updated) throw new Error(`Alert not found after update: ${existing.id}`);
+    return updated;
   }
 
   /** Create a new alert */
@@ -226,7 +234,9 @@ export class AlertManager {
       village_id: villageId, type, severity, title,
     }, 'system');
 
-    return this.get(id)!;
+    const created = this.get(id);
+    if (!created) throw new Error(`Alert not found after create: ${id}`);
+    return created;
   }
 
   /** Compare severities; return the higher one */
@@ -249,10 +259,10 @@ export class AlertManager {
       message: row.message as string,
       details: typeof row.details === 'string' ? JSON.parse(row.details) as Record<string, unknown> : {},
       occurrence_count: row.occurrence_count as number,
-      acknowledged_by: (row.acknowledged_by as string) ?? null,
-      acknowledged_at: (row.acknowledged_at as string) ?? null,
-      resolved_at: (row.resolved_at as string) ?? null,
-      auto_action_taken: (row.auto_action_taken as string) ?? null,
+      acknowledged_by: (row.acknowledged_by as string | null) ?? null,
+      acknowledged_at: (row.acknowledged_at as string | null) ?? null,
+      resolved_at: (row.resolved_at as string | null) ?? null,
+      auto_action_taken: (row.auto_action_taken as string | null) ?? null,
       version: row.version as number,
       created_at: row.created_at as string,
       updated_at: row.updated_at as string,
