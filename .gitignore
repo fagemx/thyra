@@ -13,7 +13,6 @@ thyra.db-wal
 .claude/worktrees/
 .claude/skills/
 .claude/review-config.md
-.claude/settings.local.json
 
 # Third-party tool configs (local)
 opencode.json
