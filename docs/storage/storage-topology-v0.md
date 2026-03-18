@@ -97,9 +97,9 @@
 
 ---
 
-## 4. 五層 storage
+## 4. 六層 storage
 
-我會把整套系統切成五層，不是三層。
+我會把整套系統切成六層。
 因為 planning 和 runtime 應該從 design state 再切出來。
 
 ### L0 — Conversation Surface
@@ -181,6 +181,7 @@
 ### 建議資料結構
 
 > ⚠️ 以下為早期草稿版本。正式定義見 `volva-working-state-schema-v0.md`（Völva repo）。
+> ⚠️ 以下為早期草稿版本，欄位與 enum 值可能與正式版不一致。**請勿以此為準。** 正式定義見 `volva-working-state-schema-v0.md`（Völva repo）。
 
 #### DecisionSession
 ```ts

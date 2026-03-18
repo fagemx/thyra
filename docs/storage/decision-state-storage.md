@@ -102,6 +102,11 @@
 
 ## 4. 三層 storage topology
 
+> ⚠️ 本文件使用簡化的三層模型（Working / Reviewable / Precedent）。
+> 完整六層模型（L0-L5）見 `storage-topology-v0.md`。
+> 對應關係：本文 L1 = topology L1, 本文 L2 = topology L2, 本文 L3 = topology L5。
+> topology 的 L0（conversation）、L3（planning）、L4（runtime）在本文不展開。
+
 ```text
 L1 Working Decision State
 Völva / active DB / session state / cards
@@ -173,7 +178,7 @@ Edda ledger / decision records / outcome-linked memory
 
 ## 6. Layer 1 的建議資料形狀
 
-> ⚠️ 以下為早期草稿版本。正式定義見 `volva-working-state-schema-v0.md`（Völva repo）。
+> ⚠️ 以下為早期草稿版本，欄位與 enum 值可能與正式版不一致。**請勿以此為準。** 正式定義見 `volva-working-state-schema-v0.md`（Völva repo）。
 
 ### DecisionSession
 ```ts
@@ -197,9 +202,9 @@ updatedAt: string;
 };
 ```
 
-### CandidateState
+### CandidateRecord
 ```ts
-type CandidateState = {
+type CandidateRecord = {
 id: string;
 sessionId: string;
 regime: Regime;
@@ -210,9 +215,9 @@ notes?: string[];
 };
 ```
 
-### ProbeState
+### ProbeRecord
 ```ts
-type ProbeState = {
+type ProbeRecord = {
 id: string;
 candidateId: string;
 hypothesis: string;
@@ -543,6 +548,9 @@ Edda 是 spine，不是全部器官。
 
 ## 15. ID / versioning 建議
 
+> ⚠️ 以下 ID prefix 為早期建議。正式 prefix convention 見 `cross-layer-ids-v0.md` §3。
+> 例：`candidate_` → `cand_`，`promotion_` → `promo_`。
+
 這一塊很工程，但非常重要。
 
 ### 每個 decision object 應該有 stable id
@@ -620,7 +628,7 @@ working state 可以 overwrite snapshot，但重大 transition 要 append log
 
 這份文件提出的三層分工，已在以下文件中被工程化：
 
-- `storage-topology-v0.md` — 五層 storage 拓樸圖（L0-L5）
+- `storage-topology-v0.md` — 六層 storage 拓樸圖（L0-L5）
 - `volva-working-state-schema-v0.md` — L1 working state 的具體型別與 DB schema
 - `persistence-policy-v0.md` — 各層寫入規則（ephemeral / snapshot / append-only / versioned）
 - `promotion-handoff-schema-v0.md` — 升格時的 handoff package schema

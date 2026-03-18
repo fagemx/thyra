@@ -93,7 +93,7 @@ dec_...      decision trace
 
 ```ts
 type SourceRef = {
-  layer: "L1" | "L2" | "L3" | "L4" | "L5";
+  layer: "L0" | "L1" | "L2" | "L3" | "L4" | "L5"; // L0 = conversation origin, L5 = precedent. Include L0 for tracing back to original user input.
   kind: string;        // e.g. "decision-session", "spec-file", "world", "precedent"
   id: string;          // e.g. "ds_abc123", "spec://thyra/world-design-v0/canonical-cycle.md"
   note?: string;       // optional: why this link exists
@@ -162,6 +162,16 @@ type SourceLink = {
   whyRelevant?: string;
 };
 ```
+
+### When to use which
+
+| Type | When | Defined in |
+|------|------|-----------|
+| `SourceRef` | Any cross-layer traceability — the general-purpose "where did this come from" link | This file (§4) |
+| `StableObjectRef` | Inside a promotion handoff package — listing which stable objects are being handed off | `promotion-handoff-schema-v0.md` |
+| `SourceLink` | Inside a promotion handoff package — linking back to source sessions/specs/events | `promotion-handoff-schema-v0.md` |
+
+Rule: `SourceRef` is the universal type. `StableObjectRef` and `SourceLink` are promotion-specific specializations.
 
 ---
 

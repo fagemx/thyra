@@ -69,7 +69,7 @@ Thyra 的每個 cycle event 不是都值得進 Edda。
 |---------|-----------|----------|
 | **Outcome verdict = harmful** | `outcome.harmful` | Harmful outcomes must always be remembered |
 | **Change rolled back** | `runtime.rollback` | Something was bad enough to undo — record why |
-| **Governance adjustment applied** | `governance.adjustment` | Law/chief/policy changes based on outcomes |
+| **Governance adjustment applied** | `governance.patch.v1` | Law/chief/policy changes based on outcomes |
 | **Safety invariant violation detected** | `safety.violation` | Non-negotiable — always record |
 
 ### From L2 (Spec Docs) — via Git hook or manual

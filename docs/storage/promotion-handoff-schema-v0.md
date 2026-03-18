@@ -69,7 +69,7 @@ type PromotionHandoff = {
   title: string;
   summary: string;
 
-  promotionVerdict: "ready" | "partial";
+  promotionVerdict: "ready" | "partial" | "not_ready"; // "not_ready" means the promotion was evaluated but rejected — handoff still created for documentation.
   whyNow: string[];
   blockersResolved: string[];
   knownGaps: string[];

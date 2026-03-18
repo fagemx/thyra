@@ -84,7 +84,7 @@
 
 **回答：整張 storage 拓樸圖長什麼樣？**
 
-這份把系統切成五層：
+這份把系統切成六層：
 
 - L0 conversation
 - L1 working decision state

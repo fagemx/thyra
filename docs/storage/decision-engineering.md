@@ -338,6 +338,10 @@ Decision engineering 不是 DAG，
 
 ## 10. 三層模型
 
+> ⚠️ 此處使用概念性的三層模型（Pre-DAG / Planning / Runtime + Spine），
+> 不是 `storage-topology-v0.md` 的六層儲存拓樸（L0-L5）。
+> 對應關係：Layer 1 ≈ L1, Layer 2 ≈ L3, Layer 3 ≈ L4, Spine ≈ L5。
+
 這可以當成整套系統最清楚的總圖。
 
 ---
@@ -499,7 +503,7 @@ Decision engineering 不是 DAG，
 
 相關文件：
 - `decision-state-storage.md` — 狀態分層與落地
-- `storage-topology-v0.md` — 五層 storage 拓樸圖
+- `storage-topology-v0.md` — 六層 storage 拓樸圖
 - `cross-layer-ids-v0.md` — 跨層 ID 對齊
 - `persistence-policy-v0.md` — 寫入規則
 - `promotion-handoff-schema-v0.md` — 升格 handoff 包
