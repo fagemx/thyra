@@ -128,7 +128,7 @@ bun test src/storage/
 
 **Dependencies**:
 - blocks: C, D, E
-- blocked-by: A (needs ID prefix convention validated against real L1 usage)
+- blocked-by: A (conceptual — needs to verify ID prefix convention matches A's implementation. No code import from Völva needed.)
 
 **DoD**:
 - [ ] `bun run build` zero errors
@@ -211,9 +211,9 @@ bun test src/promotion/
 - blocked-by: B (needs SourceRef type)
 
 **DoD**:
-- [ ] `bun run build` zero errors in Edda repo
-- [ ] All 8 auto-ingest triggers fire correctly
-- [ ] All 6 suggest-ingest triggers queue correctly
+- [ ] `cargo build -p edda-ingestion` zero errors in Edda repo
+- [ ] All 9 auto-ingest triggers fire correctly
+- [ ] All 8 suggest-ingest triggers queue correctly
 - [ ] All 8 never-ingest events are silently dropped
 - [ ] Accepted suggestions become normal records
 - [ ] Rejected suggestions are discarded (not written)
@@ -223,8 +223,8 @@ bun test src/promotion/
 **Smoke Test**:
 ```bash
 cd C:/ai_agent/edda
-bun run build
-bun test src/ingestion/
+cargo build -p edda-ingestion
+cargo test -p edda-ingestion
 ```
 
 **Task Count**: 3

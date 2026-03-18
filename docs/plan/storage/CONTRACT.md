@@ -11,15 +11,16 @@
 | STORE-01 | Working state (L1) uses snapshot-overwrite + append-only dual track | Code review: current tables overwrite, `decision_events` is append-only | A |
 | STORE-02 | Spec docs (L2) are Git-backed only — no silent DB sync | Code review: no L1→L2 auto-sync path | All |
 | STORE-03 | Edda (L5) is append-only — no modify, no delete of precedent records | Code review: no UPDATE/DELETE on ingestion records | D |
-| ID-01 | All L1 objects use stable ID prefixes: `ds_`, `card_`, `cand_`, `probe_`, `sig_`, `commit_`, `promo_`, `evt_` | `grep` all ID generation for correct prefix | A, B |
+| ID-01 | All objects use stable ID prefixes per layer. L1: `ds_`, `card_`, `cand_`, `probe_`, `sig_`, `commit_`, `promo_`, `evt_`. Promotion: `handoff_`, `rollback_`. Edda: `prec_`, `dec_`, `sug_`. | `grep` all ID generation for correct prefix | A, B |
 | ID-02 | Every cross-layer promotion carries `sourceRefs` pointing upstream | Code review: handoff builder always populates `sourceRefs` | B, C, E |
 | ID-03 | SourceRef.layer must be one of `"L0" \| "L1" \| "L2" \| "L3" \| "L4" \| "L5"` | Zod schema validation | B |
 | PROMO-01 | Promotion handoff requires `promotionVerdict` + `stableObjects` + `sourceLinks` | Zod `.safeParse()` on handoff object | C |
 | PROMO-02 | Rollback marks downstream as `suspended`, never `deleted` | Code review: no DELETE on rollback path | E |
 | PROMO-03 | Rollback preserves ID chain — `originalHandoffId` always populated | Code review: rollback memo references original | E |
-| EDDA-01 | Auto-ingest triggers fire without human confirmation | Code review: auto triggers write directly | D |
+| EDDA-01 | 9 auto-ingest triggers fire without human confirmation | Code review: auto triggers write directly | D |
 | EDDA-02 | Suggest-ingest queues for human review before writing | Code review: suggest triggers create `EddaSuggestion` with status=pending | D |
 | EDDA-03 | Never-ingest events are silently dropped — no queue, no log | Code review: never-list events are skipped | D |
+| WIRE-01 | Cross-language types (SourceRef, IngestionRecord) must conform to shared JSON schema | JSON schema validation test | B, D |
 | THY-01 | TypeScript `strict: true`, no `any`, no `!` assertions | `bun run build` zero errors | All |
 | THY-04 | All entities have `id`, `created_at` | Schema review | A, C, D, E |
 | THY-11 | API response: `{ ok: true, data }` or `{ ok: false, error: { code, message } }` | Route tests | A, C, D, E |
@@ -86,3 +87,15 @@ bun test src/ingestion/trigger-evaluator.test.ts
 ```
 
 **Consequence of violation**: Edda either drowns in noise (too much) or misses critical precedents (too little).
+
+---
+
+### WIRE-01: Cross-Language JSON Wire Format
+
+**Description**: Types shared between TypeScript (Thyra) and Rust (Edda) — specifically `SourceRef` and `EddaIngestionRecord` — must serialize to the same JSON shape. Field names use camelCase on the wire (TypeScript convention); Rust uses `serde(rename_all = "camelCase")`.
+
+**Rationale**: Without a shared wire format, Thyra and Edda will produce/consume incompatible JSON.
+
+**Verification**: Both sides validate against the same JSON test fixtures.
+
+**Consequence of violation**: Cross-repo ingestion calls fail silently or with deserialization errors.

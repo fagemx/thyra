@@ -38,11 +38,11 @@
 
 | Item | Pass Criteria | Verification |
 |------|--------------|-------------|
-| Build | `bun run build` zero errors | `cd edda && bun run build 2>&1` |
-| Auto triggers | 8 auto triggers fire correctly | `bun test src/ingestion/trigger-evaluator.test.ts` |
-| Suggest triggers | 6 suggest triggers queue correctly | Same test file |
-| Never events dropped | 8 never events silently skipped | Same test file |
-| Suggestion workflow | accept → record, reject → discard | `bun test src/ingestion/suggestion-queue.test.ts` |
+| Build | `cargo build -p edda-ingestion` zero errors | `cd edda && cargo build -p edda-ingestion 2>&1` |
+| Auto triggers | 9 auto triggers fire correctly | `cargo test -p edda-ingestion` |
+| Suggest triggers | 8 suggest triggers queue correctly | Same test |
+| Never events dropped | 8 never events silently skipped | Same test |
+| Suggestion workflow | accept → record, reject → discard | `cargo test -p edda-ingestion` |
 | SourceRefs populated | Every record has traceability | Ingestion writer tests |
 
 ### Track E: Promotion Rollback
@@ -131,7 +131,7 @@
 | ID-01 | All IDs use correct prefix | 100% correct | `bun test` prefix validation tests |
 | ID-02 | Promotions carry sourceRefs | 100% populated | Handoff builder tests |
 | PROMO-01 | Handoff has required fields | Zod validation passes | Schema tests |
-| EDDA-01 | Auto triggers fire | 8/8 correct | Trigger evaluator tests |
+| EDDA-01 | Auto triggers fire | 9/9 correct | Trigger evaluator tests |
 | EDDA-03 | Never events dropped | 8/8 silently skipped | Trigger evaluator tests |
 | THY-01 | TypeScript strict mode | Zero tsc errors | `bun run build` across all repos |
 | THY-11 | API response format | `{ ok, data/error }` | Route tests |

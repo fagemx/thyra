@@ -139,19 +139,18 @@ src/
       rollback.ts                  ← E2: Rollback API routes
 ```
 
-### Edda repo (Track D)
+### Edda repo (Track D, Rust)
 ```
-src/
-  ingestion/
-    schemas/
-      ingestion-record.ts          ← D1: EddaIngestionRecord Zod schema
-      suggestion.ts                ← D2: EddaSuggestion Zod schema
-    trigger-tables.ts              ← D1: auto/suggest/never trigger definitions
-    trigger-evaluator.ts           ← D1: evaluateTrigger(event) → auto|suggest|skip
-    suggestion-queue.ts            ← D2: SuggestionQueue CRUD + accept/reject
-    ingestion-writer.ts            ← D1: writeIngestionRecord()
-    routes/
-      ingestion.ts                 ← D3: Ingestion API routes
+crates/
+  edda-ingestion/
+    src/
+      lib.rs                           ← D1: module root
+      types.rs                         ← D1: IngestionRecord, Suggestion, SourceRef structs
+      trigger_tables.rs                ← D1: auto/suggest/never trigger definitions
+      trigger_evaluator.rs             ← D1: evaluate_trigger() → auto|suggest|skip
+      suggestion_queue.rs              ← D2: SuggestionQueue CRUD + accept/reject
+      ingestion_writer.rs              ← D1: write_ingestion_record()
+    Cargo.toml
 ```
 
 ## Type Registry
@@ -177,5 +176,18 @@ src/
 | `ThyraRuntimePayload` | C1 | promotion-handoff-schema-v0.md | Thyra |
 | `PromotionChecklist` | C2 | promotion-handoff-schema-v0.md | Thyra |
 | `PromotionRollbackMemo` | E1 | promotion-rollback-v0.md | Thyra |
-| `EddaIngestionRecord` | D1 | edda-ingestion-triggers-v0.md | Edda |
-| `EddaSuggestion` | D2 | edda-ingestion-triggers-v0.md | Edda |
+| `IngestionRecord` | D1 | edda-ingestion-triggers-v0.md | Edda (Rust struct) |
+| `Suggestion` | D2 | edda-ingestion-triggers-v0.md | Edda (Rust struct) |
+
+## Event Type Mapping
+
+L1 decision events (Track A, Völva) use `snake_case` names. Edda ingestion triggers (Track D) use `dotted.noun` names. The mapping:
+
+| L1 Event (Track A) | Edda Trigger (Track D) |
+|--------------------|-----------------------|
+| `commit_drafted` (verdict=commit) | `decision.commit` |
+| `candidate_pruned` (status=discarded) | `decision.discard` |
+| `promotion_checked` | `decision.promotion` |
+| (from Track E rollback) | `decision.rollback` |
+
+Track D's trigger evaluator must map incoming L1 event types to Edda trigger types. This mapping should be implemented in Track D step 1.
