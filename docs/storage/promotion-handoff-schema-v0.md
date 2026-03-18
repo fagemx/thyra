@@ -2,7 +2,7 @@
 
 > 狀態：`working draft`
 >
-> 目的：定義 decision engineering 裡的 **promotion package**。
+> 目的：定義 decision engineering 裡 promotion handoff 的 **canonical machine-readable schema**。
 >
 > 也就是說，當某塊 working state 或 spec stack 穩到要升格時，
 > 它不應該只靠一句「看起來差不多可以了」，
@@ -11,6 +11,11 @@
 > 這份文件回答的是：
 >
 > > **從 Völva / arch-spec 升到 project-plan，或升到 Thyra runtime 之前，應該交出什麼資料包？**
+>
+> **與 skill references 的關係**：
+> Human-readable promotion packages（如 arch-spec → project-plan 的 memo + artifact list）
+> 是此 schema 的 **layer-specific rendering**，不是替代品。
+> 見 `.claude/skills/arch-spec/references/promotion-handoff.md`。
 
 ---
 

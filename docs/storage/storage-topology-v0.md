@@ -514,7 +514,16 @@ L1 → L2
 L2 → L3
 
 #### runtime instantiation
-L2/L3 → L4
+L2 → L4（canonical handoff schema 已定義，見 `promotion-handoff-schema-v0.md`）
+
+#### planning → runtime
+L3 → L4
+
+> ⚠️ **v0 deferred**: L3→L4 is a real edge (execution design → live runtime),
+> but v0 does not yet define a formal handoff schema for it.
+> Current assumption: this transition is mediated by build/deploy/runtime-specific
+> mechanisms and is deferred to later runtime design.
+> Runtime instantiation is currently only formalized from L2 (arch-spec → thyra-runtime).
 
 #### precedent recording
 L1/L2/L4 → L5
