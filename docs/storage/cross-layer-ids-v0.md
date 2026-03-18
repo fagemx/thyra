@@ -6,7 +6,7 @@
 >
 > 這份文件不處理：
 > - 單一 layer 內的 ID generation（那是各 layer 自己的事）
-> - 資料庫 schema 設計（那是 `volva-working-state-schema-v0.md`）
+> - 資料庫 schema 設計（那是 `volva-working-state-schema-v0.md`（Völva repo））
 >
 > 它只回答：
 >

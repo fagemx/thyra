@@ -1,31 +1,14 @@
-好，這份我直接補，而且我同意你最後那句：
-
-> **我們現在其實還沒把「規劃相關的持久化 / 更新 / 同步 / 存檔 / 資料庫」這層真正統整起來。**
-
-前面我們比較像把：
-- 概念層
-- decision layer
-- spec layer
-- runtime layer
-
-的語言釘住了，
-但**state plumbing 還沒釘死**。
-
-所以這份 `decision-state-storage.md` 我會故意寫得偏工程，直接把那個缺口攤開。
-
----
-
 # decision-state-storage.md
 
 > 狀態：`working draft`
 >
 > 目的：定義 decision engineering 裡各種狀態應該放在哪裡、何時持久化、如何同步、如何升格成 spec、哪些進 Edda、哪些只留在 working memory。
 >
-> 這份文件不是在講：
-> - 某個單一資料表
+> 這份文件不處理：
+> - 某個單一資料表設計（那是 Völva 的 `volva-working-state-schema-v0.md`）
 > - 某個 repo 的局部實作
 >
-> 它要回答的是：
+> 它只回答：
 >
 > > **當聊天、routing、space building、probe、commit、spec、planning、runtime 一路串起來時，狀態到底怎麼落地？**
 > > **哪些是暫態？哪些要持久化？哪些要版本化？哪些要進 precedent？**
@@ -189,6 +172,8 @@ Edda ledger / decision records / outcome-linked memory
 ---
 
 ## 6. Layer 1 的建議資料形狀
+
+> ⚠️ 以下為早期草稿版本。正式定義見 `volva-working-state-schema-v0.md`（Völva repo）。
 
 ### DecisionSession
 ```ts
@@ -462,6 +447,8 @@ Edda 是 spine，不是全部器官。
 
 ## 13. 同步問題：我們現在真的還沒統整好的地方
 
+> 以下問題在 v0 已大部分被處理，見各子項標注的對應文件。
+
 這就是你最後那句點到的核心。
 
 目前真正缺的是：
@@ -473,6 +460,9 @@ Edda 是 spine，不是全部器官。
 ---
 
 ### 13.1 Völva working state 和 spec 之間怎麼同步？
+
+> ✅ 已被處理：見 `volva-working-state-schema-v0.md`。
+
 現在還沒明確定：
 - 何時把 card state 升成 spec
 - 是人工觸發還是半自動
@@ -481,6 +471,9 @@ Edda 是 spine，不是全部器官。
 ---
 
 ### 13.2 spec 和 planning 之間怎麼 handoff？
+
+> ⚠️ 部分處理：見 `persistence-policy-v0.md` §9（Crystallization policy）。
+
 雖然有 promotion 概念，
 但還沒完全定：
 - promotion package 格式
@@ -491,6 +484,9 @@ Edda 是 spine，不是全部器官。
 ---
 
 ### 13.3 Edda 寫入時機還沒制度化
+
+> ✅ 已被處理：見 `edda-ingestion-triggers-v0.md`。
+
 現在只是概念上說它是 decision spine，
 但還沒定：
 - 哪些 transition 自動寫
@@ -500,6 +496,9 @@ Edda 是 spine，不是全部器官。
 ---
 
 ### 13.4 同一 decision object 的多重表示怎麼對齊？
+
+> ✅ 已被處理：見 `promotion-handoff-schema-v0.md`。
+
 例如一個 candidate 可能同時存在於：
 - Völva working DB
 - spec doc
@@ -515,6 +514,9 @@ Edda 是 spine，不是全部器官。
 ---
 
 ### 13.5 Git / DB / Edda 的角色分工還沒被工程化
+
+> ⚠️ 部分處理：見 `persistence-policy-v0.md` §12（Conflict resolution policy）。
+
 目前只是概念分工，還沒形成明確 write policy。
 
 ---

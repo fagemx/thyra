@@ -101,9 +101,12 @@
 
 ---
 
-### 4. `volva-working-state-schema-v0.md`
+### 4. `volva-working-state-schema-v0.md`（已遷移至 Völva repo）
 
 **回答：Völva 的 working state 應該具體長什麼樣？**
+
+> ⚠️ 此文件已遷移至 `C:\ai_agent\volva\docs\storage\volva-working-state-schema-v0.md`。
+> Thyra 側保留指引文件。
 
 這份開始從概念進入資料結構。
 目前定了：
@@ -195,7 +198,7 @@
 ## 一句話版邊界
 
 ### Völva
-保存 **working decision state**。
+保存 **working decision state**。Schema 見 Völva repo `docs/storage/volva-working-state-schema-v0.md`。
 
 ### Spec Docs / Git
 保存 **reviewable design truth**。

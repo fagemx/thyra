@@ -180,6 +180,8 @@
 
 ### 建議資料結構
 
+> ⚠️ 以下為早期草稿版本。正式定義見 `volva-working-state-schema-v0.md`（Völva repo）。
+
 #### DecisionSession
 ```ts
 type DecisionSession = {
@@ -522,9 +524,14 @@ L1/L2/L4 → L5
 
 ## 15. 目前還沒被統整好的工程問題
 
+> 以下問題在 v0 已大部分被處理，見各子項標注的對應文件。
+
 你剛剛點得很準，這裡直接列出來。
 
 ### 15.1 Völva DB schema 還沒定
+
+> ✅ 已被處理：見 `volva-working-state-schema-v0.md`。
+
 現在知道要有 working decision state，
 但還沒把：
 - sessions
@@ -537,6 +544,9 @@ L1/L2/L4 → L5
 ---
 
 ### 15.2 L1→L2 的 crystallization 還沒制度化
+
+> ⚠️ 部分處理：見 `persistence-policy-v0.md` §9（Crystallization policy）。
+
 現在靠對話與手動感覺，
 還沒有明確：
 - 何時升格
@@ -547,18 +557,27 @@ L1/L2/L4 → L5
 ---
 
 ### 15.3 promotion package 還沒 schema 化
+
+> ✅ 已被處理：見 `promotion-handoff-schema-v0.md`。
+
 從 spec → project-plan / Thyra 的 handoff，
 還沒有固定欄位。
 
 ---
 
 ### 15.4 Edda ingestion 還沒定 trigger
+
+> ✅ 已被處理：見 `edda-ingestion-triggers-v0.md`。
+
 哪些 decision / outcome 值得寫進 precedent，
 現在還沒工程化。
 
 ---
 
 ### 15.5 Git / DB / Edda 的 conflict policy 還沒定
+
+> ⚠️ 部分處理：見 `persistence-policy-v0.md` §12（Conflict resolution policy）。
+
 例如：
 - spec 改了，但 working state 還舊
 - runtime 結果和 spec 預期衝突

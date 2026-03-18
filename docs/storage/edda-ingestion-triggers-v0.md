@@ -246,7 +246,7 @@ This tuning itself can be recorded in Edda as `meta.trigger_policy_change`.
 | `cross-layer-ids-v0.md` | Every Edda record uses `SourceRef` for traceability |
 | `promotion-rollback-v0.md` | Rollback is an auto-ingest trigger |
 | `storage-topology-v0.md` | This file defines what flows into L5 |
-| `volva-working-state-schema-v0.md` | L1 events are the primary source of triggers |
+| `volva-working-state-schema-v0.md`（Völva repo） | L1 events are the primary source of triggers |
 
 ---
 

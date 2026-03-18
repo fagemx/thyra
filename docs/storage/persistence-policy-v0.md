@@ -21,7 +21,23 @@
 
 ---
 
-## 2. 四種寫入模式
+## 2. 它不是什麼
+
+### 不是資料庫 schema
+這份不定義表結構（那是 `volva-working-state-schema-v0.md`）。
+它定義的是「誰什麼時候可以用什麼模式寫哪一層」。
+
+### 不是全域同步協議
+它明確反對跨層雙向自動同步（§11）。
+大部分跨層動作是升格（crystallize / promote），不是同步。
+
+### 不是 audit policy
+audit log 記所有操作。
+persistence policy 定義的是哪些狀態值得持久化、以什麼模式持久化。
+
+---
+
+## 3. 四種寫入模式
 
 整套系統裡，只允許四種主要寫入模式：
 
@@ -290,16 +306,30 @@ Ownership 一定要清楚，不然會互相覆蓋。
 
 ## 15. v0 還沒解完的問題
 
+> 以下問題在 v0 已大部分被處理，見各子項標注的對應文件。
+
 ### 15.1 event granularity
+
+> ⚠️ 仍為開放問題，尚未有專門文件處理。
+
 哪些 working events 算重要，還需校準。
 
 ### 15.2 cross-repo identity
+
+> ✅ 已被處理：見 `cross-layer-ids-v0.md`。
+
 同一 candidate / world / promotion 在不同 repo 如何共用 ids，還沒完全定。
 
 ### 15.3 automated precedent selection
+
+> ✅ 已被處理：見 `edda-ingestion-triggers-v0.md`。
+
 哪些東西自動送 Edda、哪些人工確認，還沒定。
 
 ### 15.4 promotion rollback
+
+> ✅ 已被處理：見 `promotion-rollback-v0.md`。
+
 如果升格後發現太早，如何降回上一層，還需定規則。
 
 ---

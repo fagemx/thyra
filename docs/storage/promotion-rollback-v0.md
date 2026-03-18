@@ -6,7 +6,7 @@
 >
 > 這份文件不處理：
 > - 正常 promotion 流程（那是 `promotion-handoff-schema-v0.md`）
-> - runtime rollback（change apply 後的 rollback，那是 Thyra 的 `judgment-rules-v0.md`）
+> - runtime rollback（change apply 後的 rollback，那是 Thyra 的 `../world-design-v0/judgment-rules-v0.md`）
 >
 > 它只回答：
 >
