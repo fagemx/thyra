@@ -104,6 +104,9 @@ bun run build 2>&1 | grep -c "error" # expect 0
 **Files**:
 - `src/routes/observations.ts`
 - `src/routes/proposals.ts` (extend or create)
+
+> ⚠️ `src/routes/proposals.ts` already exists. This step EXTENDS the existing file
+> with canonical proposal judgment + apply routes, not replaces it.
 - `src/routes/judgments.ts` (extend or create)
 - `src/routes/applied-changes.ts`
 

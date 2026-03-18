@@ -61,7 +61,7 @@ L5 API 層
 - A 是新建的第一步（觀察是 cycle 的起點）
 - B 擴展已有的 change/judge 模組，加上 canonical proposal lifecycle
 - C 和 D 可並行（cycle orchestration + pulse 不互相依賴）
-- E 和 F 依賴 C（需要 cycle 跑完才有 outcome/precedent）
+- E 依賴 C，F 依賴 C + E（需要 cycle 跑完才有 outcome/precedent）
 - G 依賴 E（需要 outcome 結果才能調整治理）
 - H 是 integration layer，把所有模組暴露成 API
 
@@ -93,14 +93,16 @@ Batch 2（依賴 A，可並行）：
 Batch 3（依賴 B）：
   Agent 1 → Track C: C1 → C2 → C3
 
-Batch 4（依賴 C，可並行）：
+Batch 4（依賴 C）：
   Agent 1 → Track E: E1 → E2 → E3
-  Agent 2 → Track F: F1 → F2
 
 Batch 5（依賴 E）：
+  Agent 1 → Track F: F1 → F2
+
+Batch 6（依賴 E）：
   Agent 1 → Track G: G1 → G2
 
-Batch 6（依賴全部）：
+Batch 7（依賴全部）：
   Agent 1 → Track H: H1 → H2 → H3
 ```
 
@@ -130,16 +132,18 @@ Batch 6（依賴全部）：
   - [ ] E1: OutcomeWindow schema + lifecycle
   - [ ] E2: Outcome evaluator (metric comparison)
   - [ ] E3: OutcomeReport builder + tests
+
+### Batch 5
 - [ ] Track F: Precedent Recorder
   - [ ] F1: PrecedentRecord builder
   - [ ] F2: Edda bridge integration + tests
 
-### Batch 5
+### Batch 6
 - [ ] Track G: Governance Adjustment Engine
   - [ ] G1: GovernanceAdjustment schema + engine
   - [ ] G2: Adjustment routes + tests
 
-### Batch 6
+### Batch 7
 - [ ] Track H: Canonical Cycle API Routes
   - [ ] H1: Cycle management routes (create/list/close)
   - [ ] H2: Observation + proposal + judgment routes

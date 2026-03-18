@@ -132,7 +132,7 @@ export class GovernanceAdjuster {
     const createdAt = new Date().toISOString();
 
     // INSERT into governance_adjustments
-    // appendAudit(this.db, 'governance_adjustment', id, 'created', { ...input });
+    appendAudit(this.db, 'governance_adjustment', id, 'created', { ...input }, 'system');
 
     return {
       id,

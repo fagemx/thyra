@@ -53,7 +53,7 @@ export const ObservationBatchSchema = z.object({
   worldId: z.string(),
   cycleId: z.string().optional(),
   observations: z.array(ObservationSchema),
-  generatedAt: z.string(),
+  createdAt: z.string(),
   version: z.number().default(1),
 });
 export type ObservationBatch = z.infer<typeof ObservationBatchSchema>;
@@ -106,7 +106,7 @@ export function buildObservationBatch(deps: ObservationBuilderDeps): Observation
     id: `obs_batch_${Date.now()}`,
     worldId: deps.worldId,
     observations,
-    generatedAt: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
     version: 1,
   };
 }

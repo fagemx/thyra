@@ -254,6 +254,12 @@ export interface CycleStageHandlers {
 }
 
 // Placeholder result types — will be refined by downstream tracks
+// ⚠️ 以下 placeholder types 在 Track D-G 實作後應替換為真實型別：
+// JudgmentResult → JudgeResult (from src/world/judge.ts)
+// PulseResult → PulseFrame (from shared-types.md §6.8)
+// OutcomeResult → OutcomeReport (from shared-types.md §6.9)
+// PrecedentResult → PrecedentRecord (from shared-types.md §6.10)
+// AdjustResult → GovernanceAdjustment (from shared-types.md §6.11)
 export interface JudgmentResult { proposalId: string; approved: boolean }
 export interface ApplyResult { proposalId: string; appliedChangeId: string }
 export interface PulseResult { pulseFrameId: string }
@@ -600,7 +606,7 @@ describe('CycleRunner orchestration', () => {
 
   it('completes full cycle with all stages', async () => {
     const noopHandlers = {
-      observe: async () => ({ id: 'ob1', worldId: 'w1', observations: [], generatedAt: '', version: 1 }),
+      observe: async () => ({ id: 'ob1', worldId: 'w1', observations: [], createdAt: '', version: 1 }),
       propose: async () => [],
       judge: async () => [],
       apply: async () => [],
@@ -618,7 +624,7 @@ describe('CycleRunner orchestration', () => {
 
   it('marks cycle as failed when a stage throws', async () => {
     const failingHandlers = {
-      observe: async () => ({ id: 'ob1', worldId: 'w1', observations: [], generatedAt: '', version: 1 }),
+      observe: async () => ({ id: 'ob1', worldId: 'w1', observations: [], createdAt: '', version: 1 }),
       propose: async () => { throw new Error('chief unavailable'); },
       judge: async () => [],
       apply: async () => [],

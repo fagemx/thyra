@@ -46,6 +46,7 @@ export const PrecedentRecordSchema = z.object({
   contextTags: z.array(z.string()), // e.g., ["peak_hour", "festival_night", "north_gate"]
 
   createdAt: z.string(),
+  version: z.number().int().default(1),
 });
 export type PrecedentRecord = z.infer<typeof PrecedentRecordSchema>;
 
@@ -119,7 +120,7 @@ export class PrecedentRecorder {
     const id = `prec_${nanoid(12)}`;
     const createdAt = new Date().toISOString();
     // INSERT only — never UPDATE or DELETE (PREC-02)
-    // appendAudit(this.db, 'precedent_record', id, 'created', { ...input });
+    appendAudit(this.db, 'precedent_record', id, 'created', { ...input }, 'system');
     return { id, ...input, createdAt };
   }
 
@@ -163,6 +164,7 @@ CREATE TABLE IF NOT EXISTS precedent_records (
   recommendation TEXT NOT NULL,
   lessons_learned TEXT NOT NULL, -- JSON array
   context_tags TEXT NOT NULL,    -- JSON array
+  version INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 -- No UPDATE or DELETE triggers/permissions — append-only by convention + code review
@@ -224,9 +226,10 @@ export class PrecedentRecorder {
     // POST to Edda's precedent ingestion endpoint
     // Map PrecedentRecord fields to Edda's expected format
     await this.eddaBridge.recordDecision({
-      key: `precedent.${precedent.changeKind}`,
+      domain: 'world.precedent',
+      aspect: precedent.changeKind,
       value: precedent.outcome,
-      reason: `${precedent.decision} → ${precedent.outcome}: ${precedent.lessonsLearned.join('; ')}`,
+      reason: precedent.lessonsLearned.join('; '),
     });
   }
 }

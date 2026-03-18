@@ -84,7 +84,7 @@ export class OutcomeWindowManager {
       throw new Error(`Invalid transition: ${window.status} → ${to}`);
     }
     // Update status, set evaluatedAt/closedAt timestamps
-    // appendAudit(this.db, 'outcome_window', id, 'transition', { from: window.status, to });
+    appendAudit(this.db, 'outcome_window', id, 'transition', { from: window.status, to }, 'system');
     return { ...window, status: to, version: window.version + 1 };
   }
 }
@@ -252,6 +252,7 @@ export const OutcomeReportSchema = z.object({
   recommendation: OutcomeRecommendationSchema,
   notes: z.array(z.string()),
   createdAt: z.string(),
+  version: z.number().int().default(1),
 });
 export type OutcomeReport = z.infer<typeof OutcomeReportSchema>;
 ```

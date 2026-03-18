@@ -15,6 +15,11 @@ The existing `proposal.ts` has a simple `ChangeProposal` with `status: 'pending'
 
 ## Step 1: ChangeProposal Lifecycle State Machine
 
+> ⚠️ 現有 `src/world/judge.ts` 使用 5 層 pipeline（Safety → Legality → Boundary → Evaluator → Consistency）。
+> canonical-cycle spec 定義 4 層 stack（structural → invariants → constitution → contextual）。
+> v0 策略：保留現有 5 層 pipeline 不修改。新增的 canonical proposal lifecycle 呼叫現有 judge，
+> 不重建判斷層。4-layer spec 作為 future alignment target，不在本 track 實作。
+
 **Files**:
 - `src/schemas/change-proposal.ts` (new — canonical Zod schemas)
 - `src/canonical-cycle/proposal-lifecycle.ts`

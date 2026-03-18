@@ -27,8 +27,12 @@ L2 循環層
    │
    ├──────────────────────┐
    ▼                      ▼
-L3 後果層               L3 學習層
-  [E] Outcome Collector  [F] Precedent Recorder
+L3 後果層
+  [E] Outcome Collector
+   │
+   ▼
+L3 學習層
+  [F] Precedent Recorder
    │
    ▼
 L4 調適層
