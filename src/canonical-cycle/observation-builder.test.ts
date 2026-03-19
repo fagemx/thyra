@@ -370,6 +370,114 @@ describe('observeFromStateDiff', () => {
     expect(constObs?.importance).toBe('high');
   });
 
+  it('detects skill additions', () => {
+    const before = makeWorldState({ skills: [] });
+    const after = makeWorldState({ skills: [makeSkill()] });
+    const result = observeFromStateDiff(before, after);
+
+    const skillObs = result.find(o => o.summary.includes('Skill changes'));
+    expect(skillObs).toBeDefined();
+    expect(skillObs?.importance).toBe('low');
+    expect(skillObs?.source).toBe('state_diff');
+  });
+
+  it('detects skill removals', () => {
+    const before = makeWorldState({ skills: [makeSkill()] });
+    const after = makeWorldState({ skills: [] });
+    const result = observeFromStateDiff(before, after);
+
+    const skillObs = result.find(o => o.summary.includes('Skill changes'));
+    expect(skillObs).toBeDefined();
+    expect(skillObs?.summary).toContain('-1');
+  });
+
+  it('detects loop cycle changes', () => {
+    const loopCycle = {
+      id: 'cycle-1',
+      chief_id: 'chief-1',
+      village_id: 'village-1',
+      trigger: 'manual' as const,
+      status: 'running' as const,
+      version: 1,
+      budget_remaining: 100,
+      cost_incurred: 0,
+      iterations: 0,
+      max_iterations: 10,
+      timeout_ms: 60000,
+      actions: [],
+      laws_proposed: [],
+      laws_enacted: [],
+      abort_reason: null,
+      intent: null,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    };
+    const before = makeWorldState({ running_cycles: [] });
+    const after = makeWorldState({ running_cycles: [loopCycle] });
+    const result = observeFromStateDiff(before, after);
+
+    const loopObs = result.find(o => o.summary.includes('Loop cycle'));
+    expect(loopObs).toBeDefined();
+    expect(loopObs?.importance).toBe('low');
+  });
+
+  it('detects village field changes', () => {
+    const before = makeWorldState({ village: makeVillage({ name: 'Old Name' }) });
+    const after = makeWorldState({ village: makeVillage({ name: 'New Name' }) });
+    const result = observeFromStateDiff(before, after);
+
+    const villageObs = result.find(o => o.summary.includes('Village fields'));
+    expect(villageObs).toBeDefined();
+    expect(villageObs?.importance).toBe('medium');
+    expect(villageObs?.details).toEqual({ fields_changed: ['name'] });
+  });
+
+  it('detects chief removals', () => {
+    const before = makeWorldState({ chiefs: [makeChief()] });
+    const after = makeWorldState({ chiefs: [] });
+    const result = observeFromStateDiff(before, after);
+
+    const chiefObs = result.find(o => o.scope === 'chief');
+    expect(chiefObs).toBeDefined();
+    expect(chiefObs?.summary).toContain('-1');
+    expect(chiefObs?.targetIds).toContain('chief-1');
+  });
+
+  it('detects constitution revocation (present to null)', () => {
+    const before = makeWorldState({ constitution: makeConstitution() });
+    const after = makeWorldState({ constitution: null });
+    const result = observeFromStateDiff(before, after);
+
+    const constObs = result.find(o => o.summary.includes('Constitution'));
+    expect(constObs).toBeDefined();
+    expect(constObs?.importance).toBe('high');
+    expect(constObs?.summary).toContain('revoked');
+  });
+
+  it('detects multiple domain changes in a single diff', () => {
+    const before = makeWorldState({
+      chiefs: [],
+      active_laws: [],
+      skills: [],
+      constitution: null,
+    });
+    const after = makeWorldState({
+      chiefs: [makeChief()],
+      active_laws: [makeLaw()],
+      skills: [makeSkill()],
+      constitution: makeConstitution(),
+    });
+    const result = observeFromStateDiff(before, after);
+
+    // Should have observations for chiefs, laws, skills, constitution
+    expect(result.length).toBeGreaterThanOrEqual(4);
+    const scopes = result.map(o => o.summary);
+    expect(scopes.some(s => s.includes('Chief'))).toBe(true);
+    expect(scopes.some(s => s.includes('Law'))).toBe(true);
+    expect(scopes.some(s => s.includes('Skill'))).toBe(true);
+    expect(scopes.some(s => s.includes('Constitution'))).toBe(true);
+  });
+
   it('all observations pass Zod validation', () => {
     const before = makeWorldState({ chiefs: [], active_laws: [] });
     const after = makeWorldState();
@@ -437,6 +545,140 @@ describe('observeFromAuditLog', () => {
     expect(result[0].importance).toBe('high');
   });
 
+  it('handles multiple audit log entries', () => {
+    const now = new Date().toISOString();
+    insertAuditLogEntry(db, {
+      entity_type: 'chief',
+      entity_id: 'chief-1',
+      action: 'create',
+      payload: '{}',
+      actor: 'human',
+      created_at: now,
+    });
+    insertAuditLogEntry(db, {
+      entity_type: 'law',
+      entity_id: 'law-1',
+      action: 'create',
+      payload: '{}',
+      actor: 'chief-1',
+      created_at: now,
+    });
+    insertAuditLogEntry(db, {
+      entity_type: 'skill',
+      entity_id: 'skill-1',
+      action: 'delete',
+      payload: '{}',
+      actor: 'human',
+      created_at: now,
+    });
+
+    const since = new Date(Date.now() - 60 * 60_000).toISOString();
+    const result = observeFromAuditLog(db, 'village-1', since);
+
+    expect(result).toHaveLength(3);
+    expect(result[0].scope).toBe('chief');
+    expect(result[1].scope).toBe('law');
+    expect(result[2].scope).toBe('world'); // skill maps to world
+  });
+
+  it('infers high importance for delete actions', () => {
+    const now = new Date().toISOString();
+    insertAuditLogEntry(db, {
+      entity_type: 'chief',
+      entity_id: 'chief-1',
+      action: 'delete',
+      payload: '{}',
+      actor: 'human',
+      created_at: now,
+    });
+
+    const since = new Date(Date.now() - 60 * 60_000).toISOString();
+    const result = observeFromAuditLog(db, 'village-1', since);
+
+    expect(result[0].importance).toBe('high');
+  });
+
+  it('infers low importance for update actions', () => {
+    const now = new Date().toISOString();
+    insertAuditLogEntry(db, {
+      entity_type: 'village',
+      entity_id: 'village-1',
+      action: 'update',
+      payload: '{}',
+      actor: 'human',
+      created_at: now,
+    });
+
+    const since = new Date(Date.now() - 60 * 60_000).toISOString();
+    const result = observeFromAuditLog(db, 'village-1', since);
+
+    expect(result[0].importance).toBe('low');
+  });
+
+  it('maps unknown entity_type to world scope', () => {
+    const now = new Date().toISOString();
+    insertAuditLogEntry(db, {
+      entity_type: 'unknown_entity',
+      entity_id: 'unk-1',
+      action: 'create',
+      payload: '{}',
+      actor: 'system',
+      created_at: now,
+    });
+
+    const since = new Date(Date.now() - 60 * 60_000).toISOString();
+    const result = observeFromAuditLog(db, 'village-1', since);
+
+    expect(result[0].scope).toBe('world');
+  });
+
+  it('handles invalid JSON payload gracefully', () => {
+    const now = new Date().toISOString();
+    insertAuditLogEntry(db, {
+      entity_type: 'chief',
+      entity_id: 'chief-1',
+      action: 'create',
+      payload: 'not-valid-json{{{',
+      actor: 'human',
+      created_at: now,
+    });
+
+    const since = new Date(Date.now() - 60 * 60_000).toISOString();
+    const result = observeFromAuditLog(db, 'village-1', since);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].details).toEqual({ raw: 'not-valid-json{{{' });
+    expect(ObservationSchema.safeParse(result[0]).success).toBe(true);
+  });
+
+  it('filters entries by sinceTimestamp', () => {
+    // Insert old entry (should be excluded)
+    insertAuditLogEntry(db, {
+      entity_type: 'chief',
+      entity_id: 'chief-1',
+      action: 'create',
+      payload: '{}',
+      actor: 'human',
+      created_at: '2020-01-01T00:00:00Z',
+    });
+    // Insert recent entry (should be included)
+    const now = new Date().toISOString();
+    insertAuditLogEntry(db, {
+      entity_type: 'law',
+      entity_id: 'law-1',
+      action: 'create',
+      payload: '{}',
+      actor: 'chief-1',
+      created_at: now,
+    });
+
+    const since = '2025-01-01T00:00:00Z';
+    const result = observeFromAuditLog(db, 'village-1', since);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].summary).toContain('law.create');
+  });
+
   it('all observations pass Zod validation', () => {
     const now = new Date().toISOString();
     insertAuditLogEntry(db, {
@@ -483,6 +725,57 @@ describe('observeFromExternal', () => {
     expect(result[0].source).toBe('external');
     expect(result[0].summary).toBe('External: karvi.webhook');
     expect(result[0].details).toEqual({ status: 'completed' });
+  });
+
+  it('preserves event data in details field', () => {
+    const events: ExternalEvent[] = [
+      {
+        id: 'ext-2',
+        type: 'human.action',
+        timestamp: '2026-01-01T00:00:00Z',
+        data: { action: 'approve', target: 'law-1', reason: 'looks good' },
+      },
+    ];
+
+    const result = observeFromExternal(events);
+    expect(result[0].details).toEqual({
+      action: 'approve',
+      target: 'law-1',
+      reason: 'looks good',
+    });
+  });
+
+  it('handles multiple diverse event types', () => {
+    const events: ExternalEvent[] = [
+      { id: 'e1', type: 'karvi.webhook', timestamp: '2026-01-01T00:00:00Z', data: { status: 'done' } },
+      { id: 'e2', type: 'timer.tick', timestamp: '2026-01-01T00:01:00Z', data: {} },
+      { id: 'e3', type: 'human.action', timestamp: '2026-01-01T00:02:00Z', data: { action: 'reject' } },
+    ];
+
+    const result = observeFromExternal(events);
+    expect(result).toHaveLength(3);
+    expect(result[0].summary).toBe('External: karvi.webhook');
+    expect(result[1].summary).toBe('External: timer.tick');
+    expect(result[2].summary).toBe('External: human.action');
+  });
+
+  it('preserves event timestamps in observations', () => {
+    const events: ExternalEvent[] = [
+      { id: 'e1', type: 'test', timestamp: '2026-03-15T12:30:00Z', data: {} },
+    ];
+
+    const result = observeFromExternal(events);
+    expect(result[0].timestamp).toBe('2026-03-15T12:30:00Z');
+  });
+
+  it('handles event with empty data object', () => {
+    const events: ExternalEvent[] = [
+      { id: 'e1', type: 'heartbeat', timestamp: '2026-01-01T00:00:00Z', data: {} },
+    ];
+
+    const result = observeFromExternal(events);
+    expect(result[0].details).toEqual({});
+    expect(ObservationSchema.safeParse(result[0]).success).toBe(true);
   });
 
   it('all observations pass Zod validation', () => {
@@ -649,5 +942,83 @@ describe('buildObservationBatch', () => {
       expect(result.data.version).toBe(1);
       expect(typeof result.data.createdAt).toBe('string');
     }
+  });
+
+  it('does not include external observations when externalEvents is undefined', () => {
+    const batch = buildObservationBatch({
+      db,
+      worldId: 'village-1',
+      previousState: null,
+      currentState: makeWorldState(),
+      sinceTimestamp: new Date(Date.now() + 60_000).toISOString(),
+      // externalEvents intentionally omitted
+    });
+
+    const extObs = batch.observations.filter(o => o.source === 'external');
+    expect(extObs).toHaveLength(0);
+  });
+
+  it('does not include external observations when externalEvents is empty array', () => {
+    const batch = buildObservationBatch({
+      db,
+      worldId: 'village-1',
+      previousState: null,
+      currentState: makeWorldState(),
+      externalEvents: [],
+      sinceTimestamp: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    const extObs = batch.observations.filter(o => o.source === 'external');
+    expect(extObs).toHaveLength(0);
+  });
+
+  it('generates unique batch ids across calls', () => {
+    const deps = {
+      db,
+      worldId: 'village-1',
+      previousState: null,
+      currentState: makeWorldState(),
+      sinceTimestamp: new Date(Date.now() + 60_000).toISOString(),
+    };
+
+    const batch1 = buildObservationBatch(deps);
+    const batch2 = buildObservationBatch(deps);
+    expect(batch1.id).not.toBe(batch2.id);
+  });
+
+  it('orders observations: state_diff first, then audit_log, then external', () => {
+    const now = new Date().toISOString();
+    insertAuditLogEntry(db, {
+      entity_type: 'law',
+      entity_id: 'law-1',
+      action: 'create',
+      payload: '{}',
+      actor: 'chief-1',
+      created_at: now,
+    });
+
+    const before = makeWorldState({ chiefs: [] });
+    const after = makeWorldState({ chiefs: [makeChief()] });
+    const events: ExternalEvent[] = [
+      { id: 'ext-1', type: 'test', timestamp: now, data: {} },
+    ];
+
+    const batch = buildObservationBatch({
+      db,
+      worldId: 'village-1',
+      previousState: before,
+      currentState: after,
+      externalEvents: events,
+      sinceTimestamp: new Date(Date.now() - 60 * 60_000).toISOString(),
+    });
+
+    // Verify ordering: state_diff comes before audit_log, audit_log before external
+    const sources = batch.observations.map(o => o.source);
+    const firstDiff = sources.indexOf('state_diff');
+    const firstAudit = sources.indexOf('audit_log');
+    const firstExt = sources.indexOf('external');
+
+    expect(firstDiff).toBeLessThan(firstAudit);
+    expect(firstAudit).toBeLessThan(firstExt);
   });
 });
