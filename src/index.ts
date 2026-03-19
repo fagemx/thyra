@@ -43,6 +43,7 @@ import { promotionRoutes } from './promotion/routes/promotion';
 import { rollbackRoutes } from './promotion/routes/rollback';
 import { createInMemoryStore } from './promotion/rollback-engine';
 import { adjustmentRoutes } from './routes/adjustments';
+import { cycleRoutes } from './routes/cycles';
 
 const app = new Hono();
 
@@ -108,6 +109,7 @@ app.route('', schedulerRoutes({ db }));
 app.route('', promotionRoutes());
 app.route('', rollbackRoutes({ store: createInMemoryStore() }));
 app.route('', adjustmentRoutes(db));
+app.route('', cycleRoutes(db));
 app.route('', packRoutes({
   db,
   villageMgr,
