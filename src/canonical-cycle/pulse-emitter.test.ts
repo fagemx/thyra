@@ -593,10 +593,11 @@ describe('PulseSSE', () => {
       openOutcomeWindowCount: 0, pendingProposalCount: 0,
     });
     const events = detectConcernEscalation(prev, curr);
-    if (events.length > 0) {
-      expect(events[0].type).toBe('concern_escalated');
-      expect(events[0].data.worldId).toBe('w1');
-    }
+    const criticalConcerns = curr.dominantConcerns.filter(c => c.severity === 'critical');
+    expect(events.length).toBe(criticalConcerns.length);
+    expect(events.length).toBeGreaterThan(0);
+    expect(events[0].type).toBe('concern_escalated');
+    expect(events[0].data.worldId).toBe('w1');
   });
 
   it('no escalation when previous is null but concerns exist', () => {

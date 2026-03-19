@@ -135,7 +135,7 @@ export function computeHealthScore(
 // Stability determination
 // ---------------------------------------------------------------------------
 
-/** Concern severity threshold for stability determination */
+/** Health score thresholds for stability determination */
 const CRITICAL_THRESHOLD = 30;
 const UNSTABLE_THRESHOLD = 50;
 
