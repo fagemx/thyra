@@ -589,6 +589,25 @@ export function initSchema(db: Database): void {
       ON precedent_records(world_id);
     CREATE INDEX IF NOT EXISTS idx_precedent_cycle
       ON precedent_records(cycle_id);
+
+    -- Governance adjustments (Track G: ADJ-01, ADJ-02)
+    CREATE TABLE IF NOT EXISTS governance_adjustments (
+      id TEXT PRIMARY KEY,
+      world_id TEXT NOT NULL,
+      triggered_by TEXT NOT NULL,
+      adjustment_type TEXT NOT NULL
+        CHECK(adjustment_type IN ('law_threshold','chief_permission','chief_style','risk_policy','simulation_policy')),
+      target TEXT NOT NULL,
+      before_val TEXT NOT NULL,
+      after_val TEXT NOT NULL,
+      rationale TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'proposed'
+        CHECK(status IN ('proposed','approved','applied','rejected')),
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_adjustment_world
+      ON governance_adjustments(world_id, status);
   `);
 }
 
