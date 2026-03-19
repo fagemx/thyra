@@ -44,6 +44,7 @@ export function isValidIdFormat(id: string): boolean {
   const prefix = extractPrefix(id);
   if (!prefix) return false;
   const rest = id.slice(prefix.length + 1);
-  // Accept nanoid (12+ alphanumeric) or UUID (36 chars with dashes)
-  return rest.length >= 12;
+  // Accept nanoid (12+ alphanumeric/underscore/dash) or UUID (36 chars with hex + dashes)
+  if (rest.length < 12) return false;
+  return /^[A-Za-z0-9_-]+$/.test(rest) || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(rest);
 }

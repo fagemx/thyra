@@ -87,6 +87,10 @@ describe('isValidIdFormat', () => {
   it('rejects empty string', () => {
     expect(isValidIdFormat('')).toBe(false);
   });
+
+  it('rejects ID with special characters in random part', () => {
+    expect(isValidIdFormat('ds_!!!!!!!!!!!!'))  .toBe(false);
+  });
 });
 
 describe('validateIdPrefix', () => {

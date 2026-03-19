@@ -84,4 +84,16 @@ describe('SourceRefSchema', () => {
     const result = SourceRefSchema.safeParse(ref);
     expect(result.success).toBe(false);
   });
+
+  it('rejects empty kind', () => {
+    const ref = { layer: 'L0', kind: '', id: 'abc' };
+    const result = SourceRefSchema.safeParse(ref);
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects empty id', () => {
+    const ref = { layer: 'L0', kind: 'conversation', id: '' };
+    const result = SourceRefSchema.safeParse(ref);
+    expect(result.success).toBe(false);
+  });
 });
