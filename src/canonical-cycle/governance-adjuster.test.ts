@@ -138,11 +138,11 @@ describe('evaluateOutcomeForAdjustment', () => {
 
     const result = evaluateOutcomeForAdjustment(report, WORLD_ID);
 
-    expect(result).not.toBeNull();
-    expect(result!.triggeredBy).toBe('outcome-001');
-    expect(result!.worldId).toBe(WORLD_ID);
-    expect(result!.adjustmentType).toBe('law_threshold');
-    expect(result!.status).toBe('proposed');
+    if (!result) throw new Error('expected non-null result');
+    expect(result.triggeredBy).toBe('outcome-001');
+    expect(result.worldId).toBe(WORLD_ID);
+    expect(result.adjustmentType).toBe('law_threshold');
+    expect(result.status).toBe('proposed');
   });
 
   it('produces adjustment for harmful + do_not_repeat', () => {
@@ -154,8 +154,8 @@ describe('evaluateOutcomeForAdjustment', () => {
 
     const result = evaluateOutcomeForAdjustment(report, WORLD_ID);
 
-    expect(result).not.toBeNull();
-    expect(result!.adjustmentType).toBe('simulation_policy');
+    if (!result) throw new Error('expected non-null result');
+    expect(result.adjustmentType).toBe('simulation_policy');
   });
 
   it('produces adjustment for neutral + retune', () => {
@@ -166,8 +166,8 @@ describe('evaluateOutcomeForAdjustment', () => {
 
     const result = evaluateOutcomeForAdjustment(report, WORLD_ID);
 
-    expect(result).not.toBeNull();
-    expect(result!.adjustmentType).toBe('risk_policy');
+    if (!result) throw new Error('expected non-null result');
+    expect(result.adjustmentType).toBe('risk_policy');
   });
 
   // --- ADJ-01: target + before/after ---
@@ -181,9 +181,9 @@ describe('evaluateOutcomeForAdjustment', () => {
 
     const result = evaluateOutcomeForAdjustment(report, WORLD_ID);
 
-    expect(result).not.toBeNull();
-    expect(result!.target).toBe('change-001'); // appliedChangeId
-    expect(result!.target.length).toBeGreaterThan(0);
+    if (!result) throw new Error('expected non-null result');
+    expect(result.target).toBe('change-001'); // appliedChangeId
+    expect(result.target.length).toBeGreaterThan(0);
   });
 
   it('always includes before/after (ADJ-01)', () => {
@@ -195,9 +195,9 @@ describe('evaluateOutcomeForAdjustment', () => {
 
     const result = evaluateOutcomeForAdjustment(report, WORLD_ID);
 
-    expect(result).not.toBeNull();
-    expect(result!.before.length).toBeGreaterThan(0);
-    expect(result!.after.length).toBeGreaterThan(0);
+    if (!result) throw new Error('expected non-null result');
+    expect(result.before.length).toBeGreaterThan(0);
+    expect(result.after.length).toBeGreaterThan(0);
   });
 
   // --- Schema validation ---
@@ -210,7 +210,7 @@ describe('evaluateOutcomeForAdjustment', () => {
     });
 
     const result = evaluateOutcomeForAdjustment(report, WORLD_ID);
-    expect(result).not.toBeNull();
+    if (!result) throw new Error('expected non-null result');
 
     // Re-parse through schema — should not throw
     const parsed = GovernanceAdjustmentSchema.parse(result);
@@ -230,9 +230,9 @@ describe('evaluateOutcomeForAdjustment', () => {
 
     const result = evaluateOutcomeForAdjustment(report, WORLD_ID);
 
-    expect(result).not.toBeNull();
-    expect(result!.rationale).toContain('Expected effects: 0/1 matched');
-    expect(result!.rationale).toContain('Verdict: harmful');
+    if (!result) throw new Error('expected non-null result');
+    expect(result.rationale).toContain('Expected effects: 0/1 matched');
+    expect(result.rationale).toContain('Verdict: harmful');
   });
 
   // --- Edge case: harmful verdict triggers even with non-rollback/retune recommendation ---
