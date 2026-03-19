@@ -11,7 +11,7 @@
  * @see docs/plan/world-cycle/TRACK_E_OUTCOME_COLLECTOR.md Step 3
  */
 
-import { randomUUID } from 'crypto';
+import { generateId, ID_PREFIXES } from '../cross-layer/id-generator';
 import {
   OutcomeReportSchema,
   type OutcomeReport,
@@ -145,7 +145,7 @@ export function buildOutcomeReport(input: BuildOutcomeReportInput): OutcomeRepor
   const notes = buildNotes(evaluationResult, verdict);
 
   return OutcomeReportSchema.parse({
-    id: randomUUID(),
+    id: generateId(ID_PREFIXES.outcome),
     appliedChangeId,
     outcomeWindowId,
     primaryObjectiveMet: evaluationResult.primaryObjectiveMet,

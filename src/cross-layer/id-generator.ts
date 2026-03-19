@@ -13,6 +13,15 @@ export const ID_PREFIXES = {
   checklist: 'chk',
   decision_event: 'evt',
 
+  // Canonical cycle
+  cycle_run: 'cr',
+  bundle: 'bundle',
+  outcome: 'outcome',
+  obsbatch: 'obsbatch',
+  obsdiff: 'obsdiff',
+  adjustment: 'adj',
+  pulse: 'pulse',
+
   // Promotion layer
   handoff: 'handoff',
   rollback: 'rollback',

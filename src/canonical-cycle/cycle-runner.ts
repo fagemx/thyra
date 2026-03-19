@@ -15,6 +15,7 @@ import type { CanonicalChangeProposal } from '../schemas/canonical-proposal';
 import type { CycleRun, CycleStage } from '../schemas/cycle-run';
 
 import { advanceCycleStage, failCycleAtStage } from './cycle-state-machine';
+import { generateId, ID_PREFIXES } from '../cross-layer/id-generator';
 
 // ---------------------------------------------------------------------------
 // Placeholder result types for downstream tracks
@@ -71,8 +72,8 @@ export interface CycleStageHandlers {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function generateId(): string {
-  return `cr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+function makeCycleRunId(): string {
+  return generateId(ID_PREFIXES.cycle_run);
 }
 
 function now(): string {
@@ -210,7 +211,7 @@ export async function orchestrateCycle(
   currentState: WorldState,
   handlers: CycleStageHandlers,
 ): Promise<CycleRun> {
-  const id = generateId();
+  const id = makeCycleRunId();
   const cycleNumber = getNextCycleNumber(db, worldId);
   let run = createInitialCycleRun(id, worldId, cycleNumber);
 

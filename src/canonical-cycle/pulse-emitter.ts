@@ -1,4 +1,5 @@
 import type { WorldMode, CycleMode, Stability, Concern, SubScores, PulseFrame } from '../schemas/pulse-frame';
+import { generateId, ID_PREFIXES } from '../cross-layer/id-generator';
 
 // ---------------------------------------------------------------------------
 // Raw metric input
@@ -239,7 +240,7 @@ export function buildPulseFrame(input: PulseEmitterInput): PulseFrame {
   const stability = determineStability(healthScore, dominantConcerns);
 
   return {
-    id: `pulse_${input.worldId}_${Date.now()}`,
+    id: generateId(ID_PREFIXES.pulse),
     worldId: input.worldId,
     cycleId: input.cycleId,
     healthScore,

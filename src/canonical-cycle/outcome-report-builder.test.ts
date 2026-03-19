@@ -221,10 +221,8 @@ describe('buildOutcomeReport', () => {
     const report = buildOutcomeReport(makeBuildInput());
     expect(report.id).toBeTruthy();
     expect(report.createdAt).toBeTruthy();
-    // id should be a UUID
-    expect(report.id).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-    );
+    // id should use generateId format
+    expect(report.id).toMatch(/^outcome_/);
   });
 
   it('should generate unique ids', () => {

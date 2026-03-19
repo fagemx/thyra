@@ -814,7 +814,7 @@ describe('buildObservationBatch', () => {
     expect(batch.worldId).toBe('village-1');
     expect(batch.observations).toHaveLength(0);
     expect(batch.version).toBe(1);
-    expect(batch.id).toMatch(/^obs_batch_/);
+    expect(batch.id).toMatch(/^obsbatch_/);
     expect(ObservationBatchSchema.safeParse(batch).success).toBe(true);
   });
 
@@ -937,7 +937,7 @@ describe('buildObservationBatch', () => {
     const result = ObservationBatchSchema.safeParse(batch);
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.id).toMatch(/^obs_batch_/);
+      expect(result.data.id).toMatch(/^obsbatch_/);
       expect(result.data.worldId).toBe('village-1');
       expect(result.data.version).toBe(1);
       expect(typeof result.data.createdAt).toBe('string');

@@ -10,7 +10,7 @@
 import type { WorldState } from '../../world/state';
 import type { Observation } from '../../schemas/observation';
 import { diffWorldState } from '../../world/diff';
-import { randomUUID } from 'crypto';
+import { generateId, ID_PREFIXES } from '../../cross-layer/id-generator';
 
 /**
  * 從兩個 WorldState 快照的差異產生觀察。
@@ -30,7 +30,7 @@ export function observeFromStateDiff(
   // village 欄位變化 → medium
   if (diff.village) {
     observations.push({
-      id: `obs_diff_village_${randomUUID()}`,
+      id: generateId(ID_PREFIXES.obsdiff),
       source: 'state_diff',
       timestamp: now,
       scope: 'world',
@@ -43,7 +43,7 @@ export function observeFromStateDiff(
   // constitution 變化 → high
   if (diff.constitution) {
     observations.push({
-      id: `obs_diff_const_${randomUUID()}`,
+      id: generateId(ID_PREFIXES.obsdiff),
       source: 'state_diff',
       timestamp: now,
       scope: 'world',
@@ -60,7 +60,7 @@ export function observeFromStateDiff(
   // chiefs 變化 → high
   if (diff.chiefs.added.length > 0 || diff.chiefs.removed.length > 0 || diff.chiefs.changed.length > 0) {
     observations.push({
-      id: `obs_diff_chief_${randomUUID()}`,
+      id: generateId(ID_PREFIXES.obsdiff),
       source: 'state_diff',
       timestamp: now,
       scope: 'chief',
@@ -77,7 +77,7 @@ export function observeFromStateDiff(
   // laws 變化 → medium
   if (diff.laws.added.length > 0 || diff.laws.removed.length > 0 || diff.laws.changed.length > 0) {
     observations.push({
-      id: `obs_diff_law_${randomUUID()}`,
+      id: generateId(ID_PREFIXES.obsdiff),
       source: 'state_diff',
       timestamp: now,
       scope: 'law',
@@ -94,7 +94,7 @@ export function observeFromStateDiff(
   // skills 變化 → low
   if (diff.skills.added.length > 0 || diff.skills.removed.length > 0 || diff.skills.changed.length > 0) {
     observations.push({
-      id: `obs_diff_skill_${randomUUID()}`,
+      id: generateId(ID_PREFIXES.obsdiff),
       source: 'state_diff',
       timestamp: now,
       scope: 'world',
@@ -106,7 +106,7 @@ export function observeFromStateDiff(
   // loop cycles 變化 → low
   if (diff.loops.added.length > 0 || diff.loops.removed.length > 0) {
     observations.push({
-      id: `obs_diff_loop_${randomUUID()}`,
+      id: generateId(ID_PREFIXES.obsdiff),
       source: 'state_diff',
       timestamp: now,
       scope: 'world',
