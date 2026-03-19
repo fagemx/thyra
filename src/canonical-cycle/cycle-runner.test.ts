@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { Database } from 'bun:sqlite';
 import { initSchema } from '../db';
 import { CycleRunSchema } from '../schemas/cycle-run';
@@ -15,6 +15,13 @@ import {
   type PrecedentResult,
   type AdjustResult,
 } from './cycle-runner';
+import {
+  validateCadence,
+  getNextCycleTime,
+  startCycleTimer,
+  DEFAULT_CADENCE,
+  CycleCadenceSchema,
+} from './cycle-cadence';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -303,5 +310,123 @@ describe('orchestrateCycle', () => {
     expect(run.failedStage).toBe('observe');
     expect(proposeCalled).toBe(false);
     expect(judgeCalled).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CycleCadence tests
+// ---------------------------------------------------------------------------
+
+describe('CycleCadence', () => {
+  it('validates default cadence', () => {
+    const result = validateCadence(DEFAULT_CADENCE);
+    expect(result).toEqual(DEFAULT_CADENCE);
+  });
+
+  it('rejects intervalMinutes = 0 (CYCLE-03)', () => {
+    expect(() => validateCadence({ intervalMinutes: 0 })).toThrow('Invalid cadence config');
+  });
+
+  it('rejects negative intervalMinutes', () => {
+    expect(() => validateCadence({ intervalMinutes: -5 })).toThrow('Invalid cadence config');
+  });
+
+  it('rejects non-integer intervalMinutes', () => {
+    expect(() => validateCadence({ intervalMinutes: 1.5 })).toThrow('Invalid cadence config');
+  });
+
+  it('rejects missing intervalMinutes', () => {
+    expect(() => validateCadence({})).toThrow('Invalid cadence config');
+  });
+
+  it('applies default outcomeWindowMinutes = 60', () => {
+    const result = CycleCadenceSchema.parse({ intervalMinutes: 10 });
+    expect(result.outcomeWindowMinutes).toBe(60);
+  });
+
+  it('allows custom outcomeWindowMinutes', () => {
+    const result = validateCadence({ intervalMinutes: 10, outcomeWindowMinutes: 120 });
+    expect(result.outcomeWindowMinutes).toBe(120);
+  });
+
+  it('DEFAULT_CADENCE has 15-minute interval', () => {
+    expect(DEFAULT_CADENCE.intervalMinutes).toBe(15);
+    expect(DEFAULT_CADENCE.outcomeWindowMinutes).toBe(60);
+  });
+
+  it('calculates next cycle time correctly', () => {
+    const start = '2026-03-18T20:00:00Z';
+    const next = getNextCycleTime(start, DEFAULT_CADENCE);
+    expect(next.toISOString()).toBe('2026-03-18T20:15:00.000Z');
+  });
+
+  it('calculates next cycle time with custom interval', () => {
+    const start = '2026-03-18T20:00:00Z';
+    const cadence = { intervalMinutes: 30, outcomeWindowMinutes: 60 };
+    const next = getNextCycleTime(start, cadence);
+    expect(next.toISOString()).toBe('2026-03-18T20:30:00.000Z');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CycleTimer tests
+// ---------------------------------------------------------------------------
+
+describe('startCycleTimer', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('calls onTick at configured interval', async () => {
+    let tickCount = 0;
+    const timer = startCycleTimer(
+      { intervalMinutes: 1, outcomeWindowMinutes: 60 },
+      async () => { tickCount++; },
+    );
+
+    // Advance 1 minute
+    vi.advanceTimersByTime(60_000);
+    expect(tickCount).toBe(1);
+
+    // Advance another minute
+    vi.advanceTimersByTime(60_000);
+    expect(tickCount).toBe(2);
+
+    timer.stop();
+  });
+
+  it('stop() prevents further ticks', async () => {
+    let tickCount = 0;
+    const timer = startCycleTimer(
+      { intervalMinutes: 1, outcomeWindowMinutes: 60 },
+      async () => { tickCount++; },
+    );
+
+    vi.advanceTimersByTime(60_000);
+    expect(tickCount).toBe(1);
+
+    timer.stop();
+
+    vi.advanceTimersByTime(60_000);
+    expect(tickCount).toBe(1); // No additional tick
+  });
+
+  it('does not crash if onTick throws', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const timer = startCycleTimer(
+      { intervalMinutes: 1, outcomeWindowMinutes: 60 },
+      async () => { throw new Error('tick failed'); },
+    );
+
+    vi.advanceTimersByTime(60_000);
+    // Timer should still be alive — error caught by the catch handler
+    expect(consoleSpy).toHaveBeenCalled();
+
+    timer.stop();
+    consoleSpy.mockRestore();
   });
 });
