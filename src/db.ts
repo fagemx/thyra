@@ -609,6 +609,77 @@ export function initSchema(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_adjustment_world
       ON governance_adjustments(world_id, status);
   `);
+
+  // Observation batches (Track H Step 2: §10)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS observation_batches (
+      id TEXT PRIMARY KEY,
+      world_id TEXT NOT NULL,
+      cycle_id TEXT NOT NULL,
+      observations TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      version INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE INDEX IF NOT EXISTS idx_obs_batch_cycle
+      ON observation_batches(cycle_id);
+  `);
+
+  // Canonical proposals (Track H Step 2: §11-§13)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS canonical_proposals (
+      id TEXT PRIMARY KEY,
+      world_id TEXT NOT NULL,
+      cycle_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'proposed'
+        CHECK(status IN (
+          'draft','proposed','judged','approved','approved_with_constraints',
+          'rejected','simulation_required','escalated','deferred',
+          'applied','cancelled','rolled_back',
+          'outcome_window_open','outcome_closed','archived'
+        )),
+      kind TEXT NOT NULL,
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      data TEXT NOT NULL DEFAULT '{}',
+      judgment_report TEXT,
+      applied_change_id TEXT,
+      snapshot_before_id TEXT,
+      snapshot_after_id TEXT,
+      created_by TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      judged_at TEXT,
+      applied_at TEXT,
+      rolled_back_at TEXT,
+      version INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE INDEX IF NOT EXISTS idx_canonical_proposal_cycle
+      ON canonical_proposals(cycle_id, status);
+    CREATE INDEX IF NOT EXISTS idx_canonical_proposal_world
+      ON canonical_proposals(world_id);
+  `);
+
+  // Applied changes (Track H Step 2: §13)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS applied_changes (
+      id TEXT PRIMARY KEY,
+      proposal_id TEXT NOT NULL,
+      cycle_id TEXT NOT NULL,
+      world_id TEXT NOT NULL,
+      snapshot_before_id TEXT,
+      snapshot_after_id TEXT,
+      status TEXT NOT NULL DEFAULT 'applied'
+        CHECK(status IN ('applied','rolled_back')),
+      applied_at TEXT NOT NULL,
+      rolled_back_at TEXT,
+      rollback_reason TEXT,
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_applied_change_cycle
+      ON applied_changes(cycle_id);
+    CREATE INDEX IF NOT EXISTS idx_applied_change_proposal
+      ON applied_changes(proposal_id);
+  `);
 }
 
 /**
