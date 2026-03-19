@@ -8,7 +8,11 @@ import {
   CanonicalChangeProposalSchema,
   ChangeProposalStatusSchema,
 } from '../schemas/canonical-proposal';
-import type { ChangeProposalStatus } from '../schemas/canonical-proposal';
+import type { ChangeProposalStatus, CanonicalChangeProposal } from '../schemas/canonical-proposal';
+import { ProposalBundleSchema } from '../schemas/proposal-bundle';
+import { createProposalBundle } from './proposal-bundle';
+import { simulateProposal } from './simulation-hook';
+import type { JudgeResult } from '../world/judge';
 
 // ---------------------------------------------------------------------------
 // Helper: 完整的 CanonicalChangeProposal fixture
@@ -291,5 +295,99 @@ describe('CanonicalChangeProposal — schema validation', () => {
     if (result.success) {
       expect(result.data.version).toBe(1);
     }
+  });
+});
+
+describe('ProposalBundle', () => {
+  it('creates bundle from proposals', () => {
+    const proposals = [makeProposalFixture({ id: 'cp_1' }) as CanonicalChangeProposal];
+    const bundle = createProposalBundle('w1', 'c1', 'chief_1', proposals, 'Strategy');
+    expect(ProposalBundleSchema.safeParse(bundle).success).toBe(true);
+    expect(bundle.proposalIds).toEqual(['cp_1']);
+  });
+
+  it('rejects empty proposal list', () => {
+    expect(() => createProposalBundle('w1', 'c1', 'chief_1', [], 'Empty'))
+      .toThrow('at least one proposal');
+  });
+
+  it('bundle requires at least one proposalId via schema', () => {
+    const invalidBundle = {
+      id: 'b1',
+      worldId: 'w1',
+      cycleId: 'c1',
+      chiefId: 'chief_1',
+      proposalIds: [],
+      strategySummary: 'test',
+      priority: 'normal',
+      createdAt: new Date().toISOString(),
+    };
+    const result = ProposalBundleSchema.safeParse(invalidBundle);
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts all priority levels', () => {
+    const proposals = [makeProposalFixture() as CanonicalChangeProposal];
+    for (const priority of ['normal', 'urgent', 'critical'] as const) {
+      const bundle = createProposalBundle('w1', 'c1', 'chief_1', proposals, 'Strategy', priority);
+      expect(bundle.priority).toBe(priority);
+    }
+  });
+});
+
+describe('simulateProposal', () => {
+  const mockAllowingJudge = (): JudgeResult => ({
+    allowed: true,
+    reasons: [],
+    safety_check: true,
+    legality_check: true,
+    boundary_check: true,
+    evaluator_check: true,
+    consistency_check: true,
+    warnings: ['Test warning'],
+    requires_approval: false,
+  });
+
+  const mockRejectingJudge = (): JudgeResult => ({
+    allowed: false,
+    reasons: ['Safety violation'],
+    safety_check: false,
+    legality_check: true,
+    boundary_check: true,
+    evaluator_check: true,
+    consistency_check: true,
+    warnings: [],
+    requires_approval: false,
+  });
+
+  it('returns wouldPass=true when judge allows', () => {
+    const proposal = makeProposalFixture() as CanonicalChangeProposal;
+    const result = simulateProposal(proposal, mockAllowingJudge);
+    expect(result.wouldPass).toBe(true);
+    expect(result.warnings).toEqual(['Test warning']);
+  });
+
+  it('returns wouldPass=false when judge rejects', () => {
+    const proposal = makeProposalFixture() as CanonicalChangeProposal;
+    const result = simulateProposal(proposal, mockRejectingJudge);
+    expect(result.wouldPass).toBe(false);
+  });
+
+  it('includes proposalId in result', () => {
+    const proposal = makeProposalFixture({ id: 'cp_test' }) as CanonicalChangeProposal;
+    const result = simulateProposal(proposal, mockAllowingJudge);
+    expect(result.proposalId).toBe('cp_test');
+  });
+
+  it('returns empty predictedEffects for v0', () => {
+    const proposal = makeProposalFixture() as CanonicalChangeProposal;
+    const result = simulateProposal(proposal, mockAllowingJudge);
+    expect(result.predictedEffects).toEqual([]);
+  });
+
+  it('returns null simulatedState for v0', () => {
+    const proposal = makeProposalFixture() as CanonicalChangeProposal;
+    const result = simulateProposal(proposal, mockAllowingJudge);
+    expect(result.simulatedState).toBeNull();
   });
 });
