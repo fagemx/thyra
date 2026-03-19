@@ -1,7 +1,8 @@
 /**
- * cycle-runner.ts — 10-stage cycle orchestrator
+ * cycle-runner.ts — Cycle orchestrator (8 active stages)
  *
- * 編排一次完整的治理循環，依序執行 10 個 stage（CYCLE-01）。
+ * 編排一次完整的治理循環，依序執行 8 個 active stage（CYCLE-01）。
+ * 狀態機共 10 個狀態（idle → 8 stages → complete），idle/complete 是端點非執行階段。
  * Stage handlers 透過 DI 注入，方便測試時替換為 noop。
  *
  * @see docs/plan/world-cycle/TRACK_C_CYCLE_RUNNER.md Step 2
@@ -80,7 +81,7 @@ export interface CycleRunDb {
 /**
  * Orchestrate one complete governance cycle.
  *
- * Runs all 10 stages in fixed order (CYCLE-01).
+ * Runs all 8 active stages in fixed order (CYCLE-01).
  * If any stage fails, marks the cycle as failed with the stage name and reason.
  * CycleRun is persisted after every stage transition (CYCLE-02).
  */
@@ -89,11 +90,12 @@ export async function orchestrateCycle(
   worldId: string,
   currentState: WorldState,
   handlers: CycleStageHandlers,
+  cycleNumber = 0,
 ): Promise<CycleRun> {
   const cycleId = `cycle_${worldId}_${Date.now()}`;
   const now = new Date().toISOString();
 
-  const run: CycleRun = createInitialCycleRun(cycleId, worldId, now);
+  const run: CycleRun = createInitialCycleRun(cycleId, worldId, now, cycleNumber);
   saveCycleRun(db, run);
 
   // 中間結果，跨 stage 傳遞
@@ -200,11 +202,11 @@ export async function orchestrateCycle(
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-function createInitialCycleRun(id: string, worldId: string, now: string): CycleRun {
+function createInitialCycleRun(id: string, worldId: string, now: string, cycleNumber: number): CycleRun {
   return {
     id,
     worldId,
-    cycleNumber: 0, // Caller should set from DB sequence
+    cycleNumber,
     currentStage: 'idle',
     observeStartedAt: null,
     observeCompletedAt: null,
