@@ -10,7 +10,7 @@
  * @see docs/plan/world-cycle/TRACK_F_PRECEDENT_RECORDER.md Step 1
  */
 
-import { randomUUID } from 'crypto';
+import { generateId, ID_PREFIXES } from '../cross-layer/id-generator';
 import type { Database } from '../db';
 import { appendAudit } from '../db';
 import type { EddaBridge } from '../edda-bridge';
@@ -115,7 +115,7 @@ export class PrecedentRecorder {
    * INSERT precedent into DB. Append-only — no UPDATE or DELETE（PREC-02）。
    */
   create(input: CreatePrecedentInput): PrecedentRecord {
-    const id = `prec_${randomUUID().slice(0, 12)}`;
+    const id = generateId(ID_PREFIXES.precedent);
     const createdAt = new Date().toISOString();
 
     // INSERT only — never UPDATE or DELETE（PREC-02）

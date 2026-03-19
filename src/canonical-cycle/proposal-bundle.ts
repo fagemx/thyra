@@ -1,5 +1,6 @@
 import type { ProposalBundle } from '../schemas/proposal-bundle';
 import type { CanonicalChangeProposal } from '../schemas/canonical-proposal';
+import { generateId, ID_PREFIXES } from '../cross-layer/id-generator';
 
 export function createProposalBundle(
   worldId: string,
@@ -13,7 +14,7 @@ export function createProposalBundle(
     throw new Error('ProposalBundle must contain at least one proposal');
   }
   return {
-    id: `bundle_${Date.now()}`,
+    id: generateId(ID_PREFIXES.bundle),
     worldId,
     cycleId,
     chiefId,

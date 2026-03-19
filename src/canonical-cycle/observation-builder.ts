@@ -19,7 +19,7 @@ import { ObservationBatchSchema } from '../schemas/observation';
 import { observeFromStateDiff } from './observation-sources/state-diff-source';
 import { observeFromAuditLog } from './observation-sources/audit-log-source';
 import { observeFromExternal } from './observation-sources/external-source';
-import { randomUUID } from 'crypto';
+import { generateId, ID_PREFIXES } from '../cross-layer/id-generator';
 
 // ---------------------------------------------------------------------------
 // ExternalEvent — 外部事件輸入型別
@@ -89,7 +89,7 @@ export function buildObservationBatch(deps: ObservationBuilderDeps): Observation
   }
 
   const batch: ObservationBatch = {
-    id: `obs_batch_${randomUUID()}`,
+    id: generateId(ID_PREFIXES.obsbatch),
     worldId: deps.worldId,
     observations,
     createdAt: new Date().toISOString(),

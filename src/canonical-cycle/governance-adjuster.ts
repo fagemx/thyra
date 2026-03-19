@@ -10,7 +10,7 @@
  * @see docs/world-design-v0/shared-types.md §6.11
  */
 
-import { randomUUID } from 'crypto';
+import { generateId, ID_PREFIXES } from '../cross-layer/id-generator';
 import type { OutcomeReport } from '../schemas/outcome-report';
 import {
   GovernanceAdjustmentSchema,
@@ -113,7 +113,7 @@ export function evaluateOutcomeForAdjustment(
     : `Triggered by outcome verdict=${report.verdict}, recommendation=${report.recommendation}`;
 
   return GovernanceAdjustmentSchema.parse({
-    id: randomUUID(),
+    id: generateId(ID_PREFIXES.adjustment),
     worldId,
     triggeredBy: report.id,
     adjustmentType,

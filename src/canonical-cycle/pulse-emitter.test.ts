@@ -471,7 +471,7 @@ describe('buildPulseFrame', () => {
       openOutcomeWindowCount: 0,
       pendingProposalCount: 0,
     });
-    expect(frame.id).toContain('pulse_w1_');
+    expect(frame.id).toMatch(/^pulse_/);
   });
 
   it('sets version to 1', () => {

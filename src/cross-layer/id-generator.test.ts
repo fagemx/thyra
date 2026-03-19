@@ -3,8 +3,8 @@ import { generateId, extractPrefix, isValidIdFormat, ID_PREFIXES } from './id-ge
 import { validateSourceRef, validateIdPrefix, isValidLayer } from './validators';
 
 describe('ID_PREFIXES', () => {
-  it('has 14 prefixes', () => {
-    expect(Object.keys(ID_PREFIXES)).toHaveLength(14);
+  it('has 21 prefixes', () => {
+    expect(Object.keys(ID_PREFIXES)).toHaveLength(21);
   });
 
   it('all prefix values are lowercase strings', () => {
