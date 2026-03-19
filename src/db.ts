@@ -542,6 +542,29 @@ export function initSchema(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_reputation_village
       ON chief_reputation(village_id);
   `);
+
+  // Outcome windows (Track E: OUTCOME-01)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS outcome_windows (
+      id TEXT PRIMARY KEY,
+      world_id TEXT NOT NULL,
+      applied_change_id TEXT NOT NULL,
+      proposal_id TEXT NOT NULL,
+      cycle_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open'
+        CHECK(status IN ('open', 'evaluating', 'closed')),
+      baseline_snapshot TEXT NOT NULL,
+      opened_at TEXT NOT NULL,
+      evaluated_at TEXT,
+      closed_at TEXT,
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_outcome_window_world
+      ON outcome_windows(world_id, status);
+    CREATE INDEX IF NOT EXISTS idx_outcome_window_cycle
+      ON outcome_windows(cycle_id);
+  `);
 }
 
 /**
