@@ -183,11 +183,9 @@ describe('advanceCycleStage', () => {
   });
 
   it('includes expected next stage in error message', () => {
-    try {
-      advanceCycleStage('idle', 'judge');
-    } catch (e) {
-      expect((e as Error).message).toContain('Expected next stage: observe');
-    }
+    expect(() => advanceCycleStage('idle', 'judge')).toThrow(
+      /Expected next stage: observe/,
+    );
   });
 });
 
