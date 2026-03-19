@@ -46,6 +46,10 @@ import { adjustmentRoutes } from './routes/adjustments';
 import { cycleRoutes } from './routes/cycles';
 import { observationRoutes } from './routes/observations';
 import { canonicalProposalRoutes } from './routes/canonical-proposals';
+import { outcomeRoutes } from './routes/outcomes';
+import { precedentRoutes } from './routes/precedents';
+import { pulseRoutes } from './routes/pulse';
+import { governanceAdjustmentRoutes } from './routes/governance-adjustments';
 
 const app = new Hono();
 
@@ -114,6 +118,10 @@ app.route('', adjustmentRoutes(db));
 app.route('', cycleRoutes(db));
 app.route('', observationRoutes(db));
 app.route('', canonicalProposalRoutes(db));
+app.route('', outcomeRoutes(db));
+app.route('', precedentRoutes(db));
+app.route('', pulseRoutes(db));
+app.route('', governanceAdjustmentRoutes(db));
 app.route('', packRoutes({
   db,
   villageMgr,

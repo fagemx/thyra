@@ -680,6 +680,51 @@ export function initSchema(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_applied_change_proposal
       ON applied_changes(proposal_id);
   `);
+
+  // Outcome reports (Track H Step 3: §15)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS outcome_reports (
+      id TEXT PRIMARY KEY,
+      outcome_window_id TEXT NOT NULL,
+      applied_change_id TEXT NOT NULL,
+      primary_objective_met INTEGER NOT NULL DEFAULT 0,
+      expected_effects TEXT NOT NULL DEFAULT '[]',
+      side_effects TEXT NOT NULL DEFAULT '[]',
+      verdict TEXT NOT NULL
+        CHECK(verdict IN ('beneficial','neutral','harmful','inconclusive')),
+      recommendation TEXT NOT NULL
+        CHECK(recommendation IN ('reinforce','retune','watch','rollback','do_not_repeat')),
+      notes TEXT NOT NULL DEFAULT '[]',
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_outcome_report_window
+      ON outcome_reports(outcome_window_id);
+    CREATE INDEX IF NOT EXISTS idx_outcome_report_change
+      ON outcome_reports(applied_change_id);
+  `);
+
+  // Pulse frames (Track H Step 3: §14)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS pulse_frames (
+      id TEXT PRIMARY KEY,
+      world_id TEXT NOT NULL,
+      cycle_id TEXT,
+      health_score REAL NOT NULL,
+      mode TEXT NOT NULL,
+      stability TEXT NOT NULL,
+      sub_scores TEXT NOT NULL DEFAULT '{}',
+      dominant_concerns TEXT NOT NULL DEFAULT '[]',
+      metrics TEXT NOT NULL DEFAULT '{}',
+      latest_applied_change_id TEXT,
+      open_outcome_window_count INTEGER NOT NULL DEFAULT 0,
+      pending_proposal_count INTEGER NOT NULL DEFAULT 0,
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_pulse_frame_world
+      ON pulse_frames(world_id, created_at);
+  `);
 }
 
 /**
