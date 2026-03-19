@@ -67,7 +67,7 @@ describe('OutcomeWindowManager', () => {
       expect(window.evaluatedAt).toBeNull();
       expect(window.closedAt).toBeNull();
       expect(window.version).toBe(1);
-      expect(window.created_at).toBeTruthy();
+      expect(window.createdAt).toBeTruthy();
     });
 
     it('should write audit_log on create (THY-07)', () => {

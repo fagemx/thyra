@@ -71,8 +71,8 @@ export const CycleRunSchema = z.object({
   appliedChangeIds: z.array(z.string()),
   pulseFrameId: z.string().nullable(),
 
-  // THY-04: id, created_at, version
-  created_at: z.string(),
+  // THY-04: id, createdAt, version
+  createdAt: z.string(),
   version: z.number().default(1),
 });
 export type CycleRun = z.infer<typeof CycleRunSchema>;

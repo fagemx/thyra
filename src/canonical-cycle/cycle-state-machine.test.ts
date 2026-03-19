@@ -67,7 +67,7 @@ describe('CycleRunSchema', () => {
     judgmentReportIds: ['j1'],
     appliedChangeIds: ['ac1'],
     pulseFrameId: 'pf1',
-    created_at: '2026-03-19T00:00:00Z',
+    createdAt: '2026-03-19T00:00:00Z',
     version: 1,
   };
 

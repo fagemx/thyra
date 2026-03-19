@@ -33,7 +33,7 @@ export const OutcomeWindowSchema = z.object({
   evaluatedAt: z.string().nullable(),
   closedAt: z.string().nullable(),
   version: z.number().int().min(1),
-  created_at: z.string(),
+  createdAt: z.string(),
 });
 export type OutcomeWindow = z.infer<typeof OutcomeWindowSchema>;
 

@@ -125,7 +125,7 @@ function createInitialCycleRun(id: string, worldId: string, cycleNumber: number)
     judgmentReportIds: [],
     appliedChangeIds: [],
     pulseFrameId: null,
-    created_at: timestamp,
+    createdAt: timestamp,
     version: 1,
   };
 }
@@ -187,7 +187,7 @@ function saveCycleRun(db: Database, run: CycleRun): void {
     JSON.stringify(run.judgmentReportIds),
     JSON.stringify(run.appliedChangeIds),
     run.pulseFrameId,
-    run.created_at, run.version,
+    run.createdAt, run.version,
   );
 }
 
