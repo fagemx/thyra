@@ -44,6 +44,8 @@ import { rollbackRoutes } from './promotion/routes/rollback';
 import { createInMemoryStore } from './promotion/rollback-engine';
 import { adjustmentRoutes } from './routes/adjustments';
 import { cycleRoutes } from './routes/cycles';
+import { observationRoutes } from './routes/observations';
+import { canonicalProposalRoutes } from './routes/canonical-proposals';
 
 const app = new Hono();
 
@@ -110,6 +112,8 @@ app.route('', promotionRoutes());
 app.route('', rollbackRoutes({ store: createInMemoryStore() }));
 app.route('', adjustmentRoutes(db));
 app.route('', cycleRoutes(db));
+app.route('', observationRoutes(db));
+app.route('', canonicalProposalRoutes(db));
 app.route('', packRoutes({
   db,
   villageMgr,
