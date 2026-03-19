@@ -565,6 +565,31 @@ export function initSchema(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_outcome_window_cycle
       ON outcome_windows(cycle_id);
   `);
+
+  // Precedent records (Track F: PREC-01, PREC-02 — append-only)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS precedent_records (
+      id TEXT PRIMARY KEY,
+      world_id TEXT NOT NULL,
+      world_type TEXT NOT NULL,
+      proposal_id TEXT NOT NULL,
+      outcome_report_id TEXT NOT NULL,
+      change_kind TEXT NOT NULL,
+      cycle_id TEXT NOT NULL,
+      context TEXT NOT NULL,
+      decision TEXT NOT NULL,
+      outcome TEXT NOT NULL,
+      recommendation TEXT NOT NULL,
+      lessons_learned TEXT NOT NULL,
+      context_tags TEXT NOT NULL,
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_precedent_world
+      ON precedent_records(world_id);
+    CREATE INDEX IF NOT EXISTS idx_precedent_cycle
+      ON precedent_records(cycle_id);
+  `);
 }
 
 /**
