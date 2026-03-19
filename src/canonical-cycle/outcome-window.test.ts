@@ -12,7 +12,7 @@
  * - THY-04: id, created_at, version
  */
 
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { Database } from 'bun:sqlite';
 import { initSchema } from '../db';
 import { OutcomeWindowManager } from './outcome-window';
