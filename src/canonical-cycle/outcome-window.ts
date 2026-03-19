@@ -59,7 +59,7 @@ function rowToWindow(row: OutcomeWindowRow): OutcomeWindow {
     evaluatedAt: row.evaluated_at,
     closedAt: row.closed_at,
     version: row.version,
-    created_at: row.created_at,
+    createdAt: row.created_at,
   };
 }
 
