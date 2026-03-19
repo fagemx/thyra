@@ -1,5 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
+import type { Database } from '../../db';
+import { appendAudit } from '../../db';
 import { buildPromotionHandoff } from '../handoff-builder';
 import type { BuildHandoffInput } from '../handoff-builder';
 import { evaluatePromotionChecklist } from '../checklist-evaluator';
@@ -19,12 +21,36 @@ const EvaluateChecklistInput = z.object({
 const CreateHandoffInput = PromotionHandoffSchema.omit({ id: true, createdAt: true });
 
 // ---------------------------------------------------------------------------
+// DB helpers
+// ---------------------------------------------------------------------------
+
+function insertHandoff(db: Database, result: PackageResult): void {
+  db.prepare(`
+    INSERT INTO promotion_handoffs (id, handoff_json, checklist_json, links_markdown, version, created_at)
+    VALUES (?, ?, ?, ?, 1, ?)
+  `).run(
+    result.handoff.id,
+    JSON.stringify(result.handoff),
+    result.checklist ? JSON.stringify(result.checklist) : null,
+    result.linksMarkdown,
+    result.handoff.createdAt,
+  );
+}
+
+function rowToPackageResult(row: Record<string, unknown>): PackageResult {
+  return {
+    handoff: JSON.parse(row['handoff_json'] as string),
+    checklist: row['checklist_json'] ? JSON.parse(row['checklist_json'] as string) : null,
+    linksMarkdown: row['links_markdown'] as string,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Route factory
 // ---------------------------------------------------------------------------
 
-export function promotionRoutes(): Hono {
+export function promotionRoutes(db: Database): Hono {
   const app = new Hono();
-  const store = new Map<string, PackageResult>();
 
   // POST /api/promotion/checklists — evaluate promotion readiness
   app.post('/api/promotion/checklists', async (c) => {
@@ -73,26 +99,28 @@ export function promotionRoutes(): Hono {
     const input = parsed.data as BuildHandoffInput;
     const handoff = buildPromotionHandoff(input);
     const result = packageHandoff(handoff);
-    store.set(handoff.id, result);
+    insertHandoff(db, result);
+    appendAudit(db, 'promotion_handoff', handoff.id, 'create', result, 'system');
     return c.json({ ok: true, data: result }, 201);
   });
 
   // GET /api/promotion/handoffs — list all handoffs
   app.get('/api/promotion/handoffs', (c) => {
-    const data = Array.from(store.values());
+    const rows = db.prepare('SELECT * FROM promotion_handoffs ORDER BY created_at DESC').all() as Record<string, unknown>[];
+    const data = rows.map(rowToPackageResult);
     return c.json({ ok: true, data });
   });
 
   // GET /api/promotion/handoffs/:id — retrieve handoff by ID
   app.get('/api/promotion/handoffs/:id', (c) => {
-    const result = store.get(c.req.param('id'));
-    if (!result) {
+    const row = db.prepare('SELECT * FROM promotion_handoffs WHERE id = ?').get(c.req.param('id')) as Record<string, unknown> | null;
+    if (!row) {
       return c.json(
         { ok: false, error: { code: 'NOT_FOUND', message: 'Handoff not found' } },
         404,
       );
     }
-    return c.json({ ok: true, data: result });
+    return c.json({ ok: true, data: rowToPackageResult(row) });
   });
 
   return app;

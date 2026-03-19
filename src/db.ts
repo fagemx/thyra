@@ -681,6 +681,26 @@ export function initSchema(db: Database): void {
       ON applied_changes(proposal_id);
   `);
 
+  // Promotion handoffs (#341: SQLite persistence)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS promotion_handoffs (
+      id TEXT PRIMARY KEY,
+      handoff_json TEXT NOT NULL,
+      checklist_json TEXT,
+      links_markdown TEXT NOT NULL,
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS promotion_rollbacks (
+      id TEXT PRIMARY KEY,
+      memo_json TEXT NOT NULL,
+      suspend_result_json TEXT NOT NULL,
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL
+    );
+  `);
+
   // Outcome reports (Track H Step 3: §15)
   db.run(`
     CREATE TABLE IF NOT EXISTS outcome_reports (
