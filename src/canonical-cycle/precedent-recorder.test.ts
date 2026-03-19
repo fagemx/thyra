@@ -13,11 +13,12 @@
  * @see docs/plan/world-cycle/TRACK_F_PRECEDENT_RECORDER.md
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Database } from 'bun:sqlite';
 import { initSchema } from '../db';
 import { PrecedentRecordSchema } from '../schemas/precedent-record';
 import type { OutcomeReport } from '../schemas/outcome-report';
+import { EddaBridge } from '../edda-bridge';
 import { PrecedentRecorder, type PrecedentContext } from './precedent-recorder';
 
 // ---------------------------------------------------------------------------
@@ -374,5 +375,107 @@ describe('extractLessons (via buildFromOutcome)', () => {
 
     expect(result).not.toBeNull();
     expect(result?.lessonsLearned.some(l => l.includes('harmful'))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Edda bridge integration (THY-06)
+// ---------------------------------------------------------------------------
+
+describe('Edda bridge integration', () => {
+  let bridgeDb: Database;
+  let bridge: EddaBridge;
+
+  beforeEach(() => {
+    bridgeDb = new Database(':memory:');
+    initSchema(bridgeDb);
+    bridge = new EddaBridge(bridgeDb, 'http://127.0.0.1:19999');
+  });
+
+  it('should call recordDecision when bridge is provided', async () => {
+    const spy = vi.spyOn(bridge, 'recordDecision').mockResolvedValue({ event_id: 'evt-1' });
+    const recorderWithBridge = new PrecedentRecorder(db, bridge);
+
+    const report = makeOutcomeReport({ verdict: 'beneficial', recommendation: 'reinforce' });
+    const result = recorderWithBridge.buildFromOutcome(report, makeContext());
+
+    expect(result).not.toBeNull();
+
+    // fire-and-forget — 等 microtask 完成
+    // 等待 fire-and-forget microtask 完成
+    await new Promise(r => setTimeout(r, 10));
+
+    expect(spy).toHaveBeenCalledWith({
+      domain: 'world.precedent',
+      aspect: 'throttle_entry',
+      value: 'beneficial',
+      reason: expect.stringContaining('expected effects'),
+    });
+  });
+
+  it('should send correct domain/aspect/value for harmful outcome', async () => {
+    const spy = vi.spyOn(bridge, 'recordDecision').mockResolvedValue({ event_id: 'evt-2' });
+    const recorderWithBridge = new PrecedentRecorder(db, bridge);
+
+    const report = makeOutcomeReport({
+      verdict: 'harmful',
+      recommendation: 'rollback',
+      sideEffects: [
+        { metric: 'errors', baseline: 10, observed: 50, delta: 40, severity: 'significant', acceptable: false },
+      ],
+    });
+    recorderWithBridge.buildFromOutcome(report, makeContext({ changeKind: 'pause_event' }));
+
+    // 等待 fire-and-forget microtask 完成
+    await new Promise(r => setTimeout(r, 10));
+
+    expect(spy).toHaveBeenCalledWith({
+      domain: 'world.precedent',
+      aspect: 'pause_event',
+      value: 'harmful',
+      reason: expect.stringContaining('harmful'),
+    });
+  });
+
+  it('should not crash when Edda is unreachable (graceful degradation)', async () => {
+    const spy = vi.spyOn(bridge, 'recordDecision').mockRejectedValue(new Error('ECONNREFUSED'));
+    const recorderWithBridge = new PrecedentRecorder(db, bridge);
+
+    const report = makeOutcomeReport();
+    const result = recorderWithBridge.buildFromOutcome(report, makeContext());
+
+    // Record still created despite bridge failure
+    expect(result).not.toBeNull();
+    expect(result?.id).toBeTruthy();
+
+    // 等待 fire-and-forget microtask 完成
+    await new Promise(r => setTimeout(r, 10));
+
+    // Bridge was called (and failed silently)
+    expect(spy).toHaveBeenCalledOnce();
+
+    // Verify record persisted in DB despite bridge failure
+    const fetched = recorderWithBridge.get(result?.id ?? '');
+    expect(fetched).not.toBeNull();
+  });
+
+  it('should not call bridge when bridge is not provided', () => {
+    const spy = vi.spyOn(bridge, 'recordDecision');
+    // Use recorder without bridge (default from beforeEach)
+    const report = makeOutcomeReport();
+    recorder.buildFromOutcome(report, makeContext());
+
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('should not call bridge for inconclusive outcomes', () => {
+    const spy = vi.spyOn(bridge, 'recordDecision');
+    const recorderWithBridge = new PrecedentRecorder(db, bridge);
+
+    const report = makeOutcomeReport({ verdict: 'inconclusive', recommendation: 'watch' });
+    const result = recorderWithBridge.buildFromOutcome(report, makeContext());
+
+    expect(result).toBeNull();
+    expect(spy).not.toHaveBeenCalled();
   });
 });

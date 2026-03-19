@@ -13,6 +13,7 @@
 import { randomUUID } from 'crypto';
 import type { Database } from '../db';
 import { appendAudit } from '../db';
+import type { EddaBridge } from '../edda-bridge';
 import type { OutcomeReport } from '../schemas/outcome-report';
 import type { ChangeKind } from '../schemas/canonical-proposal';
 import {
@@ -70,7 +71,10 @@ interface PrecedentRow {
 // ---------------------------------------------------------------------------
 
 export class PrecedentRecorder {
-  constructor(private db: Database) {}
+  constructor(
+    private db: Database,
+    private eddaBridge?: EddaBridge,
+  ) {}
 
   /**
    * 從 OutcomeReport + context 建構 PrecedentRecord。
@@ -141,6 +145,16 @@ export class PrecedentRecorder {
 
     // THY-07: audit log
     appendAudit(this.db, 'precedent_record', id, 'created', { ...input }, 'system');
+
+    // THY-06: fire-and-forget — 送先例到 Edda（graceful degradation）
+    if (this.eddaBridge) {
+      void this.eddaBridge.recordDecision({
+        domain: 'world.precedent',
+        aspect: input.changeKind,
+        value: input.outcome,
+        reason: input.lessonsLearned.join('; '),
+      }).catch(() => { /* Edda 斷線不影響主流程 */ });
+    }
 
     return PrecedentRecordSchema.parse({
       id,
