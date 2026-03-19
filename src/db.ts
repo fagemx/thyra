@@ -216,6 +216,44 @@ export function initSchema(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_territory_policy
       ON territory_policies(territory_id, status);
 
+    -- Canonical cycle runs (Track C: CYCLE-01, CYCLE-02)
+    CREATE TABLE IF NOT EXISTS cycle_runs (
+      id TEXT PRIMARY KEY,
+      world_id TEXT NOT NULL,
+      cycle_number INTEGER NOT NULL,
+      current_stage TEXT NOT NULL DEFAULT 'idle',
+      observe_started_at TEXT,
+      observe_completed_at TEXT,
+      propose_started_at TEXT,
+      propose_completed_at TEXT,
+      judge_started_at TEXT,
+      judge_completed_at TEXT,
+      apply_started_at TEXT,
+      apply_completed_at TEXT,
+      pulse_started_at TEXT,
+      pulse_completed_at TEXT,
+      outcome_started_at TEXT,
+      outcome_completed_at TEXT,
+      precedent_started_at TEXT,
+      precedent_completed_at TEXT,
+      adjust_started_at TEXT,
+      adjust_completed_at TEXT,
+      started_at TEXT NOT NULL,
+      completed_at TEXT,
+      failed_at TEXT,
+      failed_stage TEXT,
+      failure_reason TEXT,
+      observation_batch_id TEXT,
+      proposal_ids TEXT NOT NULL DEFAULT '[]',
+      judgment_report_ids TEXT NOT NULL DEFAULT '[]',
+      applied_change_ids TEXT NOT NULL DEFAULT '[]',
+      pulse_frame_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      version INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE INDEX IF NOT EXISTS idx_cycle_run_world
+      ON cycle_runs(world_id, current_stage);
+
     CREATE TABLE IF NOT EXISTS world_snapshots (
       id TEXT PRIMARY KEY,
       village_id TEXT NOT NULL REFERENCES villages(id),
