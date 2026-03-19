@@ -14,7 +14,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createDb, initSchema } from '../db';
 import type { Database } from 'bun:sqlite';
-import { adjustmentRoutes } from './adjustments';
+import { governanceAdjustmentRoutes } from './governance-adjustments';
 import type { OutcomeReport } from '../schemas/outcome-report';
 
 // ---------------------------------------------------------------------------
@@ -54,18 +54,18 @@ const WORLD_ID = 'world-test-001';
 // ---------------------------------------------------------------------------
 
 describe('adjustment routes', () => {
-  let app: ReturnType<typeof adjustmentRoutes>;
+  let app: ReturnType<typeof governanceAdjustmentRoutes>;
   let db: Database;
 
   beforeEach(() => {
     db = createDb(':memory:');
     initSchema(db);
-    app = adjustmentRoutes(db);
+    app = governanceAdjustmentRoutes(db);
   });
 
-  // ---- POST /api/worlds/:worldId/adjustments ----
+  // ---- POST /api/v1/worlds/:worldId/governance-adjustments ----
 
-  describe('POST /api/worlds/:worldId/adjustments', () => {
+  describe('POST /api/v1/worlds/:worldId/governance-adjustments', () => {
     it('creates adjustment for harmful + rollback outcome (triggered: true)', async () => {
       const report = makeOutcomeReport({
         verdict: 'harmful',
@@ -80,7 +80,7 @@ describe('adjustment routes', () => {
         notes: ['Expected effects: 0/1 matched'],
       });
 
-      const res = await app.request(`/api/worlds/${WORLD_ID}/adjustments`, {
+      const res = await app.request(`/api/v1/worlds/${WORLD_ID}/governance-adjustments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ report }),
@@ -103,7 +103,7 @@ describe('adjustment routes', () => {
         recommendation: 'watch',
       });
 
-      const res = await app.request(`/api/worlds/${WORLD_ID}/adjustments`, {
+      const res = await app.request(`/api/v1/worlds/${WORLD_ID}/governance-adjustments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ report }),
@@ -122,7 +122,7 @@ describe('adjustment routes', () => {
         recommendation: 'reinforce',
       });
 
-      const res = await app.request(`/api/worlds/${WORLD_ID}/adjustments`, {
+      const res = await app.request(`/api/v1/worlds/${WORLD_ID}/governance-adjustments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ report }),
@@ -141,7 +141,7 @@ describe('adjustment routes', () => {
         primaryObjectiveMet: false,
       });
 
-      const res = await app.request(`/api/worlds/${WORLD_ID}/adjustments`, {
+      const res = await app.request(`/api/v1/worlds/${WORLD_ID}/governance-adjustments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ report }),
@@ -160,7 +160,7 @@ describe('adjustment routes', () => {
         recommendation: 'retune',
       });
 
-      const res = await app.request(`/api/worlds/${WORLD_ID}/adjustments`, {
+      const res = await app.request(`/api/v1/worlds/${WORLD_ID}/governance-adjustments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ report }),
@@ -174,7 +174,7 @@ describe('adjustment routes', () => {
     });
 
     it('returns 400 for invalid body', async () => {
-      const res = await app.request(`/api/worlds/${WORLD_ID}/adjustments`, {
+      const res = await app.request(`/api/v1/worlds/${WORLD_ID}/governance-adjustments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ report: { bad: true } }),
@@ -193,7 +193,7 @@ describe('adjustment routes', () => {
         primaryObjectiveMet: false,
       });
 
-      await app.request(`/api/worlds/${WORLD_ID}/adjustments`, {
+      await app.request(`/api/v1/worlds/${WORLD_ID}/governance-adjustments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ report }),
@@ -207,9 +207,9 @@ describe('adjustment routes', () => {
     });
   });
 
-  // ---- GET /api/worlds/:worldId/adjustments ----
+  // ---- GET /api/v1/worlds/:worldId/governance-adjustments ----
 
-  describe('GET /api/worlds/:worldId/adjustments', () => {
+  describe('GET /api/v1/worlds/:worldId/governance-adjustments', () => {
     it('lists persisted adjustments', async () => {
       // Create two adjustments
       const harmful = makeOutcomeReport({
@@ -224,18 +224,18 @@ describe('adjustment routes', () => {
         recommendation: 'retune',
       });
 
-      await app.request(`/api/worlds/${WORLD_ID}/adjustments`, {
+      await app.request(`/api/v1/worlds/${WORLD_ID}/governance-adjustments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ report: harmful }),
       });
-      await app.request(`/api/worlds/${WORLD_ID}/adjustments`, {
+      await app.request(`/api/v1/worlds/${WORLD_ID}/governance-adjustments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ report: retune }),
       });
 
-      const res = await app.request(`/api/worlds/${WORLD_ID}/adjustments`);
+      const res = await app.request(`/api/v1/worlds/${WORLD_ID}/governance-adjustments`);
       expect(res.status).toBe(200);
       const json = (await res.json()) as { ok: boolean; data: Array<Record<string, unknown>> };
       expect(json.ok).toBe(true);
@@ -249,19 +249,19 @@ describe('adjustment routes', () => {
         primaryObjectiveMet: false,
       });
 
-      await app.request(`/api/worlds/${WORLD_ID}/adjustments`, {
+      await app.request(`/api/v1/worlds/${WORLD_ID}/governance-adjustments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ report }),
       });
 
       // Filter by proposed (should find 1)
-      const res1 = await app.request(`/api/worlds/${WORLD_ID}/adjustments?status=proposed`);
+      const res1 = await app.request(`/api/v1/worlds/${WORLD_ID}/governance-adjustments?status=proposed`);
       const json1 = (await res1.json()) as { ok: boolean; data: Array<Record<string, unknown>> };
       expect(json1.data.length).toBe(1);
 
       // Filter by approved (should find 0)
-      const res2 = await app.request(`/api/worlds/${WORLD_ID}/adjustments?status=approved`);
+      const res2 = await app.request(`/api/v1/worlds/${WORLD_ID}/governance-adjustments?status=approved`);
       const json2 = (await res2.json()) as { ok: boolean; data: Array<Record<string, unknown>> };
       expect(json2.data.length).toBe(0);
     });
@@ -273,25 +273,25 @@ describe('adjustment routes', () => {
         primaryObjectiveMet: false,
       });
 
-      await app.request(`/api/worlds/${WORLD_ID}/adjustments`, {
+      await app.request(`/api/v1/worlds/${WORLD_ID}/governance-adjustments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ report }),
       });
 
       // law_threshold (should find 1)
-      const res1 = await app.request(`/api/worlds/${WORLD_ID}/adjustments?adjustmentType=law_threshold`);
+      const res1 = await app.request(`/api/v1/worlds/${WORLD_ID}/governance-adjustments?adjustmentType=law_threshold`);
       const json1 = (await res1.json()) as { ok: boolean; data: Array<Record<string, unknown>> };
       expect(json1.data.length).toBe(1);
 
       // risk_policy (should find 0)
-      const res2 = await app.request(`/api/worlds/${WORLD_ID}/adjustments?adjustmentType=risk_policy`);
+      const res2 = await app.request(`/api/v1/worlds/${WORLD_ID}/governance-adjustments?adjustmentType=risk_policy`);
       const json2 = (await res2.json()) as { ok: boolean; data: Array<Record<string, unknown>> };
       expect(json2.data.length).toBe(0);
     });
 
     it('returns empty array for unknown worldId', async () => {
-      const res = await app.request('/api/worlds/no-such-world/adjustments');
+      const res = await app.request('/api/v1/worlds/no-such-world/governance-adjustments');
       expect(res.status).toBe(200);
       const json = (await res.json()) as { ok: boolean; data: Array<Record<string, unknown>> };
       expect(json.ok).toBe(true);
@@ -299,7 +299,7 @@ describe('adjustment routes', () => {
     });
 
     it('response matches THY-11 format', async () => {
-      const res = await app.request(`/api/worlds/${WORLD_ID}/adjustments`);
+      const res = await app.request(`/api/v1/worlds/${WORLD_ID}/governance-adjustments`);
       const json = (await res.json()) as Record<string, unknown>;
       expect(json).toHaveProperty('ok');
       expect(json).toHaveProperty('data');
