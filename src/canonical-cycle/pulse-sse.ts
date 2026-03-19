@@ -17,6 +17,17 @@ export function formatPulseSSE(frame: PulseFrame): string {
 }
 
 /**
+ * Format any PulseSSEEvent as an SSE event string.
+ * Covers all three event types from spec §26:
+ * - pulse_updated: full PulseFrame payload
+ * - stability_changed: stability transition with worldId
+ * - concern_escalated: new critical concern with worldId
+ */
+export function formatSSEEvent(event: PulseSSEEvent): string {
+  return `event: ${event.type}\ndata: ${JSON.stringify(event.data)}\n\n`;
+}
+
+/**
  * Detect if stability changed between two frames and emit event.
  */
 export function detectStabilityChange(

@@ -8,7 +8,7 @@ import {
   worldModeToCycleMode,
 } from './pulse-emitter';
 import { PulseFrameSchema } from '../schemas/pulse-frame';
-import { detectStabilityChange, detectConcernEscalation, formatPulseSSE } from './pulse-sse';
+import { detectStabilityChange, detectConcernEscalation, formatPulseSSE, formatSSEEvent } from './pulse-sse';
 import type { RawWorldMetrics } from './pulse-emitter';
 
 // --- Fixture: healthy world ---
@@ -622,5 +622,68 @@ describe('PulseSSE', () => {
     });
     const events = detectConcernEscalation(prev, curr);
     expect(events).toHaveLength(0);
+  });
+
+  it('formatSSEEvent formats pulse_updated event', () => {
+    const frame = buildPulseFrame({
+      worldId: 'w1', mode: 'open', rawMetrics: HEALTHY_METRICS,
+      openOutcomeWindowCount: 0, pendingProposalCount: 0,
+    });
+    const sse = formatSSEEvent({ type: 'pulse_updated', data: frame });
+    expect(sse).toContain('event: pulse_updated');
+    expect(sse).toContain('"healthScore"');
+    expect(sse.endsWith('\n\n')).toBe(true);
+  });
+
+  it('formatSSEEvent formats stability_changed event', () => {
+    const sse = formatSSEEvent({
+      type: 'stability_changed',
+      data: { from: 'stable', to: 'critical', worldId: 'w1' },
+    });
+    expect(sse).toContain('event: stability_changed');
+    expect(sse).toContain('"from":"stable"');
+    expect(sse).toContain('"to":"critical"');
+    expect(sse.endsWith('\n\n')).toBe(true);
+  });
+
+  it('formatSSEEvent formats concern_escalated event', () => {
+    const sse = formatSSEEvent({
+      type: 'concern_escalated',
+      data: { concern: 'gate_congestion', severity: 'critical', worldId: 'w1' },
+    });
+    expect(sse).toContain('event: concern_escalated');
+    expect(sse).toContain('"concern":"gate_congestion"');
+    expect(sse).toContain('"severity":"critical"');
+    expect(sse.endsWith('\n\n')).toBe(true);
+  });
+
+  it('all SSE event types produce valid SSE format with double newline terminator', () => {
+    const frame = buildPulseFrame({
+      worldId: 'w1', mode: 'open', rawMetrics: HEALTHY_METRICS,
+      openOutcomeWindowCount: 0, pendingProposalCount: 0,
+    });
+    const events = [
+      formatSSEEvent({ type: 'pulse_updated', data: frame }),
+      formatSSEEvent({ type: 'stability_changed', data: { from: 'stable', to: 'unstable', worldId: 'w1' } }),
+      formatSSEEvent({ type: 'concern_escalated', data: { concern: 'complaint_spike', severity: 'critical', worldId: 'w1' } }),
+    ];
+    for (const sse of events) {
+      expect(sse).toMatch(/^event: \w+\ndata: \{.*\}\n\n$/s);
+    }
+  });
+});
+
+describe('PulseFrame apply integration', () => {
+  it('buildPulseFrame can be called after apply with latestAppliedChangeId', () => {
+    const frame = buildPulseFrame({
+      worldId: 'w1',
+      mode: 'open',
+      rawMetrics: HEALTHY_METRICS,
+      latestAppliedChangeId: 'change-after-apply',
+      openOutcomeWindowCount: 1,
+      pendingProposalCount: 0,
+    });
+    expect(frame.latestAppliedChangeId).toBe('change-after-apply');
+    expect(PulseFrameSchema.safeParse(frame).success).toBe(true);
   });
 });
