@@ -40,6 +40,8 @@ import { WebhookDispatcher } from './alert-webhook';
 import { alertRoutes } from './routes/alerts';
 import { schedulerRoutes } from './routes/scheduler';
 import { promotionRoutes } from './promotion/routes/promotion';
+import { rollbackRoutes } from './promotion/routes/rollback';
+import { createInMemoryStore } from './promotion/rollback-engine';
 
 const app = new Hono();
 
@@ -103,6 +105,7 @@ app.route('', telemetryRoutes(db));
 app.route('', alertRoutes(alertManager, webhookDispatcher));
 app.route('', schedulerRoutes({ db }));
 app.route('', promotionRoutes());
+app.route('', rollbackRoutes({ store: createInMemoryStore() }));
 app.route('', packRoutes({
   db,
   villageMgr,
