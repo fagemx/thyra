@@ -11,6 +11,13 @@ export function createDb(dbPath?: string): Database {
 }
 
 export function initSchema(db: Database): void {
+  // 建立 schema 版本追蹤表
+  db.run(`
+    CREATE TABLE IF NOT EXISTS schema_version (
+      version INTEGER NOT NULL
+    );
+  `);
+
   db.run(`
     CREATE TABLE IF NOT EXISTS villages (
       id TEXT PRIMARY KEY,
@@ -20,6 +27,7 @@ export function initSchema(db: Database): void {
       status TEXT NOT NULL DEFAULT 'active'
         CHECK(status IN ('active','paused','archived')),
       metadata TEXT NOT NULL DEFAULT '{}',
+      last_health_score INTEGER DEFAULT NULL,
       version INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -51,6 +59,16 @@ export function initSchema(db: Database): void {
         CHECK(status IN ('draft','verified','deprecated')),
       village_id TEXT REFERENCES villages(id),
       definition TEXT NOT NULL,
+      content TEXT DEFAULT NULL,
+      source_type TEXT NOT NULL DEFAULT 'system',
+      source_origin TEXT DEFAULT NULL,
+      source_author TEXT DEFAULT NULL,
+      forked_from TEXT DEFAULT NULL,
+      scope_type TEXT NOT NULL DEFAULT 'global',
+      team_id TEXT DEFAULT NULL,
+      tags TEXT NOT NULL DEFAULT '[]',
+      used_count INTEGER NOT NULL DEFAULT 0,
+      last_used_at TEXT DEFAULT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       verified_at TEXT,
@@ -92,6 +110,21 @@ export function initSchema(db: Database): void {
       personality TEXT NOT NULL DEFAULT '{}',
       constraints TEXT NOT NULL DEFAULT '[]',
       profile TEXT DEFAULT NULL,
+      pipelines TEXT NOT NULL DEFAULT '[]',
+      adapter_type TEXT NOT NULL DEFAULT 'local',
+      context_mode TEXT NOT NULL DEFAULT 'fat',
+      adapter_config TEXT NOT NULL DEFAULT '{}',
+      budget_config TEXT DEFAULT NULL,
+      pause_reason TEXT DEFAULT NULL,
+      paused_at TEXT DEFAULT NULL,
+      role_type TEXT NOT NULL DEFAULT 'chief',
+      parent_chief_id TEXT DEFAULT NULL,
+      use_precedents INTEGER NOT NULL DEFAULT 0,
+      precedent_config TEXT DEFAULT NULL,
+      last_heartbeat_at TEXT DEFAULT NULL,
+      current_run_id TEXT DEFAULT NULL,
+      current_run_status TEXT NOT NULL DEFAULT 'idle',
+      timeout_count INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -135,6 +168,7 @@ export function initSchema(db: Database): void {
       laws_proposed TEXT NOT NULL DEFAULT '[]',
       laws_enacted TEXT NOT NULL DEFAULT '[]',
       abort_reason TEXT,
+      intent TEXT DEFAULT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -395,86 +429,6 @@ export function initSchema(db: Database): void {
       ON cycle_telemetry(cycle_id);
   `);
 
-  // ALTER TABLE 新增 intent 欄位（冪等：column 已存在就忽略）
-  try {
-    db.run('ALTER TABLE loop_cycles ADD COLUMN intent TEXT DEFAULT NULL');
-  } catch {
-    // "duplicate column name: intent" — 安全忽略
-  }
-
-  // Skill extension columns (#219)
-  const skillAlters = [
-    "ALTER TABLE skills ADD COLUMN content TEXT DEFAULT NULL",
-    "ALTER TABLE skills ADD COLUMN source_type TEXT NOT NULL DEFAULT 'system'",
-    "ALTER TABLE skills ADD COLUMN source_origin TEXT DEFAULT NULL",
-    "ALTER TABLE skills ADD COLUMN source_author TEXT DEFAULT NULL",
-    "ALTER TABLE skills ADD COLUMN forked_from TEXT DEFAULT NULL",
-    "ALTER TABLE skills ADD COLUMN scope_type TEXT NOT NULL DEFAULT 'global'",
-    "ALTER TABLE skills ADD COLUMN team_id TEXT DEFAULT NULL",
-    "ALTER TABLE skills ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'",
-    "ALTER TABLE skills ADD COLUMN used_count INTEGER NOT NULL DEFAULT 0",
-    "ALTER TABLE skills ADD COLUMN last_used_at TEXT DEFAULT NULL",
-  ];
-  for (const sql of skillAlters) {
-    try { db.run(sql); } catch { /* column already exists */ }
-  }
-
-  // ALTER TABLE 新增 pipelines 欄位（冪等：column 已存在就忽略）
-  try {
-    db.run("ALTER TABLE chiefs ADD COLUMN pipelines TEXT NOT NULL DEFAULT '[]'");
-  } catch {
-    // "duplicate column name: pipelines" — 安全忽略
-  }
-
-  // Heartbeat protocol columns (#228)
-  const chiefHeartbeatAlters = [
-    "ALTER TABLE chiefs ADD COLUMN adapter_type TEXT NOT NULL DEFAULT 'local'",
-    "ALTER TABLE chiefs ADD COLUMN context_mode TEXT NOT NULL DEFAULT 'fat'",
-    "ALTER TABLE chiefs ADD COLUMN adapter_config TEXT NOT NULL DEFAULT '{}'",
-  ];
-  for (const sql of chiefHeartbeatAlters) {
-    try { db.run(sql); } catch { /* column already exists */ }
-  }
-
-  // Chief budget columns (#226: monthly budget accumulation with auto-pause)
-  const chiefBudgetAlters = [
-    "ALTER TABLE chiefs ADD COLUMN budget_config TEXT DEFAULT NULL",
-    "ALTER TABLE chiefs ADD COLUMN pause_reason TEXT DEFAULT NULL",
-    "ALTER TABLE chiefs ADD COLUMN paused_at TEXT DEFAULT NULL",
-  ];
-  for (const sql of chiefBudgetAlters) {
-    try { db.run(sql); } catch { /* column already exists */ }
-  }
-
-  // Worker role columns (#214)
-  const chiefWorkerAlters = [
-    "ALTER TABLE chiefs ADD COLUMN role_type TEXT NOT NULL DEFAULT 'chief'",
-    "ALTER TABLE chiefs ADD COLUMN parent_chief_id TEXT DEFAULT NULL",
-  ];
-  for (const sql of chiefWorkerAlters) {
-    try { db.run(sql); } catch { /* column already exists */ }
-  }
-
-  // Edda precedent query columns (#222)
-  const chiefPrecedentAlters = [
-    "ALTER TABLE chiefs ADD COLUMN use_precedents INTEGER NOT NULL DEFAULT 0",
-    "ALTER TABLE chiefs ADD COLUMN precedent_config TEXT DEFAULT NULL",
-  ];
-  for (const sql of chiefPrecedentAlters) {
-    try { db.run(sql); } catch { /* column already exists */ }
-  }
-
-  // Stale heartbeat detection columns (#231)
-  const chiefStaleAlters = [
-    "ALTER TABLE chiefs ADD COLUMN last_heartbeat_at TEXT DEFAULT NULL",
-    "ALTER TABLE chiefs ADD COLUMN current_run_id TEXT DEFAULT NULL",
-    "ALTER TABLE chiefs ADD COLUMN current_run_status TEXT NOT NULL DEFAULT 'idle'",
-    "ALTER TABLE chiefs ADD COLUMN timeout_count INTEGER NOT NULL DEFAULT 0",
-  ];
-  for (const sql of chiefStaleAlters) {
-    try { db.run(sql); } catch { /* column already exists */ }
-  }
-
   // Alert system tables (#236)
   db.run(`
     CREATE TABLE IF NOT EXISTS alerts (
@@ -519,13 +473,6 @@ export function initSchema(db: Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_webhook_village ON alert_webhooks(village_id, status);
   `);
-
-  // Health delta tracking column (#236)
-  try {
-    db.run('ALTER TABLE villages ADD COLUMN last_health_score INTEGER DEFAULT NULL');
-  } catch {
-    // column already exists
-  }
 
   // Chief reputation table (#216: reputation & reward system)
   db.run(`
@@ -745,6 +692,109 @@ export function initSchema(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_pulse_frame_world
       ON pulse_frames(world_id, created_at);
   `);
+
+  // 執行待處理的資料庫遷移（處理既有資料庫的 schema 升級）
+  runMigrations(db);
+}
+
+/**
+ * 遷移定義：每個遷移包含版本號和升級函數。
+ * 新 :memory: 資料庫已在 CREATE TABLE 包含所有欄位，遷移用於升級既有資料庫。
+ * SQLite 不支援 ALTER TABLE ADD COLUMN IF NOT EXISTS，
+ * 故以 try/catch 處理 "duplicate column" 的情況。
+ */
+interface Migration {
+  readonly version: number;
+  readonly description: string;
+  readonly up: (db: Database) => void;
+}
+
+/** 嘗試新增欄位，若欄位已存在則安全忽略 */
+function addColumnIfNotExists(db: Database, sql: string): void {
+  try {
+    db.run(sql);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!msg.includes('duplicate column name')) {
+      throw err;
+    }
+    // "duplicate column name" — 欄位已存在，安全忽略
+  }
+}
+
+const MIGRATIONS: readonly Migration[] = [
+  {
+    version: 1,
+    description: 'consolidate ALTER TABLE columns from ad-hoc blocks into schema versioning',
+    up(db: Database): void {
+      // loop_cycles: intent
+      addColumnIfNotExists(db, 'ALTER TABLE loop_cycles ADD COLUMN intent TEXT DEFAULT NULL');
+
+      // skills: extension columns (#219)
+      const skillColumns = [
+        "ALTER TABLE skills ADD COLUMN content TEXT DEFAULT NULL",
+        "ALTER TABLE skills ADD COLUMN source_type TEXT NOT NULL DEFAULT 'system'",
+        "ALTER TABLE skills ADD COLUMN source_origin TEXT DEFAULT NULL",
+        "ALTER TABLE skills ADD COLUMN source_author TEXT DEFAULT NULL",
+        "ALTER TABLE skills ADD COLUMN forked_from TEXT DEFAULT NULL",
+        "ALTER TABLE skills ADD COLUMN scope_type TEXT NOT NULL DEFAULT 'global'",
+        "ALTER TABLE skills ADD COLUMN team_id TEXT DEFAULT NULL",
+        "ALTER TABLE skills ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'",
+        "ALTER TABLE skills ADD COLUMN used_count INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE skills ADD COLUMN last_used_at TEXT DEFAULT NULL",
+      ];
+      for (const sql of skillColumns) {
+        addColumnIfNotExists(db, sql);
+      }
+
+      // chiefs: pipelines, heartbeat, budget, worker role, precedent, stale detection
+      const chiefColumns = [
+        "ALTER TABLE chiefs ADD COLUMN pipelines TEXT NOT NULL DEFAULT '[]'",
+        "ALTER TABLE chiefs ADD COLUMN adapter_type TEXT NOT NULL DEFAULT 'local'",
+        "ALTER TABLE chiefs ADD COLUMN context_mode TEXT NOT NULL DEFAULT 'fat'",
+        "ALTER TABLE chiefs ADD COLUMN adapter_config TEXT NOT NULL DEFAULT '{}'",
+        "ALTER TABLE chiefs ADD COLUMN budget_config TEXT DEFAULT NULL",
+        "ALTER TABLE chiefs ADD COLUMN pause_reason TEXT DEFAULT NULL",
+        "ALTER TABLE chiefs ADD COLUMN paused_at TEXT DEFAULT NULL",
+        "ALTER TABLE chiefs ADD COLUMN role_type TEXT NOT NULL DEFAULT 'chief'",
+        "ALTER TABLE chiefs ADD COLUMN parent_chief_id TEXT DEFAULT NULL",
+        "ALTER TABLE chiefs ADD COLUMN use_precedents INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE chiefs ADD COLUMN precedent_config TEXT DEFAULT NULL",
+        "ALTER TABLE chiefs ADD COLUMN last_heartbeat_at TEXT DEFAULT NULL",
+        "ALTER TABLE chiefs ADD COLUMN current_run_id TEXT DEFAULT NULL",
+        "ALTER TABLE chiefs ADD COLUMN current_run_status TEXT NOT NULL DEFAULT 'idle'",
+        "ALTER TABLE chiefs ADD COLUMN timeout_count INTEGER NOT NULL DEFAULT 0",
+      ];
+      for (const sql of chiefColumns) {
+        addColumnIfNotExists(db, sql);
+      }
+
+      // villages: health delta tracking (#236)
+      addColumnIfNotExists(db, 'ALTER TABLE villages ADD COLUMN last_health_score INTEGER DEFAULT NULL');
+    },
+  },
+];
+
+/**
+ * 遷移執行器：檢查當前版本，執行待處理遷移，更新版本號。
+ * 每次 initSchema 呼叫時執行，但已完成的遷移會被跳過。
+ */
+function runMigrations(db: Database): void {
+  const row = db.prepare('SELECT version FROM schema_version LIMIT 1').get() as { version: number } | null;
+  let currentVersion = row ? row.version : 0;
+
+  // 首次執行：插入初始版本記錄
+  if (!row) {
+    db.prepare('INSERT INTO schema_version (version) VALUES (?)').run(0);
+  }
+
+  for (const migration of MIGRATIONS) {
+    if (migration.version > currentVersion) {
+      migration.up(db);
+      db.prepare('UPDATE schema_version SET version = ?').run(migration.version);
+      currentVersion = migration.version;
+    }
+  }
 }
 
 /**
