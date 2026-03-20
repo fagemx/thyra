@@ -189,7 +189,7 @@ describe('CLI runCli', () => {
 
     // Verify DB has no villages
     const db = new Database(dbPath);
-    const rows = db.query('SELECT COUNT(*) as cnt FROM villages').get() as { cnt: number };
+    const rows = db.prepare('SELECT COUNT(*) as cnt FROM villages').get() as { cnt: number };
     expect(rows.cnt).toBe(0);
     db.close();
   });
