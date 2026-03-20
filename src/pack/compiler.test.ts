@@ -7,7 +7,8 @@ import { ChiefEngine } from '../chief-engine';
 import { LawEngine } from '../law-engine';
 import { SkillRegistry } from '../skill-registry';
 import { VillagePackCompiler } from './compiler';
-import type { VillagePack, CompileOptions } from './compiler';
+import type { CompileOptions } from './compiler';
+import type { VillagePack } from '../schemas/village-pack';
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -60,7 +61,7 @@ function createVerifiedSkill(
 
 function makePack(overrides?: Partial<VillagePack>): VillagePack {
   return {
-    version: '0.1',
+    pack_version: '0.1',
     village: {
       name: 'test-village',
       description: 'A test village',
@@ -72,10 +73,12 @@ function makePack(overrides?: Partial<VillagePack>): VillagePack {
         max_cost_per_action: 10,
         max_cost_per_day: 100,
         max_cost_per_loop: 50,
+        max_cost_per_month: 0,
       },
       rules: [
-        { description: 'Must review code', enforcement: 'hard' as const },
+        { description: 'Must review code', enforcement: 'hard' as const, scope: ['*'] },
       ],
+      evaluators: [],
     },
     chief: {
       name: 'test-chief',
@@ -89,16 +92,17 @@ function makePack(overrides?: Partial<VillagePack>): VillagePack {
       constraints: [
         { type: 'must' as const, description: 'always run tests' },
       ],
-      skills: ['code-review'],
+      pipelines: [],
     },
+    skills: ['code-review'],
     laws: [
       {
         category: 'testing',
-        description: 'All PRs need tests',
-        strategy: { min_coverage: 80 },
+        content: { description: 'All PRs need tests', strategy: { min_coverage: 80 } },
         evidence: { source: 'team', reasoning: 'quality' },
       },
     ],
+    goals: [],
     ...overrides,
   };
 }
@@ -179,14 +183,13 @@ describe('VillagePackCompiler', () => {
     const updatedPack = makePack({
       constitution: {
         ...pack.constitution,
-        budget: { max_cost_per_action: 20, max_cost_per_day: 200, max_cost_per_loop: 100 },
+        budget: { max_cost_per_action: 20, max_cost_per_day: 200, max_cost_per_loop: 100, max_cost_per_month: 0 },
       },
       laws: [
         ...pack.laws,
         {
           category: 'security',
-          description: 'No secrets in code',
-          strategy: { scan: true },
+          content: { description: 'No secrets in code', strategy: { scan: true } },
           evidence: { source: 'policy', reasoning: 'security' },
         },
       ],
@@ -230,7 +233,7 @@ describe('VillagePackCompiler', () => {
         permissions: ['dispatch_task', 'propose_law', 'enact_law_low', 'deploy'], // deploy not in constitution
         personality: { risk_tolerance: 'moderate', communication_style: 'concise', decision_speed: 'deliberate' },
         constraints: [],
-        skills: ['code-review'],
+        pipelines: [],
       },
     });
 
@@ -276,14 +279,12 @@ describe('VillagePackCompiler', () => {
       laws: [
         {
           category: 'testing',
-          description: 'All PRs need tests',
-          strategy: { min_coverage: 80 },
+          content: { description: 'All PRs need tests', strategy: { min_coverage: 80 } },
           evidence: { source: 'team', reasoning: 'quality' },
         },
         {
           category: 'deployment',
-          description: 'deploy to production requires approval',
-          strategy: { require_approval: true },
+          content: { description: 'deploy to production requires approval', strategy: { require_approval: true } },
           evidence: { source: 'ops', reasoning: 'safety' },
         },
       ],
@@ -315,8 +316,7 @@ describe('VillagePackCompiler', () => {
       laws: [
         {
           category: 'testing',
-          description: 'All PRs need comprehensive tests',
-          strategy: { min_coverage: 90 },
+          content: { description: 'All PRs need comprehensive tests', strategy: { min_coverage: 90 } },
           evidence: { source: 'team', reasoning: 'higher quality' },
         },
       ],
@@ -457,7 +457,7 @@ describe('VillagePackCompiler', () => {
         ...pack.constitution,
         rules: [
           // Same rule, just re-specifying to confirm fingerprint matches
-          { description: 'Must review code', enforcement: 'hard' as const },
+          { description: 'Must review code', enforcement: 'hard' as const, scope: ['*'] },
         ],
       },
     });

@@ -12,9 +12,7 @@ import { z } from 'zod';
 import yaml from 'js-yaml';
 import type { Database } from 'bun:sqlite';
 import { parseVillagePack } from '../schemas/village-pack';
-import type { VillagePack as SchemaPack } from '../schemas/village-pack';
 import { VillagePackCompiler } from '../pack/compiler';
-import type { VillagePack as CompilerPack } from '../pack/compiler';
 import type { VillageManager } from '../village-manager';
 import type { ConstitutionStore } from '../constitution-store';
 import type { ChiefEngine } from '../chief-engine';
@@ -26,44 +24,6 @@ import type { SkillRegistry } from '../skill-registry';
 const PackApplyInput = z.object({
   yaml: z.string().min(1, 'YAML string must be non-empty'),
 });
-
-// ── Transform: schema shape → compiler shape ──────────────────
-// 與 cli.ts 相同的映射邏輯
-
-function toCompilerPack(parsed: SchemaPack): CompilerPack {
-  return {
-    version: parsed.pack_version,
-    village: {
-      name: parsed.village.name,
-      description: parsed.village.description,
-      target_repo: parsed.village.target_repo,
-    },
-    constitution: {
-      allowed_permissions: parsed.constitution.allowed_permissions,
-      budget: parsed.constitution.budget,
-      rules: parsed.constitution.rules.map((r) => ({
-        description: r.description,
-        enforcement: r.enforcement,
-        scope: r.scope,
-      })),
-    },
-    chief: {
-      name: parsed.chief.name,
-      role: parsed.chief.role,
-      permissions: parsed.chief.permissions,
-      personality: parsed.chief.personality,
-      constraints: parsed.chief.constraints,
-      pipelines: parsed.chief.pipelines,
-      skills: parsed.skills,
-    },
-    laws: parsed.laws.map((l) => ({
-      category: l.category,
-      description: l.content.description,
-      strategy: l.content.strategy,
-      evidence: l.evidence,
-    })),
-  };
-}
 
 // ── Route factory ────────────────────────────────────────────
 
@@ -122,13 +82,10 @@ export function packRoutes(deps: PackRouteDeps): Hono {
       );
     }
 
-    // 4. Transform to compiler shape
-    const compilerPack = toCompilerPack(packResult.data);
-
-    // 5. Compile inside transaction for atomicity
+    // 4. Compile inside transaction for atomicity (schema type accepted directly)
     try {
       const result = db.transaction(() => {
-        const r = compiler.compile(compilerPack, {
+        const r = compiler.compile(packResult.data, {
           dry_run: false,
           source_path: 'api:pack/apply',
           compiled_by: 'village-pack:api',

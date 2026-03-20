@@ -7,7 +7,8 @@ import { ChiefEngine } from '../chief-engine';
 import { LawEngine } from '../law-engine';
 import { SkillRegistry } from '../skill-registry';
 import { VillagePackCompiler } from './compiler';
-import type { VillagePack, CompileOptions } from './compiler';
+import type { CompileOptions } from './compiler';
+import type { VillagePack } from '../schemas/village-pack';
 import { exportVillage } from './export';
 import type { ExportDeps } from './export';
 
@@ -69,7 +70,7 @@ function createVerifiedSkill(
 
 function makePack(overrides?: Partial<VillagePack>): VillagePack {
   return {
-    version: '0.1',
+    pack_version: '0.1',
     village: {
       name: 'test-village',
       description: 'A test village',
@@ -81,10 +82,12 @@ function makePack(overrides?: Partial<VillagePack>): VillagePack {
         max_cost_per_action: 10,
         max_cost_per_day: 100,
         max_cost_per_loop: 50,
+        max_cost_per_month: 0,
       },
       rules: [
-        { description: 'Must review code', enforcement: 'hard' as const },
+        { description: 'Must review code', enforcement: 'hard' as const, scope: ['*'] },
       ],
+      evaluators: [],
     },
     chief: {
       name: 'test-chief',
@@ -98,16 +101,17 @@ function makePack(overrides?: Partial<VillagePack>): VillagePack {
       constraints: [
         { type: 'must' as const, description: 'always run tests' },
       ],
-      skills: ['code-review'],
+      pipelines: [],
     },
+    skills: ['code-review'],
     laws: [
       {
         category: 'testing',
-        description: 'All PRs need tests',
-        strategy: { min_coverage: 80 },
+        content: { description: 'All PRs need tests', strategy: { min_coverage: 80 } },
         evidence: { source: 'team', reasoning: 'quality' },
       },
     ],
+    goals: [],
     ...overrides,
   };
 }
@@ -152,7 +156,11 @@ describe('exportVillage', () => {
     expect(exported.data.constitution.allowed_permissions).toEqual(
       expect.arrayContaining(pack.constitution.allowed_permissions),
     );
-    expect(exported.data.constitution.budget).toEqual(pack.constitution.budget);
+    expect(exported.data.constitution.budget).toEqual({
+      max_cost_per_action: pack.constitution.budget.max_cost_per_action,
+      max_cost_per_day: pack.constitution.budget.max_cost_per_day,
+      max_cost_per_loop: pack.constitution.budget.max_cost_per_loop,
+    });
     expect(exported.data.constitution.rules.length).toBe(pack.constitution.rules.length);
     expect(exported.data.constitution.rules[0].description).toBe('Must review code');
     expect(exported.data.constitution.rules[0].enforcement).toBe('hard');
@@ -246,9 +254,9 @@ describe('exportVillage', () => {
     expect(exported.ok).toBe(true);
     if (!exported.ok) return;
 
-    // Step 3: Convert exported data back to compiler's VillagePack format and re-apply
+    // Step 3: Convert exported data back to VillagePack format and re-apply
     const recompilePack: VillagePack = {
-      version: '0.1',
+      pack_version: '0.1',
       village: {
         name: exported.data.village.name,
         description: exported.data.village.description,
@@ -256,8 +264,9 @@ describe('exportVillage', () => {
       },
       constitution: {
         allowed_permissions: exported.data.constitution.allowed_permissions as VillagePack['constitution']['allowed_permissions'],
-        budget: exported.data.constitution.budget,
+        budget: { ...exported.data.constitution.budget, max_cost_per_month: 0 },
         rules: exported.data.constitution.rules,
+        evaluators: [],
       },
       chief: {
         name: exported.data.chief.name,
@@ -265,14 +274,11 @@ describe('exportVillage', () => {
         permissions: exported.data.chief.permissions as VillagePack['chief']['permissions'],
         personality: exported.data.chief.personality as VillagePack['chief']['personality'],
         constraints: exported.data.chief.constraints as VillagePack['chief']['constraints'],
-        skills: exported.data.skills,
+        pipelines: [],
       },
-      laws: exported.data.laws.map((l) => ({
-        category: l.category,
-        description: l.content.description,
-        strategy: l.content.strategy,
-        evidence: l.evidence,
-      })),
+      skills: exported.data.skills,
+      laws: exported.data.laws,
+      goals: [],
     };
 
     const secondResult = env.compiler.compile(recompilePack, defaultOpts);
@@ -330,12 +336,13 @@ describe('exportVillage', () => {
 
     // Re-compile from exported data
     const recompilePack: VillagePack = {
-      version: '0.1',
+      pack_version: '0.1',
       village: exported.data.village,
       constitution: {
         allowed_permissions: exported.data.constitution.allowed_permissions as VillagePack['constitution']['allowed_permissions'],
-        budget: exported.data.constitution.budget,
+        budget: { ...exported.data.constitution.budget, max_cost_per_month: 0 },
         rules: exported.data.constitution.rules,
+        evaluators: [],
       },
       chief: {
         name: exported.data.chief.name,
@@ -343,15 +350,12 @@ describe('exportVillage', () => {
         permissions: exported.data.chief.permissions as VillagePack['chief']['permissions'],
         personality: exported.data.chief.personality as VillagePack['chief']['personality'],
         constraints: exported.data.chief.constraints as VillagePack['chief']['constraints'],
-        skills: exported.data.skills,
+        pipelines: [],
       },
-      laws: exported.data.laws.map((l) => ({
-        category: l.category,
-        description: l.content.description,
-        strategy: l.content.strategy,
-        evidence: l.evidence,
-      })),
-      llm: exported.data.llm,
+      skills: exported.data.skills,
+      laws: exported.data.laws,
+      goals: [],
+      llm: exported.data.llm as VillagePack['llm'],
     };
 
     const secondResult = env.compiler.compile(recompilePack, defaultOpts);
@@ -365,14 +369,12 @@ describe('exportVillage', () => {
       laws: [
         {
           category: 'testing',
-          description: 'All PRs need tests',
-          strategy: { min_coverage: 80 },
+          content: { description: 'All PRs need tests', strategy: { min_coverage: 80 } },
           evidence: { source: 'team', reasoning: 'quality' },
         },
         {
           category: 'review',
-          description: 'All code must be reviewed',
-          strategy: { min_reviewers: 1 },
+          content: { description: 'All code must be reviewed', strategy: { min_reviewers: 1 } },
           evidence: { source: 'policy', reasoning: 'accountability' },
         },
       ],
@@ -406,8 +408,9 @@ describe('exportVillage', () => {
           decision_speed: 'deliberate',
         },
         constraints: [],
-        skills: ['code-review', 'test-runner'],
+        pipelines: [],
       },
+      skills: ['code-review', 'test-runner'],
     });
 
     const compiled = env.compiler.compile(pack, defaultOpts);

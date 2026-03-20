@@ -21,52 +21,7 @@ import { ChiefEngine } from '../chief-engine';
 import { LawEngine } from '../law-engine';
 import { SkillRegistry } from '../skill-registry';
 import { VillagePackCompiler } from './compiler';
-import type { VillagePack as CompilerPack } from './compiler';
 import type { CompileResult, PhaseResult, LawPhaseEntry } from './compiler';
-import type { VillagePack as SchemaPack } from '../schemas/village-pack';
-
-// ── Transform: schema shape → compiler shape ─────────────────
-
-/**
- * parseVillagePack 產出的型別和 compiler 的 VillagePack 不同。
- * 這裡做映射：pack_version→version, skills 移入 chief, laws.content 攤平。
- *
- * TODO: compiler 定義了自己的 VillagePack interface，與 schema 的 VillagePack 形狀不同。
- * 應重構 compiler 直接使用 schemas/village-pack 的型別，消除這層手動映射。
- */
-function toCompilerPack(parsed: SchemaPack): CompilerPack {
-  return {
-    version: parsed.pack_version,
-    village: {
-      name: parsed.village.name,
-      description: parsed.village.description,
-      target_repo: parsed.village.target_repo,
-    },
-    constitution: {
-      allowed_permissions: parsed.constitution.allowed_permissions,
-      budget: parsed.constitution.budget,
-      rules: parsed.constitution.rules.map((r) => ({
-        description: r.description,
-        enforcement: r.enforcement,
-        scope: r.scope,
-      })),
-    },
-    chief: {
-      name: parsed.chief.name,
-      role: parsed.chief.role,
-      permissions: parsed.chief.permissions,
-      personality: parsed.chief.personality,
-      constraints: parsed.chief.constraints,
-      skills: parsed.skills,
-    },
-    laws: parsed.laws.map((l) => ({
-      category: l.category,
-      description: l.content.description,
-      strategy: l.content.strategy,
-      evidence: l.evidence,
-    })),
-  };
-}
 
 // ── DB + DI bootstrap ────────────────────────────────────────
 
@@ -231,16 +186,13 @@ export function runCli(opts: CliOptions): CompileResult {
     throw new Error(`Validation failed:\n${msg}`);
   }
 
-  // 4. Transform to compiler shape
-  const compilerPack = toCompilerPack(parseResult.data);
-
-  // 5. Bootstrap DB + stores
+  // 4. Bootstrap DB + stores
   const { compiler, db } = bootstrap(opts.dbPath);
 
-  // 6. Compile
+  // 5. Compile (schema type is now accepted directly by compiler)
   try {
     const dryRun = opts.command === 'diff';
-    const result = compiler.compile(compilerPack, {
+    const result = compiler.compile(parseResult.data, {
       dry_run: dryRun,
       source_path: absPath,
       compiled_by: 'village-pack:human',
