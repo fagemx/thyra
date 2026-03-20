@@ -15,6 +15,7 @@ export const PromotionRollbackMemoSchema = z.object({
 
   eddaRecordId: z.string().optional(),
   createdAt: z.string(),
+  version: z.number().int().default(1),
 });
 
 export type PromotionRollbackMemo = z.infer<typeof PromotionRollbackMemoSchema>;
