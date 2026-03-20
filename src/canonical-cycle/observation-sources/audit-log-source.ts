@@ -7,7 +7,7 @@
  * @see TRACK_A_OBSERVATION_BUILDER.md Step 2
  */
 
-import type { Database } from 'bun:sqlite';
+import type { Database } from '../../db';
 import type { Observation, ObservationScope } from '../../schemas/observation';
 
 /** audit_log 表的 row 結構 */
