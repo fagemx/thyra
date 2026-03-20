@@ -1,10 +1,18 @@
 import { describe, it, expect } from 'vitest';
+import { createDb, initSchema } from '../db';
+import type { Database } from '../db';
 import { generateLinksMarkdown, packageHandoff } from './handoff-packager';
 import { buildPromotionHandoff } from './handoff-builder';
 import type { BuildHandoffInput } from './handoff-builder';
 import { evaluatePromotionChecklist } from './checklist-evaluator';
 import { promotionRoutes } from './routes/promotion';
 import type { PromotionHandoff } from './schemas/handoff';
+
+function createTestDb(): Database {
+  const db = createDb(':memory:');
+  initSchema(db);
+  return db;
+}
 
 // ---------------------------------------------------------------------------
 // Shared fixtures
@@ -138,7 +146,7 @@ describe('packageHandoff', () => {
 // ---------------------------------------------------------------------------
 
 describe('promotionRoutes', () => {
-  const app = promotionRoutes();
+  const app = promotionRoutes(createTestDb());
 
   // Helper to make JSON requests
   function req(method: string, path: string, body?: unknown) {
@@ -216,7 +224,7 @@ describe('promotionRoutes', () => {
   describe('GET /api/promotion/handoffs', () => {
     it('returns list of stored handoffs', async () => {
       // Use a fresh app for isolation
-      const freshApp = promotionRoutes();
+      const freshApp = promotionRoutes(createTestDb());
       const freshReq = (method: string, path: string, body?: unknown) => {
         const init: RequestInit = { method, headers: { 'Content-Type': 'application/json' } };
         if (body) init.body = JSON.stringify(body);
@@ -236,7 +244,7 @@ describe('promotionRoutes', () => {
 
   describe('GET /api/promotion/handoffs/:id', () => {
     it('returns stored handoff by ID', async () => {
-      const freshApp = promotionRoutes();
+      const freshApp = promotionRoutes(createTestDb());
       const freshReq = (method: string, path: string, body?: unknown) => {
         const init: RequestInit = { method, headers: { 'Content-Type': 'application/json' } };
         if (body) init.body = JSON.stringify(body);
@@ -264,7 +272,7 @@ describe('promotionRoutes', () => {
 
   describe('full promotion flow', () => {
     it('evaluate checklist → build handoff → package → retrieve', async () => {
-      const flowApp = promotionRoutes();
+      const flowApp = promotionRoutes(createTestDb());
       const flowReq = (method: string, path: string, body?: unknown) => {
         const init: RequestInit = { method, headers: { 'Content-Type': 'application/json' } };
         if (body) init.body = JSON.stringify(body);

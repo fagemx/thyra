@@ -1,5 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
+import type { Database } from '../../db';
+import { appendAudit } from '../../db';
 import { createRollbackMemo, markSuspended } from '../rollback-engine';
 import type { SuspendableStore, SuspendableType } from '../rollback-engine';
 import type { PromotionRollbackMemo } from '../schemas/rollback';
@@ -24,25 +26,58 @@ const CreateRollbackInput = z.object({
 // ---------------------------------------------------------------------------
 
 export interface RollbackRouteDeps {
+  db: Database;
   store: SuspendableStore;
   onEddaNotify?: (memo: PromotionRollbackMemo) => Promise<void>;
   getHandoff?: (id: string) => unknown | null;
 }
 
 // ---------------------------------------------------------------------------
+// DB helpers
+// ---------------------------------------------------------------------------
+
+interface RollbackEntry {
+  memo: PromotionRollbackMemo;
+  suspendResult: {
+    type: SuspendableType;
+    targetId: string;
+    previousStatus: string;
+    newStatus: 'suspended';
+  };
+}
+
+function insertRollback(db: Database, entry: RollbackEntry): void {
+  db.prepare(`
+    INSERT INTO promotion_rollbacks (id, memo_json, suspend_result_json, version, created_at)
+    VALUES (?, ?, ?, 1, ?)
+  `).run(
+    entry.memo.id,
+    JSON.stringify(entry.memo),
+    JSON.stringify(entry.suspendResult),
+    entry.memo.createdAt,
+  );
+}
+
+function rowToEntry(row: Record<string, unknown>): RollbackEntry {
+  return {
+    memo: JSON.parse(row['memo_json'] as string),
+    suspendResult: JSON.parse(row['suspend_result_json'] as string),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Route factory
 // ---------------------------------------------------------------------------
 
-/** fromLayer → SuspendableType 對應 */
+/** fromLayer → SuspendableType */
 function deriveSuspendableType(fromLayer: 'project-plan' | 'thyra-runtime'): SuspendableType {
   return fromLayer === 'project-plan' ? 'planning-pack' : 'runtime-world';
 }
 
 export function rollbackRoutes(deps: RollbackRouteDeps): Hono {
   const app = new Hono();
-  const memos = new Map<string, { memo: PromotionRollbackMemo; suspendResult: { type: SuspendableType; targetId: string; previousStatus: string; newStatus: 'suspended' } }>();
 
-  // POST /api/promotion/rollbacks — 建立 rollback memo + suspend downstream
+  // POST /api/promotion/rollbacks — build rollback memo + suspend downstream
   app.post('/api/promotion/rollbacks', async (c) => {
     const parsed = CreateRollbackInput.safeParse(await c.req.json());
     if (!parsed.success) {
@@ -54,7 +89,7 @@ export function rollbackRoutes(deps: RollbackRouteDeps): Hono {
 
     const { targetId, ...rollbackInput } = parsed.data;
 
-    // 驗證 handoff 存在（若提供 getHandoff）
+    // Verify handoff exists (if getHandoff provided)
     if (deps.getHandoff) {
       const handoff = deps.getHandoff(rollbackInput.originalHandoffId);
       if (!handoff) {
@@ -65,15 +100,17 @@ export function rollbackRoutes(deps: RollbackRouteDeps): Hono {
       }
     }
 
-    // 建立 rollback memo
+    // Build rollback memo
     const memo = createRollbackMemo(rollbackInput);
 
     // Suspend downstream artifact (PROMO-02: never delete)
     const suspendType = deriveSuspendableType(parsed.data.fromLayer);
     const suspendResult = markSuspended(suspendType, targetId, deps.store);
 
-    // 儲存到 in-memory store
-    memos.set(memo.id, { memo, suspendResult });
+    // Persist to SQLite
+    const entry: RollbackEntry = { memo, suspendResult };
+    insertRollback(deps.db, entry);
+    appendAudit(deps.db, 'promotion_rollback', memo.id, 'create', entry, 'system');
 
     // Fire-and-forget Edda notification (THY-06: graceful degradation)
     if (deps.onEddaNotify) {
@@ -85,20 +122,21 @@ export function rollbackRoutes(deps: RollbackRouteDeps): Hono {
 
   // GET /api/promotion/rollbacks — list all rollback memos
   app.get('/api/promotion/rollbacks', (c) => {
-    const data = Array.from(memos.values());
+    const rows = deps.db.prepare('SELECT * FROM promotion_rollbacks ORDER BY created_at DESC').all() as Record<string, unknown>[];
+    const data = rows.map(rowToEntry);
     return c.json({ ok: true, data });
   });
 
   // GET /api/promotion/rollbacks/:id — retrieve rollback memo by ID
   app.get('/api/promotion/rollbacks/:id', (c) => {
-    const entry = memos.get(c.req.param('id'));
-    if (!entry) {
+    const row = deps.db.prepare('SELECT * FROM promotion_rollbacks WHERE id = ?').get(c.req.param('id')) as Record<string, unknown> | null;
+    if (!row) {
       return c.json(
         { ok: false, error: { code: 'NOT_FOUND', message: 'Rollback memo not found' } },
         404,
       );
     }
-    return c.json({ ok: true, data: entry });
+    return c.json({ ok: true, data: rowToEntry(row) });
   });
 
   return app;

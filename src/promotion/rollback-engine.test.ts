@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { createDb, initSchema } from '../db';
 import { PromotionRollbackMemoSchema } from './schemas/rollback';
 import {
   createRollbackMemo,
@@ -233,6 +234,8 @@ describe('contract enforcement', () => {
 // ---------------------------------------------------------------------------
 
 function buildRouteApp(overrides?: Partial<RollbackRouteDeps>) {
+  const db = createDb(':memory:');
+  initSchema(db);
   const store = createInMemoryStore();
   // Pre-seed targets for suspend testing
   store.setStatus('planning-pack', 'pack-1', 'active');
@@ -240,6 +243,7 @@ function buildRouteApp(overrides?: Partial<RollbackRouteDeps>) {
   store.setStatus('planning-pack', 'pack-suspended', 'suspended');
 
   const deps: RollbackRouteDeps = {
+    db,
     store,
     ...overrides,
   };
