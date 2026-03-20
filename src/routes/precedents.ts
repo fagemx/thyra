@@ -58,6 +58,11 @@ interface PrecedentRow {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Escape LIKE wildcards (% and _) so user input is treated literally */
+function escapeLikePattern(s: string): string {
+  return s.replace(/%/g, '\\%').replace(/_/g, '\\_');
+}
+
 function rowToResponse(row: PrecedentRow): Record<string, unknown> {
   return {
     id: row.id,
@@ -118,8 +123,8 @@ export function precedentRoutes(db: Database): Hono {
       params.push(verdict);
     }
     if (contextTag) {
-      sql += ' AND context_tags LIKE ?';
-      params.push(`%"${contextTag}"%`);
+      sql += " AND context_tags LIKE ? ESCAPE '\\'";
+      params.push(`%"${escapeLikePattern(contextTag)}"%`);
     }
 
     sql += ' ORDER BY created_at DESC';
@@ -174,10 +179,10 @@ export function precedentRoutes(db: Database): Hono {
     }
     if (contextTags && contextTags.length > 0) {
       // Match any of the provided tags
-      const tagClauses = contextTags.map(() => 'context_tags LIKE ?');
+      const tagClauses = contextTags.map(() => "context_tags LIKE ? ESCAPE '\\'");
       sql += ` AND (${tagClauses.join(' OR ')})`;
       for (const tag of contextTags) {
-        params.push(`%"${tag}"%`);
+        params.push(`%"${escapeLikePattern(tag)}"%`);
       }
     }
 
