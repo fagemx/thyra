@@ -195,6 +195,39 @@ describe('Bridge Routes — Karvi', () => {
     expect(body.ok).toBe(true);
     expect(body.data.registered).toBe(false);
   });
+
+  it('POST /api/bridges/karvi/tasks/:taskId/dispatch returns success', async () => {
+    const res = await app.request('/api/bridges/karvi/tasks/task-1/dispatch', { method: 'POST' });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { ok: boolean; data: { dispatched: boolean } };
+    expect(body.ok).toBe(true);
+    expect(body.data.dispatched).toBe(true);
+  });
+
+  it('POST /api/bridges/karvi/tasks/:taskId/dispatch returns 502 when Karvi unavailable', async () => {
+    const { app: unavailableApp } = setupApp({
+      dispatchSingleTask: async () => null,
+    });
+    const res = await unavailableApp.request('/api/bridges/karvi/tasks/task-1/dispatch', { method: 'POST' });
+    expect(res.status).toBe(502);
+  });
+
+  it('GET /api/bridges/karvi/tasks/:taskId/progress returns progress', async () => {
+    const res = await app.request('/api/bridges/karvi/tasks/task-1/progress');
+    expect(res.status).toBe(200);
+    const body = await res.json() as { ok: boolean; data: { taskId: string; status: string; progress: number } };
+    expect(body.ok).toBe(true);
+    expect(body.data.taskId).toBe('task-1');
+    expect(body.data.progress).toBe(50);
+  });
+
+  it('GET /api/bridges/karvi/tasks/:taskId/progress returns 502 when unavailable', async () => {
+    const { app: unavailableApp } = setupApp({
+      getTaskProgress: async () => null,
+    });
+    const res = await unavailableApp.request('/api/bridges/karvi/tasks/task-1/progress');
+    expect(res.status).toBe(502);
+  });
 });
 
 describe('Bridge Routes — Edda', () => {
@@ -296,5 +329,21 @@ describe('Bridge Routes — Edda', () => {
     const body = await res.json() as { ok: boolean; data: unknown[] };
     expect(body.ok).toBe(true);
     expect(Array.isArray(body.data)).toBe(true);
+  });
+
+  it('POST /api/bridges/edda/query returns 400 for invalid input', async () => {
+    const res = await post(app, '/api/bridges/edda/query', { limit: -1 });
+    expect(res.status).toBe(400);
+    const body = await res.json() as { ok: boolean; error: { code: string } };
+    expect(body.ok).toBe(false);
+    expect(body.error.code).toBe('VALIDATION');
+  });
+
+  it('POST /api/bridges/edda/note returns 400 for invalid input', async () => {
+    const res = await post(app, '/api/bridges/edda/note', {});
+    expect(res.status).toBe(400);
+    const body = await res.json() as { ok: boolean; error: { code: string } };
+    expect(body.ok).toBe(false);
+    expect(body.error.code).toBe('VALIDATION');
   });
 });

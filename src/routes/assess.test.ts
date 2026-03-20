@@ -80,7 +80,7 @@ describe('Assess Routes', () => {
       expect(body.error.code).toBe('VALIDATION');
     });
 
-    it('returns 400 when village has no constitution', async () => {
+    it('returns 200 with elevated risk when village has no constitution', async () => {
       const res = await post(app, '/api/assess', {
         type: 'dispatch_task',
         description: 'Run linter',
@@ -89,7 +89,10 @@ describe('Assess Routes', () => {
         estimated_cost: 1,
         reason: 'Code quality check',
       });
-      expect([200, 400]).toContain(res.status);
+      expect(res.status).toBe(200);
+      const body = await res.json() as { ok: boolean; data: { level: string } };
+      expect(body.ok).toBe(true);
+      expect(body.data.level).toBeDefined();
     });
   });
 

@@ -39,7 +39,14 @@ function setupApp() {
   });
   app.route('', territoryRoutes(coordinator));
 
-  return { app, db, villageA, villageB, coordinator };
+  const villageC = villageMgr.create({ name: 'Village C', target_repo: 'repoC' }, 'human').id;
+  constitutionStore.create(villageC, {
+    rules: [{ description: 'be good', enforcement: 'soft', scope: ['*'] }],
+    allowed_permissions: ['dispatch_task', 'cross_village'],
+    budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+  }, 'human');
+
+  return { app, db, villageA, villageB, villageC, coordinator };
 }
 
 async function post(app: Hono, path: string, body: unknown) {
@@ -54,12 +61,14 @@ describe('Territory Routes', () => {
   let app: Hono;
   let villageA: string;
   let villageB: string;
+  let villageC: string;
 
   beforeEach(() => {
     const setup = setupApp();
     app = setup.app;
     villageA = setup.villageA;
     villageB = setup.villageB;
+    villageC = setup.villageC;
   });
 
   describe('POST /api/territories', () => {
@@ -202,6 +211,150 @@ describe('Territory Routes', () => {
       const res = await app.request(`/api/territories/${territory.id}/audit`);
       expect(res.status).toBe(200);
       const body = await res.json() as { ok: boolean; data: unknown };
+      expect(body.ok).toBe(true);
+    });
+  });
+
+  describe('GET /api/territories/:id/law-templates', () => {
+    it('returns shared law templates', async () => {
+      const createRes = await post(app, '/api/territories', {
+        name: 'Zone 1',
+        village_ids: [villageA, villageB],
+      });
+      const { data: territory } = await createRes.json() as { data: { id: string } };
+
+      const res = await app.request(`/api/territories/${territory.id}/law-templates`);
+      expect(res.status).toBe(200);
+      const body = await res.json() as { ok: boolean; data: unknown[] };
+      expect(body.ok).toBe(true);
+      expect(Array.isArray(body.data)).toBe(true);
+    });
+  });
+
+  describe('GET /api/territories/:id/metrics', () => {
+    it('returns cross-village metrics', async () => {
+      const createRes = await post(app, '/api/territories', {
+        name: 'Zone 1',
+        village_ids: [villageA, villageB],
+      });
+      const { data: territory } = await createRes.json() as { data: { id: string } };
+
+      const res = await app.request(`/api/territories/${territory.id}/metrics`);
+      expect(res.status).toBe(200);
+      const body = await res.json() as { ok: boolean; data: unknown };
+      expect(body.ok).toBe(true);
+    });
+  });
+
+  describe('GET /api/territories/:id/precedents', () => {
+    it('returns shared precedents', async () => {
+      const createRes = await post(app, '/api/territories', {
+        name: 'Zone 1',
+        village_ids: [villageA, villageB],
+      });
+      const { data: territory } = await createRes.json() as { data: { id: string } };
+
+      const res = await app.request(`/api/territories/${territory.id}/precedents`);
+      expect(res.status).toBe(200);
+      const body = await res.json() as { ok: boolean; data: unknown[] };
+      expect(body.ok).toBe(true);
+      expect(Array.isArray(body.data)).toBe(true);
+    });
+  });
+
+  describe('Village management', () => {
+    it('POST /api/territories/:id/villages adds a village', async () => {
+      const createRes = await post(app, '/api/territories', {
+        name: 'Zone 1',
+        village_ids: [villageA, villageB],
+      });
+      const { data: territory } = await createRes.json() as { data: { id: string } };
+
+      const res = await post(app, `/api/territories/${territory.id}/villages`, {
+        village_id: villageC,
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json() as { ok: boolean };
+      expect(body.ok).toBe(true);
+    });
+
+    it('DELETE /api/territories/:id/villages/:villageId removes a village', async () => {
+      const createRes = await post(app, '/api/territories', {
+        name: 'Zone 1',
+        village_ids: [villageA, villageB, villageC],
+      });
+      const { data: territory } = await createRes.json() as { data: { id: string } };
+
+      const res = await app.request(`/api/territories/${territory.id}/villages/${villageC}`, { method: 'DELETE' });
+      expect(res.status).toBe(200);
+      const body = await res.json() as { ok: boolean };
+      expect(body.ok).toBe(true);
+    });
+  });
+
+  describe('POST /api/territories/share-skill', () => {
+    it('returns 400 for invalid input', async () => {
+      const res = await post(app, '/api/territories/share-skill', {});
+      expect(res.status).toBe(400);
+      const body = await res.json() as { ok: boolean; error: { code: string } };
+      expect(body.ok).toBe(false);
+      expect(body.error.code).toBe('VALIDATION');
+    });
+
+    it('returns 400 when no territory exists between villages', async () => {
+      const res = await post(app, '/api/territories/share-skill', {
+        skill_id: 'skill-1',
+        from_village_id: villageA,
+        to_village_id: villageB,
+      });
+      // No territory exists yet, so it should fail
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe('POST /api/territory-policies/:id/revoke', () => {
+    it('revokes a territory policy', async () => {
+      const createRes = await post(app, '/api/territories', {
+        name: 'Zone 1',
+        village_ids: [villageA, villageB],
+      });
+      const { data: territory } = await createRes.json() as { data: { id: string } };
+
+      const policyRes = await post(app, `/api/territories/${territory.id}/policies`, {
+        name: 'Shared linting',
+        type: 'shared_standard',
+        content: { description: 'All villages must lint' },
+      });
+      const { data: policy } = await policyRes.json() as { data: { id: string } };
+
+      const res = await app.request(`/api/territory-policies/${policy.id}/revoke`, { method: 'POST' });
+      expect(res.status).toBe(200);
+      const body = await res.json() as { ok: boolean; data: { status: string } };
+      expect(body.ok).toBe(true);
+      expect(body.data.status).toBe('revoked');
+    });
+  });
+
+  describe('POST /api/agreements/:id/approve', () => {
+    it('approves an agreement', async () => {
+      const createRes = await post(app, '/api/territories', {
+        name: 'Zone 1',
+        village_ids: [villageA, villageB],
+      });
+      const { data: territory } = await createRes.json() as { data: { id: string } };
+
+      const agreeRes = await post(app, `/api/territories/${territory.id}/agreements`, {
+        type: 'resource_sharing',
+        parties: [villageA, villageB],
+        terms: { description: 'Share resources' },
+      });
+      const { data: agreement } = await agreeRes.json() as { data: { id: string } };
+
+      const res = await post(app, `/api/agreements/${agreement.id}/approve`, {
+        village_id: villageA,
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json() as { ok: boolean };
       expect(body.ok).toBe(true);
     });
   });
