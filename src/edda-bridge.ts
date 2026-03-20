@@ -163,8 +163,9 @@ export class EddaBridge {
         related_commits: data.related_commits,
         related_notes: data.related_notes,
       };
-    } catch {
-      // Graceful degradation: Edda offline → empty results
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.debug('[edda-bridge] queryDecisions failed:', msg);
       return emptyResult(q);
     }
   }
@@ -191,8 +192,9 @@ export class EddaBridge {
         return result;
       }
       return null;
-    } catch {
-      // Graceful degradation: log warning, don't crash
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.debug('[edda-bridge] recordDecision failed:', msg);
       appendAudit(this.db, 'edda', key, 'record_failed', { ...decision, error: 'Edda unreachable' }, 'system');
       return null;
     }
@@ -225,7 +227,9 @@ export class EddaBridge {
         return result;
       }
       return null;
-    } catch {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.debug('[edda-bridge] recordNote failed:', msg);
       appendAudit(this.db, 'edda', 'note', 'record_note_failed', {
         text: input.text.slice(0, 100),
         error: 'Edda unreachable',
@@ -275,7 +279,9 @@ export class EddaBridge {
             tags: e.tags,
           }));
       return entries;
-    } catch {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.debug('[edda-bridge] queryEventLog failed:', msg);
       return [];
     }
   }
@@ -290,7 +296,9 @@ export class EddaBridge {
       });
       if (!res.ok) return null;
       return await res.json() as Record<string, unknown>;
-    } catch {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.debug('[edda-bridge] getDecisionOutcomes failed:', msg);
       return null;
     }
   }
@@ -319,8 +327,9 @@ export class EddaBridge {
         ts: d.ts,
         branch: d.branch,
       }));
-    } catch {
-      // Graceful degradation: Edda offline → null
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.debug('[edda-bridge] listDrafts failed:', msg);
       return null;
     }
   }
@@ -332,7 +341,9 @@ export class EddaBridge {
       });
       this.healthy = res.ok;
       return { ok: res.ok, url: this.eddaUrl };
-    } catch {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.debug('[edda-bridge] getHealth failed:', msg);
       this.healthy = false;
       return { ok: false, url: this.eddaUrl };
     }
