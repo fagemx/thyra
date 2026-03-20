@@ -12,7 +12,7 @@
  * @see docs/world-design-v0/canonical-cycle.md §4.1
  */
 
-import type { Database } from 'bun:sqlite';
+import type { Database } from '../db';
 import type { WorldState } from '../world/state';
 import type { Observation, ObservationBatch } from '../schemas/observation';
 import { ObservationBatchSchema } from '../schemas/observation';

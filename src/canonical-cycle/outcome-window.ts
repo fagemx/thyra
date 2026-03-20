@@ -8,7 +8,7 @@
  * @see docs/plan/world-cycle/CONTRACT.md OUTCOME-01
  */
 
-import type { Database } from 'bun:sqlite';
+import type { Database } from '../db';
 import { nanoid } from 'nanoid';
 import { appendAudit } from '../db';
 import type {
