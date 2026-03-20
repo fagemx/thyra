@@ -15,6 +15,7 @@ import { z } from 'zod';
 import type { Database } from '../db';
 import { appendAudit } from '../db';
 import { ObservationSchema } from '../schemas/observation';
+import type { CycleRunRow } from '../schemas/cycle-run';
 
 // ---------------------------------------------------------------------------
 // Input schemas
@@ -35,13 +36,6 @@ interface ObservationBatchRow {
   observations: string;
   created_at: string;
   version: number;
-}
-
-interface CycleRunRow {
-  id: string;
-  world_id: string;
-  current_stage: string;
-  observation_batch_id: string | null;
 }
 
 // ---------------------------------------------------------------------------

@@ -17,6 +17,7 @@ import { z } from 'zod';
 import type { Database } from '../db';
 import { appendAudit } from '../db';
 import { ChangeKindSchema } from '../schemas/canonical-proposal';
+import type { CycleRunRow } from '../schemas/cycle-run';
 
 // ---------------------------------------------------------------------------
 // Input schemas
@@ -82,12 +83,6 @@ interface AppliedChangeRow {
   rollback_reason: string | null;
   version: number;
   created_at: string;
-}
-
-interface CycleRunRow {
-  id: string;
-  world_id: string;
-  current_stage: string;
 }
 
 // ---------------------------------------------------------------------------

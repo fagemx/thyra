@@ -76,3 +76,44 @@ export const CycleRunSchema = z.object({
   version: z.number().default(1),
 });
 export type CycleRun = z.infer<typeof CycleRunSchema>;
+
+// ---------------------------------------------------------------------------
+// CycleRunRow — DB snake_case row type (matches cycle_runs table in db.ts)
+// ---------------------------------------------------------------------------
+
+export interface CycleRunRow {
+  id: string;
+  world_id: string;
+  cycle_number: number;
+  current_stage: string;
+  observe_started_at: string | null;
+  observe_completed_at: string | null;
+  propose_started_at: string | null;
+  propose_completed_at: string | null;
+  judge_started_at: string | null;
+  judge_completed_at: string | null;
+  apply_started_at: string | null;
+  apply_completed_at: string | null;
+  pulse_started_at: string | null;
+  pulse_completed_at: string | null;
+  outcome_started_at: string | null;
+  outcome_completed_at: string | null;
+  precedent_started_at: string | null;
+  precedent_completed_at: string | null;
+  adjust_started_at: string | null;
+  adjust_completed_at: string | null;
+  started_at: string;
+  completed_at: string | null;
+  failed_at: string | null;
+  failed_stage: string | null;
+  failure_reason: string | null;
+  observation_batch_id: string | null;
+  proposal_ids: string;
+  judgment_report_ids: string;
+  applied_change_ids: string;
+  pulse_frame_id: string | null;
+  mode: string | null;
+  opened_by: string | null;
+  created_at: string;
+  version: number;
+}
