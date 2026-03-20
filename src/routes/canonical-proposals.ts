@@ -303,7 +303,7 @@ export function canonicalProposalRoutes(db: Database): Hono {
   // -----------------------------------------------------------------------
   // SS13.1 — Apply Proposal
   // -----------------------------------------------------------------------
-  app.post('/api/v1/proposals/:id/apply', async (c) => {
+  app.post('/api/v1/proposals/:id/apply', (c) => {
     const proposalId = c.req.param('id');
 
     const proposal = db.prepare(

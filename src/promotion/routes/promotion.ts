@@ -38,11 +38,12 @@ function insertHandoff(db: Database, result: PackageResult): void {
 }
 
 function rowToPackageResult(row: Record<string, unknown>): PackageResult {
-  return {
-    handoff: JSON.parse(row['handoff_json'] as string),
-    checklist: row['checklist_json'] ? JSON.parse(row['checklist_json'] as string) : null,
+  const result: PackageResult = {
+    handoff: JSON.parse(row['handoff_json'] as string) as PackageResult['handoff'],
+    checklist: row['checklist_json'] ? JSON.parse(row['checklist_json'] as string) as PackageResult['checklist'] : null,
     linksMarkdown: row['links_markdown'] as string,
   };
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -66,22 +67,22 @@ export function promotionRoutes(db: Database): Hono {
 
     if (targetLayer === 'project-plan') {
       const checklist = evaluatePromotionChecklist('project-plan', {
-        coreTerminologyStable: Boolean(context['coreTerminologyStable']),
-        canonicalFormExists: Boolean(context['canonicalFormExists']),
-        sharedTypesClear: Boolean(context['sharedTypesClear']),
-        canonicalSliceExists: Boolean(context['canonicalSliceExists']),
-        demoPathRunnable: Boolean(context['demoPathRunnable']),
-        moduleBoundariesClear: Boolean(context['moduleBoundariesClear']),
+        coreTerminologyStable: context['coreTerminologyStable'] ?? false,
+        canonicalFormExists: context['canonicalFormExists'] ?? false,
+        sharedTypesClear: context['sharedTypesClear'] ?? false,
+        canonicalSliceExists: context['canonicalSliceExists'] ?? false,
+        demoPathRunnable: context['demoPathRunnable'] ?? false,
+        moduleBoundariesClear: context['moduleBoundariesClear'] ?? false,
       });
       return c.json({ ok: true, data: checklist });
     }
 
     const checklist = evaluatePromotionChecklist('thyra-runtime', {
-      worldFormSelected: Boolean(context['worldFormSelected']),
-      minimumWorldHasShape: Boolean(context['minimumWorldHasShape']),
-      closureTargetClear: Boolean(context['closureTargetClear']),
-      changeJudgmentDefined: Boolean(context['changeJudgmentDefined']),
-      runtimeConstraintsExplicit: Boolean(context['runtimeConstraintsExplicit']),
+      worldFormSelected: context['worldFormSelected'] ?? false,
+      minimumWorldHasShape: context['minimumWorldHasShape'] ?? false,
+      closureTargetClear: context['closureTargetClear'] ?? false,
+      changeJudgmentDefined: context['changeJudgmentDefined'] ?? false,
+      runtimeConstraintsExplicit: context['runtimeConstraintsExplicit'] ?? false,
     });
     return c.json({ ok: true, data: checklist });
   });

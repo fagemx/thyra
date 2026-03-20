@@ -13,5 +13,6 @@ export const PromotionChecklistSchema = z.object({
   results: z.array(ChecklistItemSchema),
   verdict: z.enum(['ready', 'partial', 'not_ready']),
   createdAt: z.string(),
+  version: z.number().int().default(1),
 });
 export type PromotionChecklist = z.infer<typeof PromotionChecklistSchema>;

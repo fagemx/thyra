@@ -81,6 +81,6 @@ export function startCycleTimer(
   }, intervalMs);
 
   return {
-    stop: () => clearInterval(handle),
+    stop: () => { clearInterval(handle); },
   };
 }

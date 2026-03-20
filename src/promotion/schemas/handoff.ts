@@ -84,5 +84,6 @@ export const PromotionHandoffSchema = z.object({
   sourceLinks: z.array(SourceLinkSchema),
   handoffPayload: z.union([ProjectPlanPayloadSchema, ThyraRuntimePayloadSchema]),
   createdAt: z.string(),
+  version: z.number().int().default(1),
 });
 export type PromotionHandoff = z.infer<typeof PromotionHandoffSchema>;

@@ -29,7 +29,7 @@ export interface RollbackRouteDeps {
   db: Database;
   store: SuspendableStore;
   onEddaNotify?: (memo: PromotionRollbackMemo) => Promise<void>;
-  getHandoff?: (id: string) => unknown | null;
+  getHandoff?: (id: string) => unknown;
 }
 
 // ---------------------------------------------------------------------------
@@ -59,10 +59,11 @@ function insertRollback(db: Database, entry: RollbackEntry): void {
 }
 
 function rowToEntry(row: Record<string, unknown>): RollbackEntry {
-  return {
-    memo: JSON.parse(row['memo_json'] as string),
-    suspendResult: JSON.parse(row['suspend_result_json'] as string),
+  const entry: RollbackEntry = {
+    memo: JSON.parse(row['memo_json'] as string) as PromotionRollbackMemo,
+    suspendResult: JSON.parse(row['suspend_result_json'] as string) as RollbackEntry['suspendResult'],
   };
+  return entry;
 }
 
 // ---------------------------------------------------------------------------
