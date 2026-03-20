@@ -179,7 +179,20 @@ function createTestDb(): Database {
       event_id TEXT
     )
   `);
+  // Entity tables needed for worldId filtering in observeFromAuditLog
+  db.run(`CREATE TABLE IF NOT EXISTS constitutions (id TEXT PRIMARY KEY, village_id TEXT NOT NULL)`);
+  db.run(`CREATE TABLE IF NOT EXISTS chiefs (id TEXT PRIMARY KEY, village_id TEXT NOT NULL)`);
+  db.run(`CREATE TABLE IF NOT EXISTS laws (id TEXT PRIMARY KEY, village_id TEXT NOT NULL)`);
+  db.run(`CREATE TABLE IF NOT EXISTS skills (id TEXT PRIMARY KEY, village_id TEXT)`);
+  db.run(`CREATE TABLE IF NOT EXISTS zones (id TEXT PRIMARY KEY, village_id TEXT NOT NULL)`);
+  db.run(`CREATE TABLE IF NOT EXISTS stalls (id TEXT PRIMARY KEY, village_id TEXT NOT NULL)`);
+  db.run(`CREATE TABLE IF NOT EXISTS event_slots (id TEXT PRIMARY KEY, village_id TEXT NOT NULL)`);
   return db;
+}
+
+/** Insert a minimal entity row so audit_log worldId filtering can find it */
+function insertEntity(db: Database, table: string, id: string, villageId: string): void {
+  db.prepare(`INSERT INTO ${table} (id, village_id) VALUES (?, ?)`).run(id, villageId);
 }
 
 function insertAuditLogEntry(
@@ -508,6 +521,7 @@ describe('observeFromAuditLog', () => {
 
   it('converts audit log entries to observations', () => {
     const now = new Date().toISOString();
+    insertEntity(db, 'chiefs', 'chief-1', 'village-1');
     insertAuditLogEntry(db, {
       entity_type: 'chief',
       entity_id: 'chief-1',
@@ -530,6 +544,7 @@ describe('observeFromAuditLog', () => {
 
   it('infers importance from action', () => {
     const now = new Date().toISOString();
+    insertEntity(db, 'constitutions', 'const-1', 'village-1');
     insertAuditLogEntry(db, {
       entity_type: 'constitution',
       entity_id: 'const-1',
@@ -547,6 +562,9 @@ describe('observeFromAuditLog', () => {
 
   it('handles multiple audit log entries', () => {
     const now = new Date().toISOString();
+    insertEntity(db, 'chiefs', 'chief-1', 'village-1');
+    insertEntity(db, 'laws', 'law-1', 'village-1');
+    insertEntity(db, 'skills', 'skill-1', 'village-1');
     insertAuditLogEntry(db, {
       entity_type: 'chief',
       entity_id: 'chief-1',
@@ -583,6 +601,7 @@ describe('observeFromAuditLog', () => {
 
   it('infers high importance for delete actions', () => {
     const now = new Date().toISOString();
+    insertEntity(db, 'chiefs', 'chief-1', 'village-1');
     insertAuditLogEntry(db, {
       entity_type: 'chief',
       entity_id: 'chief-1',
@@ -619,7 +638,7 @@ describe('observeFromAuditLog', () => {
     const now = new Date().toISOString();
     insertAuditLogEntry(db, {
       entity_type: 'unknown_entity',
-      entity_id: 'unk-1',
+      entity_id: 'village-1',
       action: 'create',
       payload: '{}',
       actor: 'system',
@@ -634,6 +653,7 @@ describe('observeFromAuditLog', () => {
 
   it('handles invalid JSON payload gracefully', () => {
     const now = new Date().toISOString();
+    insertEntity(db, 'chiefs', 'chief-1', 'village-1');
     insertAuditLogEntry(db, {
       entity_type: 'chief',
       entity_id: 'chief-1',
@@ -652,6 +672,8 @@ describe('observeFromAuditLog', () => {
   });
 
   it('filters entries by sinceTimestamp', () => {
+    insertEntity(db, 'chiefs', 'chief-1', 'village-1');
+    insertEntity(db, 'laws', 'law-1', 'village-1');
     // Insert old entry (should be excluded)
     insertAuditLogEntry(db, {
       entity_type: 'chief',
@@ -681,6 +703,7 @@ describe('observeFromAuditLog', () => {
 
   it('all observations pass Zod validation', () => {
     const now = new Date().toISOString();
+    insertEntity(db, 'laws', 'law-1', 'village-1');
     insertAuditLogEntry(db, {
       entity_type: 'law',
       entity_id: 'law-1',
@@ -880,6 +903,7 @@ describe('buildObservationBatch', () => {
 
   it('aggregates observations from all sources', () => {
     const now = new Date().toISOString();
+    insertEntity(db, 'laws', 'law-1', 'village-1');
     insertAuditLogEntry(db, {
       entity_type: 'law',
       entity_id: 'law-1',

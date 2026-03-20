@@ -54,7 +54,7 @@ function inferImportance(action: string): 'low' | 'medium' | 'high' | 'critical'
  */
 export function observeFromAuditLog(
   db: Database,
-  _worldId: string,
+  worldId: string,
   sinceTimestamp?: string,
 ): Observation[] {
   const since = sinceTimestamp ?? new Date(Date.now() - 15 * 60_000).toISOString();
@@ -63,8 +63,20 @@ export function observeFromAuditLog(
     `SELECT id, entity_type, entity_id, action, payload, actor, created_at, event_id
      FROM audit_log
      WHERE created_at > ?
+       AND (
+         (entity_type IN ('village', 'world') AND entity_id = ?)
+         OR (entity_type = 'constitution' AND entity_id IN (SELECT id FROM constitutions WHERE village_id = ?))
+         OR (entity_type = 'chief' AND entity_id IN (SELECT id FROM chiefs WHERE village_id = ?))
+         OR (entity_type = 'law' AND entity_id IN (SELECT id FROM laws WHERE village_id = ?))
+         OR (entity_type = 'skill' AND entity_id IN (SELECT id FROM skills WHERE village_id = ?))
+         OR (entity_type = 'zone' AND entity_id IN (SELECT id FROM zones WHERE village_id = ?))
+         OR (entity_type = 'stall' AND entity_id IN (SELECT id FROM stalls WHERE village_id = ?))
+         OR (entity_type = 'event' AND entity_id IN (SELECT id FROM event_slots WHERE village_id = ?))
+         OR (entity_type NOT IN ('village','world','constitution','chief','law','skill','zone','stall','event')
+             AND entity_id = ?)
+       )
      ORDER BY created_at ASC`
-  ).all(since) as AuditLogRow[];
+  ).all(since, worldId, worldId, worldId, worldId, worldId, worldId, worldId, worldId, worldId) as AuditLogRow[];
 
   return rows.map(row => ({
     id: `obs_audit_${row.id}`,
