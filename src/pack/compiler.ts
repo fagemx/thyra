@@ -11,11 +11,10 @@ import type { ConstitutionStore, Constitution, BudgetLimits } from '../constitut
 import type { ChiefEngine, Chief } from '../chief-engine';
 import type { LawEngine, Law } from '../law-engine';
 import type { SkillRegistry, Skill } from '../skill-registry';
-import type { Permission } from '../schemas/constitution';
-import type { EvaluatorRule } from '../schemas/evaluator';
 import type { SkillBinding } from '../schemas/skill';
 import type { ResolvedLlmConfig } from '../schemas/llm-config';
 import { resolvePreset } from '../schemas/llm-config';
+import type { VillagePack, VillagePackConstitution, VillagePackChief, VillagePackLaw, VillagePackLlm } from '../schemas/village-pack';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -86,75 +85,11 @@ interface CompileContext {
   law_entries: LawPhaseEntry[];
 }
 
-// ── Pack shape (input) ───────────────────────────────────────
-// VillagePack mirrors the YAML structure. Since #77 (YAML parser) produces
-// this shape, we define it inline to avoid depending on a not-yet-landed schema.
+// ── Re-exports from schema ───────────────────────────────────
+// VillagePack type is now the canonical Zod-derived type from schemas/village-pack.
+// Re-export for consumers that import from compiler.
+export type { VillagePack } from '../schemas/village-pack';
 
-export interface PackVillage {
-  name: string;
-  description: string;
-  target_repo: string;
-  metadata?: Record<string, unknown>;
-}
-
-export interface PackConstitutionRule {
-  description: string;
-  enforcement: 'hard' | 'soft';
-  scope?: string[];
-}
-
-export interface PackConstitution {
-  allowed_permissions: Permission[];
-  budget: {
-    max_cost_per_action: number;
-    max_cost_per_day: number;
-    max_cost_per_loop: number;
-    max_cost_per_month?: number;
-  };
-  rules: PackConstitutionRule[];
-  evaluators?: EvaluatorRule[];
-}
-
-export interface PackChief {
-  name: string;
-  role: string;
-  permissions: Permission[];
-  pipelines?: string[];
-  personality?: {
-    risk_tolerance?: 'conservative' | 'moderate' | 'aggressive';
-    communication_style?: 'concise' | 'detailed' | 'minimal';
-    decision_speed?: 'fast' | 'deliberate' | 'cautious';
-  };
-  constraints?: Array<{
-    type: 'must' | 'must_not' | 'prefer' | 'avoid';
-    description: string;
-  }>;
-  skills: string[]; // skill names — resolved in Phase 3
-}
-
-export interface PackLaw {
-  category: string;
-  description: string;
-  strategy: Record<string, unknown>;
-  evidence: {
-    source: string;
-    reasoning: string;
-  };
-}
-
-export interface PackLlmConfig {
-  provider: string;
-  preset: string;
-}
-
-export interface VillagePack {
-  version: string;
-  village: PackVillage;
-  constitution: PackConstitution;
-  chief: PackChief;
-  laws: PackLaw[];
-  llm?: PackLlmConfig;
-}
 
 // ── Diff helpers ─────────────────────────────────────────────
 
@@ -178,9 +113,9 @@ function canonicalConstitutionFingerprint(c: {
 }
 
 function diffVillage(
-  pack: PackVillage,
+  pack: VillagePack['village'],
   current: Village | null,
-  packLlm?: PackLlmConfig,
+  packLlm?: VillagePackLlm,
 ): 'create' | 'update' | 'skip' {
   if (!current) return 'create';
   if (
@@ -201,7 +136,7 @@ function diffVillage(
 }
 
 function diffConstitution(
-  pack: PackConstitution,
+  pack: VillagePackConstitution,
   current: Constitution | null,
 ): 'create' | 'supersede' | 'skip' {
   if (!current) return 'create';
@@ -223,7 +158,7 @@ function diffConstitution(
 }
 
 function diffChief(
-  pack: PackChief,
+  pack: VillagePackChief,
   current: Chief | null,
   resolvedBindings: SkillBinding[],
 ): 'create' | 'update' | 'skip' {
@@ -237,29 +172,29 @@ function diffChief(
     JSON.stringify(resolvedBindings.map((b) => b.skill_id).sort()) ===
     JSON.stringify(current.skills.map((b) => b.skill_id).sort());
   const pipelinesSame =
-    JSON.stringify([...(pack.pipelines ?? [])].sort()) ===
+    JSON.stringify([...pack.pipelines].sort()) ===
     JSON.stringify([...current.pipelines].sort());
   if (permsSame && nameSame && roleSame && skillsSame && pipelinesSame) return 'skip';
   return 'update';
 }
 
 interface LawDiffResult {
-  toPropose: PackLaw[];
+  toPropose: VillagePackLaw[];
   toRevoke: Law[];
-  toReplace: Array<{ old: Law; updated: PackLaw }>;
+  toReplace: Array<{ old: Law; updated: VillagePackLaw }>;
   toSkip: string[];
 }
 
-function diffLaws(packLaws: PackLaw[], activeLaws: Law[]): LawDiffResult {
+function diffLaws(packLaws: VillagePackLaw[], activeLaws: Law[]): LawDiffResult {
   const activeByCat = new Map<string, Law>();
   for (const law of activeLaws) {
     activeByCat.set(law.category, law);
   }
   const packCats = new Set(packLaws.map((l) => l.category));
 
-  const toPropose: PackLaw[] = [];
+  const toPropose: VillagePackLaw[] = [];
   const toRevoke: Law[] = [];
-  const toReplace: Array<{ old: Law; updated: PackLaw }> = [];
+  const toReplace: Array<{ old: Law; updated: VillagePackLaw }> = [];
   const toSkip: string[] = [];
 
   for (const pl of packLaws) {
@@ -267,10 +202,10 @@ function diffLaws(packLaws: PackLaw[], activeLaws: Law[]): LawDiffResult {
     if (!existing) {
       toPropose.push(pl);
     } else {
-      // Compare content
+      // Compare content (schema uses nested content: { description, strategy })
       const contentSame =
-        existing.content.description === pl.description &&
-        JSON.stringify(existing.content.strategy) === JSON.stringify(pl.strategy);
+        existing.content.description === pl.content.description &&
+        JSON.stringify(existing.content.strategy) === JSON.stringify(pl.content.strategy);
       if (contentSame) {
         toSkip.push(pl.category);
       } else {
@@ -312,9 +247,9 @@ export class VillagePackCompiler {
       this.compileConstitution(ctx, pack.constitution, actor, opts.dry_run);
     }
 
-    // Phase 3: Skills
+    // Phase 3: Skills (skills are top-level in schema)
     if (!ctx.aborted) {
-      this.compileSkills(ctx, pack.chief.skills);
+      this.compileSkills(ctx, pack.skills);
     }
 
     // Phase 4: Chief
@@ -334,22 +269,19 @@ export class VillagePackCompiler {
 
   private compileVillage(
     ctx: CompileContext,
-    pack: PackVillage,
-    packLlm: PackLlmConfig | undefined,
+    pack: VillagePack['village'],
+    packLlm: VillagePackLlm | undefined,
     actor: string,
     dryRun: boolean,
   ): void {
     // Resolve llm_config (default to balanced/anthropic)
     const llmProvider = packLlm?.provider ?? 'anthropic';
     const llmPreset = packLlm?.preset ?? 'balanced';
-    const resolvedLlm = resolvePreset(
-      llmProvider as 'anthropic',
-      llmPreset as 'economy' | 'balanced' | 'performance',
-    );
+    const resolvedLlm = resolvePreset(llmProvider, llmPreset);
     ctx.llm_config = resolvedLlm;
 
     // Build metadata with llm_config
-    const metadata = { ...(pack.metadata ?? {}), llm_config: resolvedLlm };
+    const metadata = { llm_config: resolvedLlm };
 
     // Find existing village by name
     const all = this.villageMgr.list();
@@ -393,7 +325,7 @@ export class VillagePackCompiler {
 
   private compileConstitution(
     ctx: CompileContext,
-    pack: PackConstitution,
+    pack: VillagePackConstitution,
     actor: string,
     dryRun: boolean,
   ): void {
@@ -469,7 +401,7 @@ export class VillagePackCompiler {
 
   // ── Phase 4: Chief ─────────────────────────────────────────
 
-  private validateChiefPermissions(ctx: CompileContext, pack: PackChief, dryRun: boolean): boolean {
+  private validateChiefPermissions(ctx: CompileContext, pack: VillagePackChief, dryRun: boolean): boolean {
     const constitution = ctx.constitution ?? this.constitutionStore.getActive(ctx.village_id);
     if (!constitution && !dryRun) {
       ctx.errors.push('No active constitution for chief validation — aborting');
@@ -493,7 +425,7 @@ export class VillagePackCompiler {
 
   private compileChief(
     ctx: CompileContext,
-    pack: PackChief,
+    pack: VillagePackChief,
     actor: string,
     dryRun: boolean,
   ): void {
@@ -516,9 +448,9 @@ export class VillagePackCompiler {
         name: pack.name,
         role: pack.role,
         permissions: pack.permissions,
-        pipelines: pack.pipelines ?? [],
-        personality: pack.personality ?? {},
-        constraints: pack.constraints ?? [],
+        pipelines: pack.pipelines,
+        personality: pack.personality,
+        constraints: pack.constraints,
         skills: bindings,
       };
       if (dryRun) {
@@ -534,12 +466,8 @@ export class VillagePackCompiler {
         name: pack.name,
         role: pack.role,
         permissions: pack.permissions,
-        pipelines: pack.pipelines ?? [],
-        personality: pack.personality ? {
-          risk_tolerance: pack.personality.risk_tolerance ?? 'moderate',
-          communication_style: pack.personality.communication_style ?? 'concise',
-          decision_speed: pack.personality.decision_speed ?? 'deliberate',
-        } : undefined,
+        pipelines: pack.pipelines,
+        personality: pack.personality,
         constraints: pack.constraints,
         skills: bindings,
       };
@@ -563,7 +491,7 @@ export class VillagePackCompiler {
 
   private compileLaws(
     ctx: CompileContext,
-    packLaws: PackLaw[],
+    packLaws: VillagePackLaw[],
     actor: string,
     dryRun: boolean,
   ): void {
@@ -603,7 +531,7 @@ export class VillagePackCompiler {
   /** 處理 law propose 操作 */
   private compileLawsPropose(
     ctx: CompileContext,
-    toPropose: PackLaw[],
+    toPropose: VillagePackLaw[],
     chiefId: string,
     dryRun: boolean,
     entries: LawPhaseEntry[],
@@ -616,7 +544,7 @@ export class VillagePackCompiler {
       try {
         const law = this.lawEngine.propose(ctx.village_id, chiefId, {
           category: pl.category,
-          content: { description: pl.description, strategy: pl.strategy },
+          content: pl.content,
           evidence: pl.evidence,
         });
         entries.push({ category: pl.category, action: 'propose', law_id: law.id });
@@ -655,7 +583,7 @@ export class VillagePackCompiler {
   /** 處理 law replace 操作（revoke old + propose new） */
   private compileLawsReplace(
     ctx: CompileContext,
-    toReplace: Array<{ old: Law; updated: PackLaw }>,
+    toReplace: Array<{ old: Law; updated: VillagePackLaw }>,
     chiefId: string,
     actor: string,
     dryRun: boolean,
@@ -677,7 +605,7 @@ export class VillagePackCompiler {
       try {
         const law = this.lawEngine.propose(ctx.village_id, chiefId, {
           category: pl.category,
-          content: { description: pl.description, strategy: pl.strategy },
+          content: pl.content,
           evidence: pl.evidence,
         });
         entries.push({ category: pl.category, action: 'replace', law_id: law.id });
@@ -701,7 +629,7 @@ export class VillagePackCompiler {
       session: {
         session_id: `pack-${randomUUID()}`,
         pack_fingerprint: fingerprint,
-        pack_version: pack.version,
+        pack_version: pack.pack_version,
         source_path: opts.source_path,
         compiled_at: new Date().toISOString(),
         compiled_by: opts.compiled_by,
