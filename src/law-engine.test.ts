@@ -575,4 +575,22 @@ describe('LawEngine + Edda recording', () => {
     expect(law.status).toBe('active');
     expect(law.approved_by).toBe('auto');
   });
+
+  it('evaluate: harmful + auto-approved → rolled_back despite Edda failure', () => {
+    // Edda throws on every recordDecision call
+    mockRecordDecision.mockRejectedValue(new Error('Edda disconnected mid-recording'));
+
+    const law = lawEngine.propose(villageId, chiefWithEnact, LAW_INPUT);
+    expect(law.status).toBe('active');
+    expect(law.approved_by).toBe('auto');
+
+    // evaluate with harmful verdict — should still auto-rollback
+    const evaluated = lawEngine.evaluate(law.id, { metrics: { quality: 0.1 }, verdict: 'harmful' });
+    expect(evaluated.status).toBe('rolled_back');
+    expect(evaluated.effectiveness?.verdict).toBe('harmful');
+
+    // Verify DB also shows rolled_back
+    const refreshed = lawEngine.get(law.id);
+    expect(refreshed?.status).toBe('rolled_back');
+  });
 });
