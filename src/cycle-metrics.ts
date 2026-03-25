@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite';
 import { createHash } from 'crypto';
 import { appendAudit } from './db';
-import type { LoopCycle } from './loop-runner';
+import type { LoopCycle } from './schemas/loop';
 import type { DecideContext, DecideResult } from './decision-engine';
 import type { CycleMetrics, DecideSnapshot } from './schemas/cycle-metrics';
 

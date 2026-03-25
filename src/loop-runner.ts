@@ -12,28 +12,9 @@ import type { DecisionEngine, ActionIntent, DecideResult } from './decision-engi
 import { CycleMetricsCollector } from './cycle-metrics';
 import { snapshotWorldState } from './world/snapshot';
 import { StartCycleInput as StartCycleSchema } from './schemas/loop';
-import type { StartCycleInputRaw, LoopAction, CycleIntent } from './schemas/loop';
+import type { StartCycleInputRaw, LoopAction, CycleIntent, LoopCycle } from './schemas/loop';
 
-export interface LoopCycle {
-  id: string;
-  village_id: string;
-  chief_id: string;
-  trigger: 'scheduled' | 'event' | 'manual';
-  status: 'running' | 'completed' | 'timeout' | 'aborted';
-  version: number;
-  budget_remaining: number;
-  cost_incurred: number;
-  iterations: number;
-  max_iterations: number;
-  timeout_ms: number;
-  actions: LoopAction[];
-  laws_proposed: string[];
-  laws_enacted: string[];
-  abort_reason: string | null;
-  intent: CycleIntent | null;
-  created_at: string;
-  updated_at: string;
-}
+export type { LoopCycle } from './schemas/loop';
 
 interface Decision {
   action_type: string;

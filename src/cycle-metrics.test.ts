@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { Database } from 'bun:sqlite';
 import { initSchema, appendAudit } from './db';
 import { CycleMetricsCollector } from './cycle-metrics';
-import type { LoopCycle } from './loop-runner';
+import type { LoopCycle } from './schemas/loop';
 import type { DecideContext, DecideResult, DecisionReasoning } from './decision-engine';
 import { CycleMetricsSchema, DecideSnapshotSchema } from './schemas/cycle-metrics';
 

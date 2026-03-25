@@ -4,7 +4,7 @@ import type { Constitution } from '../constitution-store';
 import type { Chief } from '../chief-engine';
 import type { Law } from '../law-engine';
 import type { Skill } from '../skill-registry';
-import type { LoopCycle } from '../loop-runner';
+import type { LoopCycle } from '../schemas/loop';
 import type { Goal } from '../goal-store';
 
 /** 某個 village 在某一時刻的完整狀態快照 */

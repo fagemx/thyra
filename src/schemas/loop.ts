@@ -93,3 +93,24 @@ export interface LoopAction {
   result?: unknown;
   blocked_reasons?: string[];
 }
+
+export interface LoopCycle {
+  id: string;
+  village_id: string;
+  chief_id: string;
+  trigger: 'scheduled' | 'event' | 'manual';
+  status: 'running' | 'completed' | 'timeout' | 'aborted';
+  version: number;
+  budget_remaining: number;
+  cost_incurred: number;
+  iterations: number;
+  max_iterations: number;
+  timeout_ms: number;
+  actions: LoopAction[];
+  laws_proposed: string[];
+  laws_enacted: string[];
+  abort_reason: string | null;
+  intent: CycleIntent | null;
+  created_at: string;
+  updated_at: string;
+}
