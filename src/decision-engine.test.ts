@@ -1075,4 +1075,106 @@ describe('DecisionEngine', () => {
       });
     });
   });
+
+  // -----------------------------------------------------------------------
+  // Cross-module: buildContext with real Edda precedents (#382)
+  // -----------------------------------------------------------------------
+
+  describe('buildContext with EddaBridge returning precedents', () => {
+    it('populates edda_precedents and sets edda_available=true', async () => {
+      const mockPrecedents = [
+        {
+          event_id: 'evt-1',
+          key: 'test-village.research',
+          value: 'effective plan',
+          reason: 'historically successful',
+          domain: 'test-village',
+          branch: 'main',
+          ts: '2026-03-25T00:00:00Z',
+          is_active: true,
+        },
+        {
+          event_id: 'evt-2',
+          key: 'test-village.draft',
+          value: 'risky approach',
+          reason: 'caused rollback last time',
+          domain: 'test-village',
+          branch: 'main',
+          ts: '2026-03-24T00:00:00Z',
+          is_active: true,
+        },
+      ];
+
+      const mockEddaBridge = {
+        queryDecisions: async () => ({
+          query: '',
+          input_type: 'domain',
+          decisions: mockPrecedents,
+          timeline: [],
+          related_commits: [],
+          related_notes: [],
+        }),
+      } as unknown as import('./edda-bridge').EddaBridge;
+
+      const engineWithEdda = new DecisionEngine(
+        db, constitutionStore, chiefEngine, lawEngine,
+        skillRegistry, riskAssessor, mockEddaBridge,
+      );
+
+      const ctx = await engineWithEdda.buildContext(villageId, chiefId, [], baseCycleState);
+
+      expect(ctx.edda_available).toBe(true);
+      expect(ctx.edda_precedents).toHaveLength(2);
+      expect(ctx.edda_precedents[0].event_id).toBe('evt-1');
+      expect(ctx.edda_precedents[1].event_id).toBe('evt-2');
+    });
+
+    it('filters out superseded (is_active=false) precedents', async () => {
+      const mockPrecedents = [
+        {
+          event_id: 'evt-active',
+          key: 'v.research',
+          value: 'current',
+          reason: 'latest',
+          domain: 'v',
+          branch: 'main',
+          ts: '2026-03-25T00:00:00Z',
+          is_active: true,
+        },
+        {
+          event_id: 'evt-superseded',
+          key: 'v.research',
+          value: 'old',
+          reason: 'replaced',
+          domain: 'v',
+          branch: 'main',
+          ts: '2026-03-20T00:00:00Z',
+          is_active: false,
+        },
+      ];
+
+      const mockEddaBridge = {
+        queryDecisions: async () => ({
+          query: '',
+          input_type: 'domain',
+          decisions: mockPrecedents,
+          timeline: [],
+          related_commits: [],
+          related_notes: [],
+        }),
+      } as unknown as import('./edda-bridge').EddaBridge;
+
+      const engineWithEdda = new DecisionEngine(
+        db, constitutionStore, chiefEngine, lawEngine,
+        skillRegistry, riskAssessor, mockEddaBridge,
+      );
+
+      const ctx = await engineWithEdda.buildContext(villageId, chiefId, [], baseCycleState);
+
+      expect(ctx.edda_available).toBe(true);
+      // Only active precedent should remain
+      expect(ctx.edda_precedents).toHaveLength(1);
+      expect(ctx.edda_precedents[0].event_id).toBe('evt-active');
+    });
+  });
 });
