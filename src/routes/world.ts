@@ -152,7 +152,7 @@ export function worldRoutes(worldManager: WorldManager, db: Database): Hono {
   app.get(`${base}/events`, (c) => {
     const villageId = c.req.param('id');
     const rawInterval = Number(c.req.query('interval') ?? '3000');
-    const interval = Math.max(1000, Number.isFinite(rawInterval) ? rawInterval : 3000);
+    const interval = Math.min(Math.max(1000, Number.isFinite(rawInterval) ? rawInterval : 3000), 60000);
     const auditQuery = new AuditQuery(db);
 
     return streamSSE(c, async (stream) => {
@@ -175,13 +175,23 @@ export function worldRoutes(worldManager: WorldManager, db: Database): Hono {
         if (event.id > lastId) lastId = event.id;
       }
 
-      // 增量推送 — poll audit_log WHERE id > lastId
+      // 增量推送 — poll audit_log WHERE id > lastId, scoped to village
+      const villageFilter = `(
+        (entity_type = 'village' AND entity_id = ?)
+        OR (entity_type = 'constitution' AND entity_id IN (SELECT id FROM constitutions WHERE village_id = ?))
+        OR (entity_type = 'chief' AND entity_id IN (SELECT id FROM chiefs WHERE village_id = ?))
+        OR (entity_type = 'law' AND entity_id IN (SELECT id FROM laws WHERE village_id = ?))
+        OR (entity_type = 'skill' AND entity_id IN (SELECT id FROM skills WHERE village_id = ?))
+        OR (entity_type = 'loop' AND entity_id IN (SELECT id FROM loop_cycles WHERE village_id = ?))
+      )`;
+      const incrementalStmt = db.prepare(
+        `SELECT * FROM audit_log WHERE id > ? AND ${villageFilter} ORDER BY id ASC LIMIT 50`
+      );
+
       while (streamCtrl.alive) {
         await stream.sleep(interval);
 
-        const rows = db.prepare(
-          `SELECT * FROM audit_log WHERE id > ? ORDER BY id ASC LIMIT 50`
-        ).all(lastId) as Array<{
+        const rows = incrementalStmt.all(lastId, villageId, villageId, villageId, villageId, villageId, villageId) as Array<{
           id: number;
           entity_type: string;
           entity_id: string;
@@ -212,7 +222,7 @@ export function worldRoutes(worldManager: WorldManager, db: Database): Hono {
   app.get(`${base}/pulse`, (c) => {
     const villageId = c.req.param('id');
     const rawInterval = Number(c.req.query('interval') ?? '5000');
-    const interval = Math.max(1000, Number.isFinite(rawInterval) ? rawInterval : 5000);
+    const interval = Math.min(Math.max(1000, Number.isFinite(rawInterval) ? rawInterval : 5000), 60000);
 
     return streamSSE(c, async (stream) => {
       let id = 0;

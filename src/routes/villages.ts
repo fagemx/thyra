@@ -1,15 +1,23 @@
 import { Hono } from 'hono';
 import type { Database } from 'bun:sqlite';
+import { z } from 'zod';
 import { CreateVillageInput, UpdateVillageInput, SetBoardMappingInput } from '../schemas/village';
 import type { VillageManager } from '../village-manager';
 import { evaluateVillage } from '../village-evaluator';
 import { appendAudit } from '../db';
 
+const VillageStatusQuery = z.enum(['active', 'paused', 'archived']).optional();
+const DateQuery = z.string().datetime({ offset: true }).optional();
+
 export function villageRoutes(mgr: VillageManager, db?: Database): Hono {
   const app = new Hono();
 
   app.get('/api/villages', (c) => {
-    const status = c.req.query('status') || undefined;
+    const statusParsed = VillageStatusQuery.safeParse(c.req.query('status') || undefined);
+    if (!statusParsed.success) {
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: statusParsed.error.message } }, 400);
+    }
+    const status = statusParsed.data;
     return c.json({ ok: true, data: mgr.list(status ? { status } : undefined) });
   });
 
@@ -64,9 +72,17 @@ export function villageRoutes(mgr: VillageManager, db?: Database): Hono {
       return c.json({ ok: false, error: { code: 'NOT_FOUND', message: 'Village not found' } }, 404);
     }
 
-    const from = c.req.query('from');
-    const to = c.req.query('to');
-    const period = from && to ? { from, to } : undefined;
+    const fromRaw = c.req.query('from');
+    const toRaw = c.req.query('to');
+    if (fromRaw) {
+      const fp = DateQuery.safeParse(fromRaw);
+      if (!fp.success) return c.json({ ok: false, error: { code: 'VALIDATION', message: 'Invalid from date: must be ISO 8601 datetime' } }, 400);
+    }
+    if (toRaw) {
+      const tp = DateQuery.safeParse(toRaw);
+      if (!tp.success) return c.json({ ok: false, error: { code: 'VALIDATION', message: 'Invalid to date: must be ISO 8601 datetime' } }, 400);
+    }
+    const period = fromRaw && toRaw ? { from: fromRaw, to: toRaw } : undefined;
 
     const score = evaluateVillage(db, villageId, period);
 

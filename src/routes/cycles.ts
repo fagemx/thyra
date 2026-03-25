@@ -33,7 +33,7 @@ const OpenCycleInput = z.object({
 const ListCyclesQuery = z.object({
   status: z.enum(['open', 'closed']).optional(),
   mode: z.enum(['normal', 'peak', 'incident', 'shutdown']).optional(),
-  limit: z.coerce.number().int().positive().optional(),
+  limit: z.coerce.number().int().positive().max(1000).optional(),
 });
 
 /**
