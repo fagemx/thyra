@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite';
 import { randomUUID } from 'crypto';
+import { escapeLikePattern } from './cross-layer';
 import { appendAudit } from './db';
 import { CreateSkillInput as CreateSkillSchema } from './schemas/skill';
 import type { CreateSkillInputRaw, SkillDefinition, UpdateSkillInput, SkillBinding, SourceType, ScopeType } from './schemas/skill';
@@ -122,13 +123,13 @@ export class SkillRegistry {
     }
     if (filters?.tags && filters.tags.length > 0) {
       for (const tag of filters.tags) {
-        sql += ' AND tags LIKE ?';
-        params.push(`%"${tag}"%`);
+        sql += " AND tags LIKE ? ESCAPE '\\'";
+        params.push(`%"${escapeLikePattern(tag)}"%`);
       }
     }
     if (filters?.search) {
-      sql += ` AND (name LIKE ? OR json_extract(definition, '$.description') LIKE ?)`;
-      params.push(`%${filters.search}%`, `%${filters.search}%`);
+      sql += ` AND (name LIKE ? ESCAPE '\\' OR json_extract(definition, '$.description') LIKE ? ESCAPE '\\')`;
+      params.push(`%${escapeLikePattern(filters.search)}%`, `%${escapeLikePattern(filters.search)}%`);
     }
     sql += ' ORDER BY name, version DESC';
     const rows = this.db.prepare(sql).all(...params) as Record<string, unknown>[];
