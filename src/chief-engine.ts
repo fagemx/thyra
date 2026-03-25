@@ -480,35 +480,47 @@ export class ChiefEngine {
   // -----------------------------------------------------------------------
 
   /** 標記 chief 開始執行（idle -> running） */
-  markRunning(id: string, runId: string): void {
+  markRunning(id: string, runId: string, version: number): void {
     const now = new Date().toISOString();
-    this.db.prepare(
-      "UPDATE chiefs SET current_run_status = 'running', current_run_id = ?, last_heartbeat_at = ?, updated_at = ? WHERE id = ?"
-    ).run(runId, now, now, id);
+    const result = this.db.prepare(
+      "UPDATE chiefs SET current_run_status = 'running', current_run_id = ?, last_heartbeat_at = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?"
+    ).run(runId, now, now, id, version);
+    if ((result as { changes: number }).changes === 0) {
+      throw new Error('CONCURRENCY_CONFLICT: version mismatch');
+    }
   }
 
   /** 標記 chief 執行完成（running -> idle），重置 timeout_count */
-  markIdle(id: string): void {
+  markIdle(id: string, version: number): void {
     const now = new Date().toISOString();
-    this.db.prepare(
-      "UPDATE chiefs SET current_run_status = 'idle', current_run_id = NULL, timeout_count = 0, updated_at = ? WHERE id = ?"
-    ).run(now, id);
+    const result = this.db.prepare(
+      "UPDATE chiefs SET current_run_status = 'idle', current_run_id = NULL, timeout_count = 0, version = version + 1, updated_at = ? WHERE id = ? AND version = ?"
+    ).run(now, id, version);
+    if ((result as { changes: number }).changes === 0) {
+      throw new Error('CONCURRENCY_CONFLICT: version mismatch');
+    }
   }
 
   /** 標記 chief 超時（running -> timeout），遞增 timeout_count */
-  markTimeout(id: string): void {
+  markTimeout(id: string, version: number): void {
     const now = new Date().toISOString();
-    this.db.prepare(
-      "UPDATE chiefs SET current_run_status = 'timeout', timeout_count = timeout_count + 1, updated_at = ? WHERE id = ?"
-    ).run(now, id);
+    const result = this.db.prepare(
+      "UPDATE chiefs SET current_run_status = 'timeout', timeout_count = timeout_count + 1, version = version + 1, updated_at = ? WHERE id = ? AND version = ?"
+    ).run(now, id, version);
+    if ((result as { changes: number }).changes === 0) {
+      throw new Error('CONCURRENCY_CONFLICT: version mismatch');
+    }
   }
 
   /** 更新心跳時間戳（adapter invoke 期間呼叫） */
-  updateHeartbeat(id: string): void {
+  updateHeartbeat(id: string, version: number): void {
     const now = new Date().toISOString();
-    this.db.prepare(
-      "UPDATE chiefs SET last_heartbeat_at = ?, updated_at = ? WHERE id = ?"
-    ).run(now, now, id);
+    const result = this.db.prepare(
+      "UPDATE chiefs SET last_heartbeat_at = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?"
+    ).run(now, now, id, version);
+    if ((result as { changes: number }).changes === 0) {
+      throw new Error('CONCURRENCY_CONFLICT: version mismatch');
+    }
   }
 
   /** 查詢 running 但心跳超時的 chiefs */

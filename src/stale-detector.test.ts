@@ -177,7 +177,8 @@ describe('StaleDetector', () => {
     db.prepare("UPDATE chiefs SET timeout_count = 2 WHERE id = ?").run(chief.id);
 
     // Simulate successful execution -> markIdle
-    ce.markIdle(chief.id);
+    const current = ce.get(chief.id);
+    ce.markIdle(chief.id, current!.version);
 
     const reset = ce.get(chief.id);
     expect(reset!.timeout_count).toBe(0);
@@ -301,7 +302,7 @@ describe('StaleDetector', () => {
     const village = createVillageWithConstitution(vm, cs);
     const chief = createActiveChief(ce, village.id);
 
-    ce.markRunning(chief.id, 'run-xyz');
+    ce.markRunning(chief.id, 'run-xyz', chief.version);
 
     const updated = ce.get(chief.id);
     expect(updated!.current_run_status).toBe('running');

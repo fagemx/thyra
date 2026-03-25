@@ -893,4 +893,89 @@ describe('Worker role (#214)', () => {
       expect(revisions[0].version).toBe(3); // most recent first
     });
   });
+
+  // -----------------------------------------------------------------------
+  // #379: Optimistic locking on state mutation methods
+  // -----------------------------------------------------------------------
+  describe('optimistic locking on run state methods (#379)', () => {
+    it('markRunning succeeds with correct version and increments it', () => {
+      const chief = chiefEngine.create(villageId, {
+        name: 'R', role: 'r', permissions: ['dispatch_task'],
+      }, 'h');
+      chiefEngine.markRunning(chief.id, 'run-1', chief.version);
+      const updated = chiefEngine.get(chief.id);
+      expect(updated!.current_run_status).toBe('running');
+      expect(updated!.current_run_id).toBe('run-1');
+      expect(updated!.version).toBe(chief.version + 1);
+    });
+
+    it('markRunning throws CONCURRENCY_CONFLICT on stale version', () => {
+      const chief = chiefEngine.create(villageId, {
+        name: 'R', role: 'r', permissions: ['dispatch_task'],
+      }, 'h');
+      expect(() => chiefEngine.markRunning(chief.id, 'run-1', chief.version - 1))
+        .toThrow('CONCURRENCY_CONFLICT');
+    });
+
+    it('markIdle succeeds with correct version and increments it', () => {
+      const chief = chiefEngine.create(villageId, {
+        name: 'R', role: 'r', permissions: ['dispatch_task'],
+      }, 'h');
+      chiefEngine.markRunning(chief.id, 'run-1', chief.version);
+      const running = chiefEngine.get(chief.id)!;
+      chiefEngine.markIdle(chief.id, running.version);
+      const idle = chiefEngine.get(chief.id)!;
+      expect(idle.current_run_status).toBe('idle');
+      expect(idle.current_run_id).toBeNull();
+      expect(idle.timeout_count).toBe(0);
+      expect(idle.version).toBe(running.version + 1);
+    });
+
+    it('markIdle throws CONCURRENCY_CONFLICT on stale version', () => {
+      const chief = chiefEngine.create(villageId, {
+        name: 'R', role: 'r', permissions: ['dispatch_task'],
+      }, 'h');
+      expect(() => chiefEngine.markIdle(chief.id, chief.version - 1))
+        .toThrow('CONCURRENCY_CONFLICT');
+    });
+
+    it('markTimeout succeeds with correct version and increments it', () => {
+      const chief = chiefEngine.create(villageId, {
+        name: 'R', role: 'r', permissions: ['dispatch_task'],
+      }, 'h');
+      chiefEngine.markRunning(chief.id, 'run-1', chief.version);
+      const running = chiefEngine.get(chief.id)!;
+      chiefEngine.markTimeout(chief.id, running.version);
+      const timedOut = chiefEngine.get(chief.id)!;
+      expect(timedOut.current_run_status).toBe('timeout');
+      expect(timedOut.timeout_count).toBe(1);
+      expect(timedOut.version).toBe(running.version + 1);
+    });
+
+    it('markTimeout throws CONCURRENCY_CONFLICT on stale version', () => {
+      const chief = chiefEngine.create(villageId, {
+        name: 'R', role: 'r', permissions: ['dispatch_task'],
+      }, 'h');
+      expect(() => chiefEngine.markTimeout(chief.id, chief.version - 1))
+        .toThrow('CONCURRENCY_CONFLICT');
+    });
+
+    it('updateHeartbeat succeeds with correct version and increments it', () => {
+      const chief = chiefEngine.create(villageId, {
+        name: 'R', role: 'r', permissions: ['dispatch_task'],
+      }, 'h');
+      chiefEngine.updateHeartbeat(chief.id, chief.version);
+      const updated = chiefEngine.get(chief.id)!;
+      expect(updated.last_heartbeat_at).not.toBeNull();
+      expect(updated.version).toBe(chief.version + 1);
+    });
+
+    it('updateHeartbeat throws CONCURRENCY_CONFLICT on stale version', () => {
+      const chief = chiefEngine.create(villageId, {
+        name: 'R', role: 'r', permissions: ['dispatch_task'],
+      }, 'h');
+      expect(() => chiefEngine.updateHeartbeat(chief.id, chief.version - 1))
+        .toThrow('CONCURRENCY_CONFLICT');
+    });
+  });
 });
