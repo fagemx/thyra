@@ -65,3 +65,52 @@ export type EddaDraftRaw = z.infer<typeof EddaDraftSchema>;
 
 /** Edda /api/drafts 回應：陣列格式 */
 export const EddaDraftsResponseSchema = z.array(EddaDraftSchema);
+
+/** Edda DecisionHit — 匹配 /api/decisions 回應中的決策項目 */
+const EddaDecisionHitSchema = z.object({
+  event_id: z.string(),
+  key: z.string(),
+  value: z.string(),
+  reason: z.string(),
+  domain: z.string(),
+  branch: z.string(),
+  ts: z.string(),
+  is_active: z.boolean(),
+});
+
+/** Edda CommitHit */
+const EddaCommitHitSchema = z.object({
+  event_id: z.string(),
+  title: z.string(),
+  purpose: z.string(),
+  ts: z.string(),
+  branch: z.string(),
+  match_type: z.string(),
+});
+
+/** Edda NoteHit */
+const EddaNoteHitSchema = z.object({
+  event_id: z.string(),
+  text: z.string(),
+  ts: z.string(),
+  branch: z.string(),
+});
+
+/** Edda /api/decisions 回應格式（AskResult） */
+export const EddaQueryResultSchema = z.object({
+  query: z.string(),
+  input_type: z.string(),
+  decisions: z.array(EddaDecisionHitSchema),
+  timeline: z.array(EddaDecisionHitSchema),
+  related_commits: z.array(EddaCommitHitSchema),
+  related_notes: z.array(EddaNoteHitSchema),
+});
+
+/** Edda POST /api/decide 回應格式 */
+export const EddaDecideResultSchema = z.object({
+  event_id: z.string(),
+  superseded: z.string().optional(),
+});
+
+/** Edda GET /api/decisions/{id}/outcomes 回應格式 */
+export const EddaDecisionOutcomesSchema = z.record(z.string(), z.unknown());

@@ -1,6 +1,12 @@
 import type { Database } from 'bun:sqlite';
 import { appendAudit } from './db';
-import { EddaLogResponseSchema, EddaDraftsResponseSchema } from './schemas/edda-bridge';
+import {
+  EddaLogResponseSchema,
+  EddaDraftsResponseSchema,
+  EddaQueryResultSchema,
+  EddaDecideResultSchema,
+  EddaDecisionOutcomesSchema,
+} from './schemas/edda-bridge';
 
 // --- Edda-aligned types (matches edda-ask AskResult / DecisionHit) ---
 
@@ -154,14 +160,16 @@ export class EddaBridge {
       });
 
       if (!res.ok) return emptyResult(q);
-      const data = await res.json() as EddaQueryResult;
+      const raw: unknown = await res.json();
+      const parsed = EddaQueryResultSchema.safeParse(raw);
+      if (!parsed.success) return emptyResult(q);
       return {
-        query: data.query,
-        input_type: data.input_type,
-        decisions: data.decisions,
-        timeline: data.timeline,
-        related_commits: data.related_commits,
-        related_notes: data.related_notes,
+        query: parsed.data.query,
+        input_type: parsed.data.input_type,
+        decisions: parsed.data.decisions,
+        timeline: parsed.data.timeline,
+        related_commits: parsed.data.related_commits,
+        related_notes: parsed.data.related_notes,
       };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -187,9 +195,11 @@ export class EddaBridge {
       });
 
       if (res.ok) {
-        const result = await res.json() as EddaDecideResult;
-        appendAudit(this.db, 'edda', key, 'record', { ...decision, event_id: result.event_id }, 'system');
-        return result;
+        const raw: unknown = await res.json();
+        const parsed = EddaDecideResultSchema.safeParse(raw);
+        if (!parsed.success) return null;
+        appendAudit(this.db, 'edda', key, 'record', { ...decision, event_id: parsed.data.event_id }, 'system');
+        return parsed.data;
       }
       return null;
     } catch (err: unknown) {
@@ -295,7 +305,10 @@ export class EddaBridge {
         signal: AbortSignal.timeout(5000),
       });
       if (!res.ok) return null;
-      return await res.json() as Record<string, unknown>;
+      const raw: unknown = await res.json();
+      const parsed = EddaDecisionOutcomesSchema.safeParse(raw);
+      if (!parsed.success) return null;
+      return parsed.data;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.debug('[edda-bridge] getDecisionOutcomes failed:', msg);
