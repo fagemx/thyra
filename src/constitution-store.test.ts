@@ -3,6 +3,8 @@ import { Database } from 'bun:sqlite';
 import { createDb, initSchema } from './db';
 import { VillageManager } from './village-manager';
 import { ConstitutionStore, checkPermission, checkBudget, checkRules } from './constitution-store';
+import { ChiefEngine } from './chief-engine';
+import { SkillRegistry } from './skill-registry';
 import type { KarviBridge } from './karvi-bridge';
 
 const RULES = [{ description: 'must review', enforcement: 'hard' as const, scope: ['*'] }];
@@ -410,5 +412,138 @@ describe('checkRules', () => {
     expect(result.allowed).toBe(true);
     expect(result.violated).toHaveLength(0);
     expect(result.warnings).toHaveLength(0);
+  });
+});
+
+describe('supersede → chief permission cascade (THY-09)', () => {
+  let db: Database;
+  let constitutionStore: ConstitutionStore;
+  let chiefEngine: ChiefEngine;
+  let villageId: string;
+
+  beforeEach(() => {
+    db = createDb(':memory:');
+    initSchema(db);
+    const mgr = new VillageManager(db);
+    villageId = mgr.create({ name: 'cascade-test', target_repo: 'r' }, 'u').id;
+    constitutionStore = new ConstitutionStore(db);
+    const skillRegistry = new SkillRegistry(db);
+    chiefEngine = new ChiefEngine(db, constitutionStore, skillRegistry);
+  });
+
+  it('narrowed constitution rejects new chief with removed permission', () => {
+    // 1. Constitution with permissions [dispatch_task, propose_law, deploy]
+    const v1 = constitutionStore.create(villageId, {
+      rules: [{ description: 'must review', enforcement: 'hard', scope: ['*'] }],
+      allowed_permissions: ['dispatch_task', 'propose_law', 'deploy'],
+      budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+    }, 'human');
+
+    // 2. Create chief with permissions [dispatch_task, propose_law]
+    chiefEngine.create(villageId, {
+      name: 'Worker-A',
+      role: 'deployer',
+      permissions: ['dispatch_task', 'propose_law'],
+    }, 'human');
+
+    // 3. Supersede constitution with only [dispatch_task]
+    constitutionStore.supersede(v1.id, {
+      rules: [{ description: 'must review', enforcement: 'hard', scope: ['*'] }],
+      allowed_permissions: ['dispatch_task'],
+      budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+    }, 'human');
+
+    // 4. Creating a new chief with propose_law should be rejected
+    expect(() => chiefEngine.create(villageId, {
+      name: 'Worker-B',
+      role: 'reviewer',
+      permissions: ['propose_law'],
+    }, 'human')).toThrow('PERMISSION_EXCEEDS_CONSTITUTION');
+  });
+
+  it('narrowed constitution rejects chief update adding removed permission', () => {
+    // 1. Constitution with permissions [dispatch_task, propose_law, deploy]
+    const v1 = constitutionStore.create(villageId, {
+      rules: [{ description: 'must review', enforcement: 'hard', scope: ['*'] }],
+      allowed_permissions: ['dispatch_task', 'propose_law', 'deploy'],
+      budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+    }, 'human');
+
+    // 2. Create chief with permissions [dispatch_task, propose_law]
+    const chief = chiefEngine.create(villageId, {
+      name: 'Worker-A',
+      role: 'deployer',
+      permissions: ['dispatch_task', 'propose_law'],
+    }, 'human');
+
+    // 3. Supersede constitution with only [dispatch_task]
+    constitutionStore.supersede(v1.id, {
+      rules: [{ description: 'must review', enforcement: 'hard', scope: ['*'] }],
+      allowed_permissions: ['dispatch_task'],
+      budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+    }, 'human');
+
+    // 4. Updating existing chief to add propose_law should be rejected
+    expect(() => chiefEngine.update(chief.id, {
+      permissions: ['dispatch_task', 'propose_law'],
+    }, 'human')).toThrow('PERMISSION_EXCEEDS_CONSTITUTION');
+  });
+
+  it('narrowed constitution still allows chief create with remaining permission', () => {
+    const v1 = constitutionStore.create(villageId, {
+      rules: [{ description: 'must review', enforcement: 'hard', scope: ['*'] }],
+      allowed_permissions: ['dispatch_task', 'propose_law', 'deploy'],
+      budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+    }, 'human');
+
+    constitutionStore.supersede(v1.id, {
+      rules: [{ description: 'must review', enforcement: 'hard', scope: ['*'] }],
+      allowed_permissions: ['dispatch_task'],
+      budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+    }, 'human');
+
+    // Creating chief with only dispatch_task (still allowed) should succeed
+    const chief = chiefEngine.create(villageId, {
+      name: 'Worker-C',
+      role: 'runner',
+      permissions: ['dispatch_task'],
+    }, 'human');
+    expect(chief.status).toBe('active');
+    expect(chief.permissions).toEqual(['dispatch_task']);
+  });
+
+  it('narrowed constitution rejects deploy after it was removed', () => {
+    const v1 = constitutionStore.create(villageId, {
+      rules: [{ description: 'must review', enforcement: 'hard', scope: ['*'] }],
+      allowed_permissions: ['dispatch_task', 'propose_law', 'deploy'],
+      budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+    }, 'human');
+
+    // Chief created with deploy under original constitution
+    const chief = chiefEngine.create(villageId, {
+      name: 'Deployer',
+      role: 'deployer',
+      permissions: ['dispatch_task', 'deploy'],
+    }, 'human');
+    expect(chief.permissions).toContain('deploy');
+
+    // Supersede: remove deploy
+    constitutionStore.supersede(v1.id, {
+      rules: [{ description: 'must review', enforcement: 'hard', scope: ['*'] }],
+      allowed_permissions: ['dispatch_task', 'propose_law'],
+      budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 50 },
+    }, 'human');
+
+    // New chief requesting deploy should fail
+    expect(() => chiefEngine.create(villageId, {
+      name: 'Deployer-2',
+      role: 'deployer',
+      permissions: ['deploy'],
+    }, 'human')).toThrow('PERMISSION_EXCEEDS_CONSTITUTION');
+
+    // Updating existing chief to keep deploy should also fail
+    expect(() => chiefEngine.update(chief.id, {
+      permissions: ['dispatch_task', 'deploy'],
+    }, 'human')).toThrow('PERMISSION_EXCEEDS_CONSTITUTION');
   });
 });
