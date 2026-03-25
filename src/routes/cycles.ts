@@ -83,10 +83,6 @@ function now(): string {
 export function cycleRoutes(db: Database): Hono {
   const app = new Hono();
 
-  // Ensure mode + opened_by columns exist (idempotent ALTER TABLE)
-  try { db.run("ALTER TABLE cycle_runs ADD COLUMN mode TEXT DEFAULT 'normal'"); } catch { /* exists */ }
-  try { db.run("ALTER TABLE cycle_runs ADD COLUMN opened_by TEXT DEFAULT NULL"); } catch { /* exists */ }
-
   // -----------------------------------------------------------------------
   // SS9.2 — Get Active Cycle (must be registered before SS9.5 list route)
   // -----------------------------------------------------------------------

@@ -282,6 +282,8 @@ export function initSchema(db: Database): void {
       judgment_report_ids TEXT NOT NULL DEFAULT '[]',
       applied_change_ids TEXT NOT NULL DEFAULT '[]',
       pulse_frame_id TEXT,
+      mode TEXT DEFAULT 'normal',
+      opened_by TEXT DEFAULT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       version INTEGER NOT NULL DEFAULT 1
     );
@@ -771,6 +773,14 @@ const MIGRATIONS: readonly Migration[] = [
 
       // villages: health delta tracking (#236)
       addColumnIfNotExists(db, 'ALTER TABLE villages ADD COLUMN last_health_score INTEGER DEFAULT NULL');
+    },
+  },
+  {
+    version: 2,
+    description: 'add mode and opened_by columns to cycle_runs (#373)',
+    up(db: Database): void {
+      addColumnIfNotExists(db, "ALTER TABLE cycle_runs ADD COLUMN mode TEXT DEFAULT 'normal'");
+      addColumnIfNotExists(db, "ALTER TABLE cycle_runs ADD COLUMN opened_by TEXT DEFAULT NULL");
     },
   },
 ];
