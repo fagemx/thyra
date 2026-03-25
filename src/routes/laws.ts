@@ -1,6 +1,9 @@
 import { Hono } from 'hono';
+import { z } from 'zod';
 import { ProposeLawRequestInput, EvaluateLawInput, RollbackLawInput } from '../schemas/law';
 import type { LawEngine } from '../law-engine';
+
+const CategoryQuery = z.string().min(1).max(200).optional();
 
 export function lawRoutes(engine: LawEngine): Hono {
   const app = new Hono();
@@ -10,8 +13,11 @@ export function lawRoutes(engine: LawEngine): Hono {
   });
 
   app.get('/api/villages/:vid/laws/active', (c) => {
-    const category = c.req.query('category') || undefined;
-    return c.json({ ok: true, data: engine.getActiveLaws(c.req.param('vid'), category) });
+    const catParsed = CategoryQuery.safeParse(c.req.query('category') || undefined);
+    if (!catParsed.success) {
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: catParsed.error.message } }, 400);
+    }
+    return c.json({ ok: true, data: engine.getActiveLaws(c.req.param('vid'), catParsed.data) });
   });
 
   app.post('/api/villages/:vid/laws/propose', async (c) => {

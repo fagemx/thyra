@@ -1,9 +1,14 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import { resolve, basename, isAbsolute } from 'path';
 import { Hono } from 'hono';
-import { CreateSkillInput, UpdateSkillInput, UploadSkillInput, ImportDirectoryInput } from '../schemas/skill';
+import { z } from 'zod';
+import { CreateSkillInput, UpdateSkillInput, UploadSkillInput, ImportDirectoryInput, ScopeTypeEnum, SourceTypeEnum } from '../schemas/skill';
 import type { ScopeType, SourceType } from '../schemas/skill';
 import type { SkillRegistry } from '../skill-registry';
+
+const SkillStatusQuery = z.enum(['draft', 'verified', 'deprecated']).optional();
+const ScopeTypeQuery = ScopeTypeEnum.optional();
+const SourceTypeQuery = SourceTypeEnum.optional();
 
 /** 解析 SKILL.md 的 frontmatter + body */
 export interface ParsedSkill {
@@ -199,15 +204,24 @@ export function skillRoutes(registry: SkillRegistry): Hono {
   const app = new Hono();
 
   app.get('/api/skills', (c) => {
-    const status = c.req.query('status') || undefined;
+    const statusParsed = SkillStatusQuery.safeParse(c.req.query('status') || undefined);
+    if (!statusParsed.success) {
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: statusParsed.error.message } }, 400);
+    }
+    const scopeParsed = ScopeTypeQuery.safeParse(c.req.query('scope_type') || undefined);
+    if (!scopeParsed.success) {
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: scopeParsed.error.message } }, 400);
+    }
+    const sourceParsed = SourceTypeQuery.safeParse(c.req.query('source_type') || undefined);
+    if (!sourceParsed.success) {
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: sourceParsed.error.message } }, 400);
+    }
     const name = c.req.query('name') ?? undefined;
-    const scope_type = c.req.query('scope_type') || undefined;
-    const source_type = c.req.query('source_type') || undefined;
     const village_id = c.req.query('village_id') || undefined;
     const tagsParam = c.req.query('tags') || undefined;
     const tags = tagsParam ? tagsParam.split(',').map((t) => t.trim()).filter(Boolean) : undefined;
     const search = c.req.query('search') ?? undefined;
-    return c.json({ ok: true, data: registry.list({ status, name, scope_type, source_type, village_id, tags, search }) });
+    return c.json({ ok: true, data: registry.list({ status: statusParsed.data, name, scope_type: scopeParsed.data, source_type: sourceParsed.data, village_id, tags, search }) });
   });
 
   app.post('/api/skills', async (c) => {

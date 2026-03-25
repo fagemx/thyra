@@ -1,6 +1,9 @@
 import { Hono } from 'hono';
+import { z } from 'zod';
 import { StartCycleInput, StopCycleInput } from '../schemas/loop';
 import type { LoopRunner } from '../loop-runner';
+
+const LoopStatusQuery = z.enum(['running', 'completed', 'aborted']).optional();
 
 export function loopRoutes(runner: LoopRunner): Hono {
   const app = new Hono();
@@ -20,7 +23,11 @@ export function loopRoutes(runner: LoopRunner): Hono {
   });
 
   app.get('/api/villages/:vid/loops', (c) => {
-    const status = c.req.query('status') || undefined;
+    const statusParsed = LoopStatusQuery.safeParse(c.req.query('status') || undefined);
+    if (!statusParsed.success) {
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: statusParsed.error.message } }, 400);
+    }
+    const status = statusParsed.data;
     return c.json({ ok: true, data: runner.listCycles(c.req.param('vid'), { status }) });
   });
 

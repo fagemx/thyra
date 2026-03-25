@@ -10,7 +10,17 @@
 
 import { Hono } from 'hono';
 import type { Database } from 'bun:sqlite';
+import { z } from 'zod';
 import { CycleTelemetryCollector } from '../cycle-telemetry';
+
+const TelemetryListQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  chief_id: z.string().min(1).optional(),
+});
+
+const TelemetrySummaryQuery = z.object({
+  window_hours: z.coerce.number().int().min(1).max(720).default(24),
+});
 
 export function telemetryRoutes(db: Database) {
   const app = new Hono();
@@ -23,14 +33,17 @@ export function telemetryRoutes(db: Database) {
    */
   app.get('/api/villages/:id/telemetry', (c) => {
     const villageId = c.req.param('id');
-    const limitStr = c.req.query('limit');
-    const chiefId = c.req.query('chief_id');
-
-    const limit = limitStr ? Math.min(Math.max(1, parseInt(limitStr, 10) || 20), 100) : 20;
+    const parsed = TelemetryListQuery.safeParse({
+      limit: c.req.query('limit'),
+      chief_id: c.req.query('chief_id') || undefined,
+    });
+    if (!parsed.success) {
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: parsed.error.message } }, 400);
+    }
 
     const data = CycleTelemetryCollector.list(db, villageId, {
-      chiefId: chiefId || undefined,
-      limit,
+      chiefId: parsed.data.chief_id,
+      limit: parsed.data.limit,
     });
 
     return c.json({ ok: true, data });
@@ -43,13 +56,14 @@ export function telemetryRoutes(db: Database) {
    */
   app.get('/api/villages/:id/telemetry/summary', (c) => {
     const villageId = c.req.param('id');
-    const windowStr = c.req.query('window_hours');
+    const parsed = TelemetrySummaryQuery.safeParse({
+      window_hours: c.req.query('window_hours'),
+    });
+    if (!parsed.success) {
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: parsed.error.message } }, 400);
+    }
 
-    const windowHours = windowStr
-      ? Math.min(Math.max(1, parseInt(windowStr, 10) || 24), 720)
-      : 24;
-
-    const data = CycleTelemetryCollector.summarize(db, villageId, { windowHours });
+    const data = CycleTelemetryCollector.summarize(db, villageId, { windowHours: parsed.data.window_hours });
 
     return c.json({ ok: true, data });
   });

@@ -237,7 +237,8 @@ export function chiefRoutes(engine: ChiefEngine, skillRegistry: SkillRegistry, d
   app.get('/api/chiefs/:id/revisions', (c) => {
     const chief = engine.get(c.req.param('id'));
     if (!chief) return c.json({ ok: false, error: { code: 'NOT_FOUND', message: 'Chief not found' } }, 404);
-    const limit = Number(c.req.query('limit')) || 50;
+    const rawLimit = Number(c.req.query('limit')) || 50;
+    const limit = Math.min(Math.max(1, rawLimit), 1000);
     return c.json({ ok: true, data: engine.listRevisions(c.req.param('id'), limit) });
   });
 
