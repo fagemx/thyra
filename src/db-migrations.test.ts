@@ -169,6 +169,19 @@ describe('db migrations', () => {
       );
     `);
 
+    // Create a minimal cycle_runs table WITHOUT mode/opened_by
+    db.run(`
+      CREATE TABLE IF NOT EXISTS cycle_runs (
+        id TEXT PRIMARY KEY,
+        world_id TEXT NOT NULL,
+        cycle_number INTEGER NOT NULL,
+        current_stage TEXT NOT NULL DEFAULT 'idle',
+        started_at TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        version INTEGER NOT NULL DEFAULT 1
+      );
+    `);
+
     // Verify columns don't exist yet
     const villageColsBefore = db.prepare("PRAGMA table_info('villages')").all() as Array<{ name: string }>;
     expect(villageColsBefore.map((c) => c.name)).not.toContain('last_health_score');
@@ -194,22 +207,28 @@ describe('db migrations', () => {
     const cycleCols = db.prepare("PRAGMA table_info('loop_cycles')").all() as Array<{ name: string }>;
     expect(cycleCols.map((c) => c.name)).toContain('intent');
 
-    // Verify schema_version updated
+    // Verify migration v2: cycle_runs mode + opened_by columns
+    const cycleRunCols = db.prepare("PRAGMA table_info('cycle_runs')").all() as Array<{ name: string }>;
+    const cycleRunColNames = cycleRunCols.map((c) => c.name);
+    expect(cycleRunColNames).toContain('mode');
+    expect(cycleRunColNames).toContain('opened_by');
+
+    // Verify schema_version updated to latest
     const row = db.prepare('SELECT version FROM schema_version LIMIT 1').get() as { version: number };
-    expect(row.version).toBe(1);
+    expect(row.version).toBe(2);
   });
 
   it('already-migrated DB skips migration on re-run', () => {
     const db = createDb(':memory:');
     initSchema(db);
 
-    // Verify version is 1
+    // Verify version is latest (2)
     const rowBefore = db.prepare('SELECT version FROM schema_version LIMIT 1').get() as { version: number };
-    expect(rowBefore.version).toBe(1);
+    expect(rowBefore.version).toBe(2);
 
     // Run again — should not error and version stays same
     initSchema(db);
     const rowAfter = db.prepare('SELECT version FROM schema_version LIMIT 1').get() as { version: number };
-    expect(rowAfter.version).toBe(1);
+    expect(rowAfter.version).toBe(2);
   });
 });
