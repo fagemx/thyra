@@ -95,7 +95,7 @@ export class StaleDetector {
 
     for (const chief of staleChiefs) {
       // 2. Mark timeout
-      this.chiefEngine.markTimeout(chief.id);
+      this.chiefEngine.markTimeout(chief.id, chief.version);
       result.timed_out.push(chief.id);
 
       // Audit: timeout detected

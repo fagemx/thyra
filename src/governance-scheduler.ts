@@ -234,7 +234,8 @@ export class GovernanceScheduler {
           const ops = CycleTelemetryCollector.begin(cycleId, chief.id, village.id);
           // Run tracking: mark chief as running before execution (#231)
           const runId = `run-${randomUUID()}`;
-          this.chiefEngine.markRunning(chief.id, runId);
+          this.chiefEngine.markRunning(chief.id, runId, chief.version);
+          const runningVersion = chief.version + 1;
 
           try {
             if (this.karviBridge) {
@@ -262,10 +263,10 @@ export class GovernanceScheduler {
               }, 'scheduler');
             }
             // Run tracking: mark chief as idle after successful execution (#231)
-            this.chiefEngine.markIdle(chief.id);
+            this.chiefEngine.markIdle(chief.id, runningVersion);
           } catch (err: unknown) {
             // Run tracking: mark chief as idle on error too (so it can retry next cycle)
-            this.chiefEngine.markIdle(chief.id);
+            this.chiefEngine.markIdle(chief.id, runningVersion);
             const message = err instanceof Error ? err.message : 'unknown';
             allErrors.push({
               chief_id: chief.id,
