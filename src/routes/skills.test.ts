@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'fs';
-import { join } from 'path';
-import { tmpdir } from 'os';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs';
+import { join, relative } from 'path';
+// os import removed — tests now use cwd-relative temp dirs
 import { createDb, initSchema } from '../db';
 import { VillageManager } from '../village-manager';
 import { SkillRegistry } from '../skill-registry';
@@ -417,6 +417,14 @@ interface ImportResponse {
 describe('POST /api/skills/import-directory', () => {
   let app: Hono;
   let registry: SkillRegistry;
+  const cwdTmpDirs: string[] = [];
+
+  /** 在 cwd 下建立暫存目錄，回傳相對路徑 */
+  function makeCwdTmpDir(suffix: string): { abs: string; rel: string } {
+    const abs = mkdtempSync(join(process.cwd(), `.tmp-test-${suffix}-`));
+    cwdTmpDirs.push(abs);
+    return { abs, rel: relative(process.cwd(), abs) };
+  }
 
   beforeEach(() => {
     const built = buildApp();
@@ -424,14 +432,21 @@ describe('POST /api/skills/import-directory', () => {
     registry = built.registry;
   });
 
-  it('imports directory with 2 skills', async () => {
-    const tmpDir = mkdtempSync(join(tmpdir(), 'thyra-import-'));
-    mkdirSync(join(tmpDir, 'commit'));
-    writeFileSync(join(tmpDir, 'commit', 'SKILL.md'), '---\nname: commit\ndescription: Commit workflow\n---\n\n# Commit\n\nRun the commit workflow.');
-    mkdirSync(join(tmpDir, 'review'));
-    writeFileSync(join(tmpDir, 'review', 'SKILL.md'), '---\nname: review\ndescription: Code review\n---\n\n# Review\n\nPerform code review.');
+  afterEach(() => {
+    for (const d of cwdTmpDirs) {
+      try { rmSync(d, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+    cwdTmpDirs.length = 0;
+  });
 
-    const res = await app.request('/api/skills/import-directory', jsonPost({ directory: tmpDir }));
+  it('imports directory with 2 skills', async () => {
+    const { abs, rel } = makeCwdTmpDir('import');
+    mkdirSync(join(abs, 'commit'));
+    writeFileSync(join(abs, 'commit', 'SKILL.md'), '---\nname: commit\ndescription: Commit workflow\n---\n\n# Commit\n\nRun the commit workflow.');
+    mkdirSync(join(abs, 'review'));
+    writeFileSync(join(abs, 'review', 'SKILL.md'), '---\nname: review\ndescription: Code review\n---\n\n# Review\n\nPerform code review.');
+
+    const res = await app.request('/api/skills/import-directory', jsonPost({ directory: rel }));
     expect(res.status).toBe(200);
     const body = await res.json() as ImportResponse;
     expect(body.ok).toBe(true);
@@ -441,9 +456,9 @@ describe('POST /api/skills/import-directory', () => {
   });
 
   it('skips duplicates without error', async () => {
-    const tmpDir = mkdtempSync(join(tmpdir(), 'thyra-import-'));
-    mkdirSync(join(tmpDir, 'existing'));
-    writeFileSync(join(tmpDir, 'existing', 'SKILL.md'), '---\nname: existing-skill\ndescription: Already exists\n---\n\n# Existing\n\nThis skill already exists.');
+    const { abs, rel } = makeCwdTmpDir('dup');
+    mkdirSync(join(abs, 'existing'));
+    writeFileSync(join(abs, 'existing', 'SKILL.md'), '---\nname: existing-skill\ndescription: Already exists\n---\n\n# Existing\n\nThis skill already exists.');
 
     // Pre-create the skill
     registry.create({
@@ -451,7 +466,7 @@ describe('POST /api/skills/import-directory', () => {
       definition: { description: 'Already there', prompt_template: 'Template' },
     }, 'u');
 
-    const res = await app.request('/api/skills/import-directory', jsonPost({ directory: tmpDir }));
+    const res = await app.request('/api/skills/import-directory', jsonPost({ directory: rel }));
     expect(res.status).toBe(200);
     const body = await res.json() as ImportResponse;
     expect(body.data?.skipped).toBe(1);
@@ -460,25 +475,41 @@ describe('POST /api/skills/import-directory', () => {
   });
 
   it('returns 400 for nonexistent directory', async () => {
-    const res = await app.request('/api/skills/import-directory', jsonPost({ directory: '/nonexistent/path/xyz' }));
+    const res = await app.request('/api/skills/import-directory', jsonPost({ directory: 'nonexistent-path-xyz' }));
     expect(res.status).toBe(400);
     const body = await res.json() as ImportResponse;
     expect(body.error?.code).toBe('VALIDATION');
   });
 
-  it('returns 400 for path traversal', async () => {
+  it('returns 400 for path traversal with ..', async () => {
     const res = await app.request('/api/skills/import-directory', jsonPost({ directory: '../../../etc' }));
     expect(res.status).toBe(400);
     const body = await res.json() as ImportResponse;
     expect(body.error?.message).toContain('traversal');
   });
 
-  it('dry_run reports without creating skills', async () => {
-    const tmpDir = mkdtempSync(join(tmpdir(), 'thyra-import-'));
-    mkdirSync(join(tmpDir, 'dry-skill'));
-    writeFileSync(join(tmpDir, 'dry-skill', 'SKILL.md'), '---\nname: dry-test\ndescription: Dry run test\n---\n\n# Dry\n\nDry run skill content.');
+  it('returns 400 for absolute path (Unix-style)', async () => {
+    const res = await app.request('/api/skills/import-directory', jsonPost({ directory: '/etc/passwd' }));
+    expect(res.status).toBe(400);
+    const body = await res.json() as ImportResponse;
+    expect(body.error?.code).toBe('VALIDATION');
+    expect(body.error?.message).toContain('Absolute');
+  });
 
-    const res = await app.request('/api/skills/import-directory', jsonPost({ directory: tmpDir, dry_run: true }));
+  it('returns 400 for absolute path (Windows-style)', async () => {
+    const res = await app.request('/api/skills/import-directory', jsonPost({ directory: 'C:\\Windows\\System32' }));
+    expect(res.status).toBe(400);
+    const body = await res.json() as ImportResponse;
+    expect(body.error?.code).toBe('VALIDATION');
+    expect(body.error?.message).toContain('Absolute');
+  });
+
+  it('dry_run reports without creating skills', async () => {
+    const { abs, rel } = makeCwdTmpDir('dry');
+    mkdirSync(join(abs, 'dry-skill'));
+    writeFileSync(join(abs, 'dry-skill', 'SKILL.md'), '---\nname: dry-test\ndescription: Dry run test\n---\n\n# Dry\n\nDry run skill content.');
+
+    const res = await app.request('/api/skills/import-directory', jsonPost({ directory: rel, dry_run: true }));
     expect(res.status).toBe(200);
     const body = await res.json() as ImportResponse;
     expect(body.data?.imported).toBe(1);
@@ -490,8 +521,8 @@ describe('POST /api/skills/import-directory', () => {
   });
 
   it('returns 200 with 0 imported for empty directory', async () => {
-    const tmpDir = mkdtempSync(join(tmpdir(), 'thyra-import-'));
-    const res = await app.request('/api/skills/import-directory', jsonPost({ directory: tmpDir }));
+    const { rel } = makeCwdTmpDir('empty');
+    const res = await app.request('/api/skills/import-directory', jsonPost({ directory: rel }));
     expect(res.status).toBe(200);
     const body = await res.json() as ImportResponse;
     expect(body.data?.imported).toBe(0);

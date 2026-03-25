@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
-import { resolve, basename } from 'path';
+import { resolve, basename, isAbsolute } from 'path';
 import { Hono } from 'hono';
 import { CreateSkillInput, UpdateSkillInput, ScopeTypeEnum, SourceTypeEnum } from '../schemas/skill';
 import type { ScopeType, SourceType } from '../schemas/skill';
@@ -290,9 +290,12 @@ export function skillRoutes(registry: SkillRegistry): Hono {
       return c.json({ ok: false, error: { code: 'VALIDATION', message: 'directory is required' } }, 400);
     }
 
-    // 安全：禁止路徑穿越
+    // 安全：禁止路徑穿越和絕對路徑
     if (directory.includes('..')) {
       return c.json({ ok: false, error: { code: 'VALIDATION', message: 'Path traversal not allowed' } }, 400);
+    }
+    if (isAbsolute(directory)) {
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: 'Absolute paths not allowed' } }, 400);
     }
 
     const scopeType = typeof reqBody.scope_type === 'string' ? reqBody.scope_type : 'global';
@@ -310,6 +313,12 @@ export function skillRoutes(registry: SkillRegistry): Hono {
     }
 
     const absDir = resolve(process.cwd(), directory);
+
+    // 安全：resolved 路徑必須在 cwd 之下
+    const cwd = process.cwd();
+    if (!absDir.startsWith(cwd + '/') && !absDir.startsWith(cwd + '\\') && absDir !== cwd) {
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: 'Path traversal not allowed' } }, 400);
+    }
     if (!existsSync(absDir)) {
       return c.json({ ok: false, error: { code: 'VALIDATION', message: `Directory not found: ${directory}` } }, 400);
     }
