@@ -987,4 +987,90 @@ describe('LoopRunner', () => {
       expect(updated?.status).toBe('completed');
     });
   });
+
+  describe('timeout race condition (issue #371)', () => {
+    it('recordAction skips write when cycle is no longer running', async () => {
+      // Override decide to return an action that takes time, so we can abort mid-loop
+      let decideCallCount = 0;
+      loopRunner.decide = async () => {
+        decideCallCount++;
+        // Slow down so we can abort before next recordAction
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        return {
+          action_type: 'slow_task',
+          description: `Slow task ${decideCallCount}`,
+          estimated_cost: 1,
+          reason: 'Takes time',
+          rollback_plan: 'Revert',
+        };
+      };
+
+      const cycle = loopRunner.startCycle(villageId, {
+        chief_id: chiefId,
+        max_iterations: 100,
+        timeout_ms: 5000,
+      });
+
+      // Wait for at least one iteration to complete
+      await waitFor(() => {
+        const c = loopRunner.get(cycle.id);
+        return (c?.iterations ?? 0) >= 1;
+      });
+
+      // Abort the cycle (simulates human stop)
+      loopRunner.abortCycle(cycle.id, 'Test abort');
+
+      // Record the iteration count at abort time
+      const atAbort = loopRunner.get(cycle.id);
+      const iterationsAtAbort = atAbort?.iterations ?? 0;
+
+      // Wait a bit for any in-flight recordAction calls to settle
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      // Verify no additional actions were recorded after abort
+      const afterSettle = loopRunner.get(cycle.id);
+      expect(afterSettle?.status).toBe('aborted');
+      expect(afterSettle?.iterations).toBe(iterationsAtAbort);
+    });
+
+    it('timeout uses abort signal instead of direct finishCycle (no race)', async () => {
+      // Override decide to add delay so timeout fires during iteration
+      loopRunner.decide = async () => {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        return {
+          action_type: 'slow_task',
+          description: 'Slow task',
+          estimated_cost: 1,
+          reason: 'Takes time',
+          rollback_plan: 'Revert',
+        };
+      };
+
+      const cycle = loopRunner.startCycle(villageId, {
+        chief_id: chiefId,
+        max_iterations: 100,
+        timeout_ms: 1000,
+      });
+
+      // Wait for the cycle to finish via timeout
+      await waitFor(() => {
+        const c = loopRunner.get(cycle.id);
+        return c?.status !== 'running';
+      }, 3000);
+
+      const updated = loopRunner.get(cycle.id);
+      expect(updated?.status).toBe('timeout');
+
+      // The key invariant: after timeout, no more actions should be recorded.
+      // Record the state and wait to confirm no further writes happen.
+      const actionsAtTimeout = updated?.actions.length ?? 0;
+      const iterationsAtTimeout = updated?.iterations ?? 0;
+
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      const afterSettle = loopRunner.get(cycle.id);
+      expect(afterSettle?.actions.length).toBe(actionsAtTimeout);
+      expect(afterSettle?.iterations).toBe(iterationsAtTimeout);
+    });
+  });
 });

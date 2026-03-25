@@ -128,16 +128,21 @@ export class LoopRunner {
     // Yield to let startCycle return before loop begins
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // Timeout handler (THY-08)
+    // Timeout handler (THY-08) — abort the signal so the loop exits naturally,
+    // avoiding a race between the timeout handler and in-flight recordAction (#371)
+    const ac = this.abortControllers.get(cycle.id);
     const timeoutId = setTimeout(() => {
-      this.finishCycle(cycle.id, 'timeout', 'Timeout exceeded');
+      if (ac) ac.abort();
     }, cycle.timeout_ms);
 
     try {
       for (let i = 0; i < cycle.max_iterations; i++) {
-        // SI-1: Check abort signal
+        // SI-1: Check abort signal (also fires on timeout)
         if (signal.aborted) {
-          this.finishCycle(cycle.id, 'aborted', 'Human stop');
+          const current = this.get(cycle.id);
+          if (current && current.status === 'running') {
+            this.finishCycle(cycle.id, 'timeout', 'Timeout exceeded');
+          }
           return;
         }
 
@@ -228,16 +233,21 @@ export class LoopRunner {
     // Yield to let startCycle return before loop begins
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // Timeout handler (THY-08)
+    // Timeout handler (THY-08) — abort the signal so the loop exits naturally,
+    // avoiding a race between the timeout handler and in-flight recordAction (#371)
+    const acV1 = this.abortControllers.get(cycle.id);
     const timeoutId = setTimeout(() => {
-      this.finishCycle(cycle.id, 'timeout', 'Timeout exceeded');
+      if (acV1) acV1.abort();
     }, cycle.timeout_ms);
 
     try {
       for (let i = 0; i < cycle.max_iterations; i++) {
-        // SI-1: Check abort signal
+        // SI-1: Check abort signal (also fires on timeout)
         if (signal.aborted) {
-          this.finishCycle(cycle.id, 'aborted', 'Human stop');
+          const current = this.get(cycle.id);
+          if (current && current.status === 'running') {
+            this.finishCycle(cycle.id, 'timeout', 'Timeout exceeded');
+          }
           return;
         }
 
@@ -640,7 +650,7 @@ export class LoopRunner {
 
   private recordAction(cycleId: string, action: LoopAction, cost: number): void {
     const cycle = this.get(cycleId);
-    if (!cycle) return;
+    if (!cycle || cycle.status !== 'running') return;
 
     const actions = [...cycle.actions, action];
     const costIncurred = action.status === 'executed' ? cycle.cost_incurred + cost : cycle.cost_incurred;
