@@ -1073,4 +1073,124 @@ describe('LoopRunner', () => {
       expect(afterSettle?.iterations).toBe(iterationsAtTimeout);
     });
   });
+
+  describe('budget exhaustion mid-cycle', () => {
+    it('blocks second action when loop budget exhausted partway through', () => {
+      // Set up constitution with tight budget (max_cost_per_loop = 5)
+      const villageMgr = new VillageManager(db);
+      const tightVillageId = villageMgr.create({ name: 'tight-budget', target_repo: 'r' }, 'u').id;
+
+      const cs = new ConstitutionStore(db);
+      cs.create(tightVillageId, {
+        rules: [{ description: 'budget test', enforcement: 'hard', scope: ['*'] }],
+        allowed_permissions: ['dispatch_task', 'propose_law', 'enact_law_low'],
+        budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 5 },
+      }, 'human');
+
+      const sr = new SkillRegistry(db);
+      const ce = new ChiefEngine(db, cs, sr);
+      const le = new LawEngine(db, cs, ce);
+      const ra = new RiskAssessor(db);
+      const runner = new LoopRunner(db, cs, ce, le, ra);
+
+      const tightChiefId = ce.create(tightVillageId, {
+        name: 'BudgetChief',
+        role: 'executor',
+        permissions: ['dispatch_task', 'propose_law'],
+      }, 'h').id;
+
+      const cycle = runner.startCycle(tightVillageId, {
+        chief_id: tightChiefId,
+        max_iterations: 10,
+      });
+      expect(cycle.budget_remaining).toBe(5);
+
+      // First action: cost 3, should execute (0 + 3 <= 5)
+      const action1 = runner.executeAction(cycle.id, {
+        action_type: 'task_a',
+        description: 'First task',
+        estimated_cost: 3,
+        reason: 'Do task A',
+        rollback_plan: 'Undo A',
+      });
+      expect(action1.status).toBe('executed');
+
+      const afterFirst = runner.get(cycle.id);
+      expect(afterFirst?.cost_incurred).toBe(3);
+      expect(afterFirst?.budget_remaining).toBe(2);
+
+      // Second action: cost 3, should be blocked (3 + 3 > 5)
+      const action2 = runner.executeAction(cycle.id, {
+        action_type: 'task_b',
+        description: 'Second task',
+        estimated_cost: 3,
+        reason: 'Do task B',
+        rollback_plan: 'Undo B',
+      });
+      expect(action2.status).toBe('blocked');
+      expect(action2.blocked_reasons).toBeDefined();
+      expect(action2.blocked_reasons!.some(r => r.includes('BUDGET') || r.includes('預算'))).toBe(true);
+
+      // Verify cycle completes with partial results
+      const final = runner.get(cycle.id);
+      expect(final?.status).toBe('running'); // still running — executeAction doesn't auto-finish
+      expect(final?.cost_incurred).toBe(3); // only first action's cost
+      expect(final?.actions).toHaveLength(2); // both actions recorded
+      expect(final?.actions[0].status).toBe('executed');
+      expect(final?.actions[1].status).toBe('blocked');
+    });
+
+    it('runLoop auto-completes when budget exhausted between iterations', async () => {
+      // Set up constitution with tight budget (max_cost_per_loop = 3)
+      const villageMgr = new VillageManager(db);
+      const tightVillageId = villageMgr.create({ name: 'tight-auto', target_repo: 'r' }, 'u').id;
+
+      const cs = new ConstitutionStore(db);
+      cs.create(tightVillageId, {
+        rules: [{ description: 'budget test', enforcement: 'hard', scope: ['*'] }],
+        allowed_permissions: ['dispatch_task', 'propose_law', 'enact_law_low'],
+        budget_limits: { max_cost_per_action: 10, max_cost_per_day: 100, max_cost_per_loop: 3 },
+      }, 'human');
+
+      const sr = new SkillRegistry(db);
+      const ce = new ChiefEngine(db, cs, sr);
+      const le = new LawEngine(db, cs, ce);
+      const ra = new RiskAssessor(db);
+      const runner = new LoopRunner(db, cs, ce, le, ra);
+
+      const tightChiefId = ce.create(tightVillageId, {
+        name: 'AutoBudgetChief',
+        role: 'executor',
+        permissions: ['dispatch_task', 'propose_law'],
+      }, 'h').id;
+
+      const cycle = runner.startCycle(tightVillageId, {
+        chief_id: tightChiefId,
+        max_iterations: 10,
+      });
+
+      // Manually spend the entire budget via executeAction
+      runner.executeAction(cycle.id, {
+        action_type: 'drain_budget',
+        description: 'Drain all budget',
+        estimated_cost: 3,
+        reason: 'Use it all',
+        rollback_plan: 'Undo',
+      });
+
+      const afterDrain = runner.get(cycle.id);
+      expect(afterDrain?.budget_remaining).toBe(0);
+      expect(afterDrain?.cost_incurred).toBe(3);
+
+      // The async runLoop should detect budget_remaining <= 0 and finish
+      await waitFor(() => {
+        const c = runner.get(cycle.id);
+        return c?.status !== 'running';
+      }, 2000);
+
+      const final = runner.get(cycle.id);
+      expect(final?.status).toBe('completed');
+      expect(final?.abort_reason).toBe('Budget exhausted');
+    });
+  });
 });
