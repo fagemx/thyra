@@ -68,3 +68,22 @@ export interface SkillBinding {
   skill_version: number;
   config?: Record<string, unknown>;
 }
+
+/** Zod schema for POST /api/skills/upload */
+export const UploadSkillInput = z.object({
+  content: z.string().min(1, 'content is required'),
+  name: z.string().min(1).regex(/^[a-z0-9-]+$/).optional(),
+  scope_type: ScopeTypeEnum.default('global'),
+  village_id: z.string().optional(),
+  tags: z.array(z.string()).default([]),
+});
+export type UploadSkillInput = z.infer<typeof UploadSkillInput>;
+
+/** Zod schema for POST /api/skills/import-directory */
+export const ImportDirectoryInput = z.object({
+  directory: z.string().min(1, 'directory is required'),
+  scope_type: ScopeTypeEnum.default('global'),
+  source_type: SourceTypeEnum.default('system'),
+  village_id: z.string().optional(),
+  dry_run: z.boolean().default(false),
+});

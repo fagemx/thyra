@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import { resolve, basename, isAbsolute } from 'path';
 import { Hono } from 'hono';
-import { CreateSkillInput, UpdateSkillInput, ScopeTypeEnum, SourceTypeEnum } from '../schemas/skill';
+import { CreateSkillInput, UpdateSkillInput, UploadSkillInput, ImportDirectoryInput } from '../schemas/skill';
 import type { ScopeType, SourceType } from '../schemas/skill';
 import type { SkillRegistry } from '../skill-registry';
 
@@ -220,12 +220,11 @@ export function skillRoutes(registry: SkillRegistry): Hono {
 
   // Upload SKILL.md — JSON body (must be before :id routes)
   app.post('/api/skills/upload', async (c) => {
-    const jsonBody: Record<string, unknown> = await c.req.json();
-    if (typeof jsonBody.content !== 'string' || jsonBody.content.length === 0) {
-      return c.json({ ok: false, error: { code: 'VALIDATION', message: 'content is required' } }, 400);
+    const inputParsed = UploadSkillInput.safeParse(await c.req.json());
+    if (!inputParsed.success) {
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: inputParsed.error.message } }, 400);
     }
-    const raw: string = jsonBody.content;
-    const nameOverride = typeof jsonBody.name === 'string' && jsonBody.name.length > 0 ? jsonBody.name : null;
+    const { content: raw, name: nameOverride, scope_type: scopeType, village_id: villageId, tags } = inputParsed.data;
 
     // 大小限制 1MB
     if (raw.length > 1_048_576) {
@@ -239,9 +238,6 @@ export function skillRoutes(registry: SkillRegistry): Hono {
     if (!finalName) {
       return c.json({ ok: false, error: { code: 'VALIDATION', message: 'Cannot infer skill name. Provide name field or add frontmatter.' } }, 400);
     }
-    if (!/^[a-z0-9-]+$/.test(finalName)) {
-      return c.json({ ok: false, error: { code: 'VALIDATION', message: `Invalid name format: "${finalName}". Must match /^[a-z0-9-]+$/.` } }, 400);
-    }
 
     const description = parsed.description ?? 'Uploaded skill';
     const skillBody = parsed.body;
@@ -249,18 +245,8 @@ export function skillRoutes(registry: SkillRegistry): Hono {
       return c.json({ ok: false, error: { code: 'VALIDATION', message: 'Skill body too short (min 10 chars)' } }, 400);
     }
 
-    const scopeType = typeof jsonBody.scope_type === 'string' ? jsonBody.scope_type : 'global';
-    const villageId = typeof jsonBody.village_id === 'string' ? jsonBody.village_id : undefined;
-    const tags = Array.isArray(jsonBody.tags) ? jsonBody.tags.filter((t): t is string => typeof t === 'string') : [];
-
-    // 驗證 scope_type
-    const scopeParsed = ScopeTypeEnum.safeParse(scopeType);
-    if (!scopeParsed.success) {
-      return c.json({ ok: false, error: { code: 'VALIDATION', message: 'Invalid scope_type' } }, 400);
-    }
-
     // 檢查重複
-    const existing = registry.list({ name: finalName, scope_type: scopeParsed.data });
+    const existing = registry.list({ name: finalName, scope_type: scopeType });
     if (existing.length > 0) {
       return c.json({ ok: false, error: { code: 'CONFLICT', message: `Skill "${finalName}" already exists` } }, 409);
     }
@@ -274,7 +260,7 @@ export function skillRoutes(registry: SkillRegistry): Hono {
       content: raw,
       source_type: 'upload',
       source_origin: nameOverride ?? undefined,
-      scope_type: scopeParsed.data,
+      scope_type: scopeType,
       village_id: villageId,
       tags,
     }, 'human');
@@ -284,11 +270,11 @@ export function skillRoutes(registry: SkillRegistry): Hono {
 
   // 批次匯入 .claude/skills/ 目錄 (must be before :id routes)
   app.post('/api/skills/import-directory', async (c) => {
-    const reqBody: Record<string, unknown> = await c.req.json();
-    const directory = reqBody.directory;
-    if (typeof directory !== 'string' || directory.length === 0) {
-      return c.json({ ok: false, error: { code: 'VALIDATION', message: 'directory is required' } }, 400);
+    const inputParsed = ImportDirectoryInput.safeParse(await c.req.json());
+    if (!inputParsed.success) {
+      return c.json({ ok: false, error: { code: 'VALIDATION', message: inputParsed.error.message } }, 400);
     }
+    const { directory, scope_type: scopeType, source_type: sourceType, village_id: villageId, dry_run: dryRun } = inputParsed.data;
 
     // 安全：禁止路徑穿越和絕對路徑
     if (directory.includes('..')) {
@@ -296,20 +282,6 @@ export function skillRoutes(registry: SkillRegistry): Hono {
     }
     if (isAbsolute(directory)) {
       return c.json({ ok: false, error: { code: 'VALIDATION', message: 'Absolute paths not allowed' } }, 400);
-    }
-
-    const scopeType = typeof reqBody.scope_type === 'string' ? reqBody.scope_type : 'global';
-    const sourceType = typeof reqBody.source_type === 'string' ? reqBody.source_type : 'system';
-    const villageId = typeof reqBody.village_id === 'string' ? reqBody.village_id : undefined;
-    const dryRun = reqBody.dry_run === true;
-
-    const scopeParsed = ScopeTypeEnum.safeParse(scopeType);
-    if (!scopeParsed.success) {
-      return c.json({ ok: false, error: { code: 'VALIDATION', message: 'Invalid scope_type' } }, 400);
-    }
-    const sourceParsed = SourceTypeEnum.safeParse(sourceType);
-    if (!sourceParsed.success) {
-      return c.json({ ok: false, error: { code: 'VALIDATION', message: 'Invalid source_type' } }, 400);
     }
 
     const absDir = resolve(process.cwd(), directory);
@@ -331,7 +303,7 @@ export function skillRoutes(registry: SkillRegistry): Hono {
     }
 
     const results = scanDirectoryEntries(entries, absDir, {
-      registry, scopeType: scopeParsed.data, sourceType: sourceParsed.data, villageId, dryRun,
+      registry, scopeType, sourceType, villageId, dryRun,
     });
 
     const imported = results.filter((r) => r.status === 'imported').length;
