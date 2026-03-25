@@ -1212,8 +1212,8 @@ export class DecisionEngine {
     const row = this.db.prepare(`
       SELECT COUNT(*) as cnt FROM audit_log
       WHERE entity_type = 'law' AND action = 'rollback'
-        AND payload LIKE ? AND created_at > ?
-    `).get(`%${villageId}%`, since) as { cnt: number } | null;
+        AND json_extract(payload, '$.village_id') = ? AND created_at > ?
+    `).get(villageId, since) as { cnt: number } | null;
     return row?.cnt ?? 0;
   }
 

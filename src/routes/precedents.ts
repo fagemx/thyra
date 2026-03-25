@@ -13,6 +13,7 @@
 
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { escapeLikePattern } from '../cross-layer';
 import type { Database } from '../db';
 
 // ---------------------------------------------------------------------------
@@ -57,11 +58,6 @@ interface PrecedentRow {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Escape LIKE wildcards (% and _) so user input is treated literally */
-function escapeLikePattern(s: string): string {
-  return s.replace(/%/g, '\\%').replace(/_/g, '\\_');
-}
 
 function rowToResponse(row: PrecedentRow): Record<string, unknown> {
   return {

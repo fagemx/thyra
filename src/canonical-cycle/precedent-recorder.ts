@@ -11,6 +11,7 @@
  */
 
 import { generateId, ID_PREFIXES } from '../cross-layer/id-generator';
+import { escapeLikePattern } from '../cross-layer/escape-like';
 import type { Database } from '../db';
 import { appendAudit } from '../db';
 import type { EddaBridge } from '../edda-bridge';
@@ -192,8 +193,8 @@ export class PrecedentRecorder {
       params.push(filters.verdict);
     }
     if (filters?.contextTag) {
-      sql += ' AND context_tags LIKE ?';
-      params.push(`%"${filters.contextTag}"%`);
+      sql += " AND context_tags LIKE ? ESCAPE '\\'";
+      params.push(`%"${escapeLikePattern(filters.contextTag)}"%`);
     }
 
     sql += ' ORDER BY created_at DESC';
