@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { Hono } from 'hono';
 import type { KarviBridge } from '../karvi-bridge';
 import type { EddaBridge } from '../edda-bridge';
@@ -6,6 +7,11 @@ import { KarviWebhookPayloadSchema, normalizeKarviEvent } from '../schemas/karvi
 import { EddaQueryInput, EddaDecideInput } from '../schemas/edda-bridge';
 import { EddaNoteInput } from '../schemas/edda-note';
 import { DispatchProjectInput } from '../schemas/karvi-dispatch';
+
+/** Zod schema for POST /api/bridges/karvi/webhook-url */
+const WebhookUrlInput = z.object({
+  url: z.string().url('url must be a valid http(s) URL'),
+});
 
 /** Clamp a raw query string to a safe integer in [1, max], defaulting to `def`. */
 function clampLimit(raw: string | undefined, def = 20, max = 100): number {
@@ -132,14 +138,14 @@ export function bridgeRoutes(karvi: KarviBridge, edda: EddaBridge, pipelineReact
   });
 
   app.post('/api/bridges/karvi/webhook-url', async (c) => {
-    const body: Record<string, unknown> = await c.req.json();
-    const url = body.url;
-    if (typeof url !== 'string' || !/^https?:\/\/.+/.test(url)) {
+    const parsed = WebhookUrlInput.safeParse(await c.req.json());
+    if (!parsed.success) {
       return c.json({
         ok: false,
         error: { code: 'VALIDATION', message: 'url must be a valid http(s) URL' },
       }, 400);
     }
+    const { url } = parsed.data;
     const result = await karvi.registerWebhookUrl(url);
     if (!result) {
       return c.json({
