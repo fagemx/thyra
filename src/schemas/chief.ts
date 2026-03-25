@@ -140,6 +140,53 @@ export const GovernanceActionInput = z.object({
 export type GovernanceActionInput = z.infer<typeof GovernanceActionInput>;
 export type GovernanceActionInputRaw = z.input<typeof GovernanceActionInput>;
 
+/** DB row schema — chiefs table (core fields) */
+export const ChiefCoreRow = z.object({
+  id: z.string(),
+  village_id: z.string(),
+  name: z.string(),
+  role: z.string(),
+  role_type: z.string().nullable(),
+  parent_chief_id: z.string().nullable(),
+  version: z.number(),
+  status: z.enum(['active', 'inactive', 'paused']),
+  skills: z.string(), // JSON string
+  pipelines: z.string(), // JSON string
+  permissions: z.string(), // JSON string
+  personality: z.string(), // JSON string
+  constraints: z.string(), // JSON string
+  profile: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+}).passthrough();
+
+/** DB row schema — chiefs table (extended fields) */
+export const ChiefExtendedRow = z.object({
+  adapter_type: z.string().nullable(),
+  context_mode: z.string().nullable(),
+  adapter_config: z.string().nullable(), // JSON string
+  budget_config: z.string().nullable(), // JSON string
+  use_precedents: z.union([z.number(), z.boolean()]).nullable(),
+  precedent_config: z.string().nullable(), // JSON string
+  pause_reason: z.string().nullable(),
+  paused_at: z.string().nullable(),
+  last_heartbeat_at: z.string().nullable(),
+  current_run_id: z.string().nullable(),
+  current_run_status: z.string().nullable(),
+  timeout_count: z.number().nullable(),
+}).passthrough();
+
+/** DB row schema — chief_config_revisions table */
+export const ChiefConfigRevisionRow = z.object({
+  id: z.string(),
+  chief_id: z.string(),
+  version: z.number(),
+  config_snapshot: z.string(), // JSON string
+  changed_by: z.string().nullable(),
+  change_reason: z.string().nullable(),
+  created_at: z.string(),
+}).passthrough();
+
 export type ChiefPersonality = z.infer<typeof ChiefPersonalityInput>;
 export type ChiefProfileName = z.infer<typeof ChiefProfileNameEnum>;
 export type ChiefProfile = z.infer<typeof ChiefProfileSchema>;

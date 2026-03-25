@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite';
 import { randomUUID } from 'crypto';
 import { appendAudit } from './db';
-import { CreateChiefInput as CreateChiefSchema } from './schemas/chief';
+import { CreateChiefInput as CreateChiefSchema, ChiefCoreRow, ChiefExtendedRow, ChiefConfigRevisionRow } from './schemas/chief';
 import type { CreateChiefInputRaw, UpdateChiefInput, ChiefPersonality, ChiefProfile, ChiefProfileName, GovernanceActionInput, ChiefBudgetConfig, PrecedentConfig, RoleType } from './schemas/chief';
 import { GOVERNANCE_PERMISSIONS } from './schemas/chief';
 import type { AdapterType, ContextMode } from './schemas/heartbeat';
@@ -707,14 +707,15 @@ export class ChiefEngine {
   }
 
   private deserializeRevision(row: Record<string, unknown>): ChiefConfigRevision {
+    const parsed = ChiefConfigRevisionRow.parse(row);
     return {
-      id: row.id as string,
-      chief_id: row.chief_id as string,
-      version: row.version as number,
-      config_snapshot: JSON.parse(row.config_snapshot as string) as ChiefConfigSnapshot,
-      changed_by: (row.changed_by as string | null) ?? null,
-      change_reason: (row.change_reason as string | null) ?? null,
-      created_at: row.created_at as string,
+      id: parsed.id,
+      chief_id: parsed.chief_id,
+      version: parsed.version,
+      config_snapshot: JSON.parse(parsed.config_snapshot) as ChiefConfigSnapshot,
+      changed_by: parsed.changed_by ?? null,
+      change_reason: parsed.change_reason ?? null,
+      created_at: parsed.created_at,
     };
   }
 
@@ -746,40 +747,42 @@ export class ChiefEngine {
   }
 
   private deserializeCore(row: Record<string, unknown>): Pick<Chief, 'id' | 'village_id' | 'name' | 'role' | 'role_type' | 'parent_chief_id' | 'version' | 'status' | 'skills' | 'pipelines' | 'permissions' | 'personality' | 'constraints' | 'profile' | 'created_at' | 'updated_at'> {
+    const parsed = ChiefCoreRow.parse(row);
     return {
-      id: row.id as string,
-      village_id: row.village_id as string,
-      name: row.name as string,
-      role: row.role as string,
-      role_type: (row.role_type as RoleType | null) ?? 'chief',
-      parent_chief_id: (row.parent_chief_id as string | null) ?? null,
-      version: row.version as number,
-      status: row.status as Chief['status'],
-      skills: JSON.parse((row.skills as string) || '[]') as Chief['skills'],
-      pipelines: JSON.parse((row.pipelines as string) || '[]') as string[],
-      permissions: JSON.parse((row.permissions as string) || '[]') as Chief['permissions'],
-      personality: JSON.parse((row.personality as string) || '{}') as Chief['personality'],
-      constraints: JSON.parse((row.constraints as string) || '[]') as Chief['constraints'],
-      profile: (row.profile as ChiefProfileName | null) ?? null,
-      created_at: row.created_at as string,
-      updated_at: row.updated_at as string,
+      id: parsed.id,
+      village_id: parsed.village_id,
+      name: parsed.name,
+      role: parsed.role,
+      role_type: (parsed.role_type as RoleType | null) ?? 'chief',
+      parent_chief_id: parsed.parent_chief_id ?? null,
+      version: parsed.version,
+      status: parsed.status,
+      skills: JSON.parse(parsed.skills || '[]') as Chief['skills'],
+      pipelines: JSON.parse(parsed.pipelines || '[]') as string[],
+      permissions: JSON.parse(parsed.permissions || '[]') as Chief['permissions'],
+      personality: JSON.parse(parsed.personality || '{}') as Chief['personality'],
+      constraints: JSON.parse(parsed.constraints || '[]') as Chief['constraints'],
+      profile: (parsed.profile as ChiefProfileName | null) ?? null,
+      created_at: parsed.created_at,
+      updated_at: parsed.updated_at,
     };
   }
 
   private deserializeExtended(row: Record<string, unknown>): Pick<Chief, 'adapter_type' | 'context_mode' | 'adapter_config' | 'budget_config' | 'use_precedents' | 'precedent_config' | 'pause_reason' | 'paused_at' | 'last_heartbeat_at' | 'current_run_id' | 'current_run_status' | 'timeout_count'> {
+    const parsed = ChiefExtendedRow.parse(row);
     return {
-      adapter_type: (row.adapter_type as AdapterType | null) ?? 'local',
-      context_mode: (row.context_mode as ContextMode | null) ?? 'fat',
-      adapter_config: JSON.parse((row.adapter_config as string) || '{}') as Record<string, unknown>,
-      budget_config: row.budget_config ? JSON.parse(row.budget_config as string) as ChiefBudgetConfig : null,
-      use_precedents: row.use_precedents === 1 || row.use_precedents === true,
-      precedent_config: row.precedent_config ? JSON.parse(row.precedent_config as string) as PrecedentConfig : null,
-      pause_reason: (row.pause_reason as string | null) ?? null,
-      paused_at: (row.paused_at as string | null) ?? null,
-      last_heartbeat_at: (row.last_heartbeat_at as string | null) ?? null,
-      current_run_id: (row.current_run_id as string | null) ?? null,
-      current_run_status: (row.current_run_status as Chief['current_run_status'] | null) ?? 'idle',
-      timeout_count: (row.timeout_count as number | null) ?? 0,
+      adapter_type: (parsed.adapter_type as AdapterType | null) ?? 'local',
+      context_mode: (parsed.context_mode as ContextMode | null) ?? 'fat',
+      adapter_config: JSON.parse(parsed.adapter_config || '{}') as Record<string, unknown>,
+      budget_config: parsed.budget_config ? JSON.parse(parsed.budget_config) as ChiefBudgetConfig : null,
+      use_precedents: parsed.use_precedents === 1 || parsed.use_precedents === true,
+      precedent_config: parsed.precedent_config ? JSON.parse(parsed.precedent_config) as PrecedentConfig : null,
+      pause_reason: parsed.pause_reason ?? null,
+      paused_at: parsed.paused_at ?? null,
+      last_heartbeat_at: parsed.last_heartbeat_at ?? null,
+      current_run_id: parsed.current_run_id ?? null,
+      current_run_status: (parsed.current_run_status as Chief['current_run_status'] | null) ?? 'idle',
+      timeout_count: parsed.timeout_count ?? 0,
     };
   }
 }

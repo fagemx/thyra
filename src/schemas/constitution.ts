@@ -26,6 +26,20 @@ export const CreateConstitutionInput = z.object({
   budget_limits: BudgetLimitsInput.default({}),
 });
 
+/** DB row schema — constitutions table */
+export const ConstitutionRow = z.object({
+  id: z.string(),
+  village_id: z.string(),
+  version: z.number(),
+  status: z.enum(['active', 'revoked', 'superseded']),
+  created_at: z.string(),
+  created_by: z.string(),
+  rules: z.string(), // JSON string
+  allowed_permissions: z.string(), // JSON string
+  budget_limits: z.string(), // JSON string
+  superseded_by: z.string().nullable(),
+}).passthrough();
+
 export type Permission = z.infer<typeof PermissionEnum>;
 export type ConstitutionRuleInput = z.infer<typeof ConstitutionRuleInput>;
 export type BudgetLimitsInput = z.infer<typeof BudgetLimitsInput>;

@@ -4,7 +4,7 @@ import { appendAudit } from './db';
 import { detectRuleViolation } from './constitution-store';
 import type { ConstitutionStore, Constitution, ConstitutionRule } from './constitution-store';
 import type { ChiefEngine } from './chief-engine';
-import { ProposeLawInput as ProposeLawSchema, EvaluateLawInput as EvaluateLawSchema } from './schemas/law';
+import { ProposeLawInput as ProposeLawSchema, EvaluateLawInput as EvaluateLawSchema, LawRow } from './schemas/law';
 import type { ProposeLawInputRaw, ProposeLawInput, EvaluateLawInput } from './schemas/law';
 import type { EddaBridge } from './edda-bridge';
 
@@ -251,20 +251,21 @@ export class LawEngine {
   }
 
   private deserialize(row: Record<string, unknown>): Law {
+    const parsed = LawRow.parse(row);
     return {
-      id: row.id as string,
-      village_id: row.village_id as string,
-      proposed_by: row.proposed_by as string,
-      approved_by: (row.approved_by as string) || null,
-      version: row.version as number,
-      status: row.status as Law['status'],
-      category: row.category as string,
-      content: JSON.parse((row.content as string) || '{}') as Law['content'],
-      risk_level: row.risk_level as Law['risk_level'],
-      evidence: JSON.parse((row.evidence as string) || '{}') as Law['evidence'],
-      effectiveness: row.effectiveness ? JSON.parse(row.effectiveness as string) as Law['effectiveness'] : null,
-      created_at: row.created_at as string,
-      updated_at: row.updated_at as string,
+      id: parsed.id,
+      village_id: parsed.village_id,
+      proposed_by: parsed.proposed_by,
+      approved_by: parsed.approved_by || null,
+      version: parsed.version,
+      status: parsed.status,
+      category: parsed.category,
+      content: JSON.parse(parsed.content || '{}') as Law['content'],
+      risk_level: parsed.risk_level,
+      evidence: JSON.parse(parsed.evidence || '{}') as Law['evidence'],
+      effectiveness: parsed.effectiveness ? JSON.parse(parsed.effectiveness) as Law['effectiveness'] : null,
+      created_at: parsed.created_at,
+      updated_at: parsed.updated_at,
     };
   }
 }

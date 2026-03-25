@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite';
 import { randomUUID } from 'crypto';
 import { appendAudit } from './db';
-import { CreateConstitutionInput as CreateConstitutionSchema } from './schemas/constitution';
+import { CreateConstitutionInput as CreateConstitutionSchema, ConstitutionRow } from './schemas/constitution';
 import type { CreateConstitutionInputRaw, Permission } from './schemas/constitution';
 import type { EvaluatorRule } from './schemas/evaluator';
 import type { KarviBridge } from './karvi-bridge';
@@ -155,17 +155,18 @@ export class ConstitutionStore {
   }
 
   private deserialize(row: Record<string, unknown>): Constitution {
+    const parsed = ConstitutionRow.parse(row);
     return {
-      id: row.id as string,
-      village_id: row.village_id as string,
-      version: row.version as number,
-      status: row.status as Constitution['status'],
-      created_at: row.created_at as string,
-      created_by: row.created_by as string,
-      rules: JSON.parse((row.rules as string) || '[]') as Constitution['rules'],
-      allowed_permissions: JSON.parse((row.allowed_permissions as string) || '[]') as Constitution['allowed_permissions'],
-      budget_limits: JSON.parse((row.budget_limits as string) || '{}') as Constitution['budget_limits'],
-      superseded_by: (row.superseded_by as string) || null,
+      id: parsed.id,
+      village_id: parsed.village_id,
+      version: parsed.version,
+      status: parsed.status,
+      created_at: parsed.created_at,
+      created_by: parsed.created_by,
+      rules: JSON.parse(parsed.rules || '[]') as Constitution['rules'],
+      allowed_permissions: JSON.parse(parsed.allowed_permissions || '[]') as Constitution['allowed_permissions'],
+      budget_limits: JSON.parse(parsed.budget_limits || '{}') as Constitution['budget_limits'],
+      superseded_by: parsed.superseded_by || null,
     };
   }
 }
