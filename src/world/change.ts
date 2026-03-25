@@ -11,7 +11,7 @@ import type { Constitution } from '../constitution-store';
 import type { Chief } from '../chief-engine';
 import type { Law } from '../law-engine';
 import type { Skill } from '../skill-registry';
-import type { LoopCycle } from '../loop-runner';
+import type { LoopCycle } from '../schemas/loop';
 
 /**
  * 將 WorldChange 套用到 WorldState，回傳新的 state。
