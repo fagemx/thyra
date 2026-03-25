@@ -20,6 +20,30 @@ export const SetBoardMappingInput = z.object({
   karvi_url: z.string().url().optional(),
 });
 
+/** DB row schema — villages table */
+export const VillageRow = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  target_repo: z.string(),
+  status: z.enum(['active', 'paused', 'archived']),
+  metadata: z.string(), // JSON string, parsed after validation
+  version: z.number(),
+  created_at: z.string(),
+  updated_at: z.string(),
+}).passthrough();
+
+/** DB row schema — board_mappings table */
+export const BoardMappingRow = z.object({
+  id: z.string(),
+  village_id: z.string(),
+  board_namespace: z.string(),
+  karvi_url: z.string().nullable(),
+  version: z.number(),
+  created_at: z.string(),
+  updated_at: z.string(),
+}).passthrough();
+
 export type CreateVillageInputRaw = z.input<typeof CreateVillageInput>;
 export type CreateVillageInput = z.infer<typeof CreateVillageInput>;
 export type UpdateVillageInput = z.infer<typeof UpdateVillageInput>;

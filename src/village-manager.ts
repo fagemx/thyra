@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite';
 import { randomUUID } from 'crypto';
 import { appendAudit } from './db';
-import { CreateVillageInput as CreateVillageSchema, SetBoardMappingInput as SetBoardMappingSchema } from './schemas/village';
+import { CreateVillageInput as CreateVillageSchema, SetBoardMappingInput as SetBoardMappingSchema, VillageRow, BoardMappingRow } from './schemas/village';
 import type { CreateVillageInputRaw, UpdateVillageInput, SetBoardMappingInput } from './schemas/village';
 import { ResolvedLlmConfigSchema } from './schemas/llm-config';
 import type { ResolvedLlmConfig } from './schemas/llm-config';
@@ -218,28 +218,30 @@ export class VillageManager {
   }
 
   private deserializeBoardMapping(row: Record<string, unknown>): BoardMapping {
+    const parsed = BoardMappingRow.parse(row);
     return {
-      id: row.id as string,
-      village_id: row.village_id as string,
-      board_namespace: row.board_namespace as string,
-      karvi_url: (row.karvi_url as string) || null,
-      version: row.version as number,
-      created_at: row.created_at as string,
-      updated_at: row.updated_at as string,
+      id: parsed.id,
+      village_id: parsed.village_id,
+      board_namespace: parsed.board_namespace,
+      karvi_url: parsed.karvi_url || null,
+      version: parsed.version,
+      created_at: parsed.created_at,
+      updated_at: parsed.updated_at,
     };
   }
 
   private deserialize(row: Record<string, unknown>): Village {
+    const parsed = VillageRow.parse(row);
     return {
-      id: row.id as string,
-      name: row.name as string,
-      description: row.description as string,
-      target_repo: row.target_repo as string,
-      status: row.status as Village['status'],
-      metadata: JSON.parse((row.metadata as string) || '{}') as Record<string, unknown>,
-      version: row.version as number,
-      created_at: row.created_at as string,
-      updated_at: row.updated_at as string,
+      id: parsed.id,
+      name: parsed.name,
+      description: parsed.description,
+      target_repo: parsed.target_repo,
+      status: parsed.status,
+      metadata: JSON.parse(parsed.metadata || '{}') as Record<string, unknown>,
+      version: parsed.version,
+      created_at: parsed.created_at,
+      updated_at: parsed.updated_at,
     };
   }
 }
