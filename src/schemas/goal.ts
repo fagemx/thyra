@@ -32,6 +32,22 @@ export const LEVEL_ORDER: Record<GoalLevel, number> = {
 };
 
 // ---------------------------------------------------------------------------
+/** DB row schema - goals table */
+export const GoalRow = z.object({
+  id: z.string(),
+  village_id: z.string(),
+  level: GoalLevelEnum,
+  title: z.string(),
+  description: z.string(),
+  status: GoalStatusEnum,
+  parent_id: z.string().nullable(),
+  owner_chief_id: z.string().nullable(),
+  metrics: z.string(),  // JSON string, parsed after validation
+  version: z.number(),
+  created_at: z.string(),
+  updated_at: z.string(),
+}).passthrough();
+
 // CRUD Inputs
 // ---------------------------------------------------------------------------
 

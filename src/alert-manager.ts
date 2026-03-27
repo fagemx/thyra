@@ -7,6 +7,7 @@
 
 import type { Database } from 'bun:sqlite';
 import type { Alert, AlertType, AlertSeverity, AlertStatus } from './schemas/alert';
+import { AlertRow } from './schemas/alert';
 import { appendAudit } from './db';
 
 // ---------------------------------------------------------------------------
@@ -118,7 +119,7 @@ export class AlertManager {
 
   /** Get a single alert by ID */
   get(alertId: string): Alert | null {
-    const row = this.db.prepare('SELECT * FROM alerts WHERE id = ?').get(alertId) as Record<string, unknown> | null;
+    const row = this.db.prepare('SELECT * FROM alerts WHERE id = ?').get(alertId);
     if (!row) return null;
     return this.parseRow(row);
   }
@@ -149,7 +150,7 @@ export class AlertManager {
     params.push(limit);
 
     const stmt = this.db.prepare(sql);
-    const rows = stmt.all(...params as [string, ...string[]]) as Record<string, unknown>[];
+    const rows = stmt.all(...params as [string, ...string[]]);
     return rows.map((r) => this.parseRow(r));
   }
 
@@ -168,7 +169,7 @@ export class AlertManager {
   findActiveByType(villageId: string, type: AlertType): Alert[] {
     const rows = this.db.prepare(
       "SELECT * FROM alerts WHERE village_id = ? AND type = ? AND status = 'active' ORDER BY created_at DESC"
-    ).all(villageId, type) as Record<string, unknown>[];
+    ).all(villageId, type);
     return rows.map((r) => this.parseRow(r));
   }
 
@@ -183,7 +184,7 @@ export class AlertManager {
     const row = this.db.prepare(
       `SELECT * FROM alerts WHERE village_id = ? AND type = ? AND status = 'active'
        AND created_at >= ? ORDER BY created_at DESC LIMIT 1`
-    ).get(villageId, type, cutoff) as Record<string, unknown> | null;
+    ).get(villageId, type, cutoff);
     if (!row) return null;
     return this.parseRow(row);
   }
@@ -248,24 +249,25 @@ export class AlertManager {
   }
 
   /** Parse a DB row into an Alert */
-  private parseRow(row: Record<string, unknown>): Alert {
+  private parseRow(row: unknown): Alert {
+    const parsed = AlertRow.parse(row);
     return {
-      id: row.id as string,
-      village_id: row.village_id as string,
-      type: row.type as AlertType,
-      severity: row.severity as AlertSeverity,
-      status: row.status as AlertStatus,
-      title: row.title as string,
-      message: row.message as string,
-      details: typeof row.details === 'string' ? JSON.parse(row.details) as Record<string, unknown> : {},
-      occurrence_count: row.occurrence_count as number,
-      acknowledged_by: (row.acknowledged_by as string | null) ?? null,
-      acknowledged_at: (row.acknowledged_at as string | null) ?? null,
-      resolved_at: (row.resolved_at as string | null) ?? null,
-      auto_action_taken: (row.auto_action_taken as string | null) ?? null,
-      version: row.version as number,
-      created_at: row.created_at as string,
-      updated_at: row.updated_at as string,
+      id: parsed.id,
+      village_id: parsed.village_id,
+      type: parsed.type,
+      severity: parsed.severity,
+      status: parsed.status,
+      title: parsed.title,
+      message: parsed.message,
+      details: parsed.details ? JSON.parse(parsed.details) as Record<string, unknown> : {},
+      occurrence_count: parsed.occurrence_count,
+      acknowledged_by: parsed.acknowledged_by ?? null,
+      acknowledged_at: parsed.acknowledged_at ?? null,
+      resolved_at: parsed.resolved_at ?? null,
+      auto_action_taken: parsed.auto_action_taken ?? null,
+      version: parsed.version,
+      created_at: parsed.created_at,
+      updated_at: parsed.updated_at,
     };
   }
 }

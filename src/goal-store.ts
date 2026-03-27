@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite';
 import { randomUUID } from 'crypto';
 import { appendAudit } from './db';
-import { CreateGoalInput as CreateGoalSchema, UpdateGoalInput as UpdateGoalSchema, LEVEL_ORDER } from './schemas/goal';
+import { CreateGoalInput as CreateGoalSchema, UpdateGoalInput as UpdateGoalSchema, LEVEL_ORDER, GoalRow } from './schemas/goal';
 import type { CreateGoalInputRaw, UpdateGoalInput, GoalLevel, GoalStatus, GoalMetric } from './schemas/goal';
 
 // ---------------------------------------------------------------------------
@@ -64,7 +64,7 @@ export class GoalStore {
       }
       const chiefRow = this.db.prepare(
         'SELECT id, village_id FROM chiefs WHERE id = ?'
-      ).get(input.owner_chief_id) as Record<string, unknown> | null;
+      ).get(input.owner_chief_id) as { id: string; village_id: string } | null;
       if (!chiefRow) throw new Error('CHIEF_NOT_FOUND: owner chief does not exist');
       if (chiefRow.village_id !== villageId) {
         throw new Error('CROSS_VILLAGE: owner chief must be in same village');
@@ -101,7 +101,7 @@ export class GoalStore {
   }
 
   get(id: string): Goal | null {
-    const row = this.db.prepare('SELECT * FROM goals WHERE id = ?').get(id) as Record<string, unknown> | null;
+    const row = this.db.prepare('SELECT * FROM goals WHERE id = ?').get(id);
     return row ? this.deserialize(row) : null;
   }
 
@@ -157,7 +157,7 @@ export class GoalStore {
     }
 
     sql += ' ORDER BY level, created_at';
-    const rows = this.db.prepare(sql).all(...params) as Record<string, unknown>[];
+    const rows = this.db.prepare(sql).all(...params);
     return rows.map((r) => this.deserialize(r));
   }
 
@@ -178,7 +178,7 @@ export class GoalStore {
       SELECT id, village_id, level, title, description, status, parent_id, owner_chief_id, metrics, version, created_at, updated_at
       FROM ancestors
       ORDER BY depth ASC
-    `).all(goalId) as Record<string, unknown>[];
+    `).all(goalId);
     return rows.map((r) => this.deserialize(r));
   }
 
@@ -188,7 +188,7 @@ export class GoalStore {
   getChiefGoals(chiefId: string): Goal[] {
     const rows = this.db.prepare(
       'SELECT * FROM goals WHERE owner_chief_id = ? ORDER BY level, created_at'
-    ).all(chiefId) as Record<string, unknown>[];
+    ).all(chiefId);
     return rows.map((r) => this.deserialize(r));
   }
 
@@ -209,24 +209,25 @@ export class GoalStore {
   getTree(villageId: string): Goal[] {
     const rows = this.db.prepare(
       "SELECT * FROM goals WHERE village_id = ? AND status IN ('planned','active') ORDER BY level, created_at"
-    ).all(villageId) as Record<string, unknown>[];
+    ).all(villageId);
     return rows.map((r) => this.deserialize(r));
   }
 
-  private deserialize(row: Record<string, unknown>): Goal {
+  private deserialize(row: unknown): Goal {
+    const parsed = GoalRow.parse(row);
     return {
-      id: row.id as string,
-      village_id: row.village_id as string,
-      level: row.level as GoalLevel,
-      title: row.title as string,
-      description: row.description as string,
-      status: row.status as GoalStatus,
-      parent_id: (row.parent_id as string) || null,
-      owner_chief_id: (row.owner_chief_id as string) || null,
-      metrics: JSON.parse((row.metrics as string) || '[]') as GoalMetric[],
-      version: row.version as number,
-      created_at: row.created_at as string,
-      updated_at: row.updated_at as string,
+      id: parsed.id,
+      village_id: parsed.village_id,
+      level: parsed.level,
+      title: parsed.title,
+      description: parsed.description,
+      status: parsed.status,
+      parent_id: parsed.parent_id || null,
+      owner_chief_id: parsed.owner_chief_id || null,
+      metrics: JSON.parse(parsed.metrics || '[]') as GoalMetric[],
+      version: parsed.version,
+      created_at: parsed.created_at,
+      updated_at: parsed.updated_at,
     };
   }
 }

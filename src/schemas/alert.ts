@@ -61,6 +61,26 @@ export const AlertSchema = z.object({
 export type Alert = z.infer<typeof AlertSchema>;
 
 // ---------------------------------------------------------------------------
+/** DB row schema - alerts table (details stored as JSON string) */
+export const AlertRow = z.object({
+  id: z.string(),
+  village_id: z.string(),
+  type: AlertTypeEnum,
+  severity: AlertSeverityEnum,
+  status: AlertStatusEnum,
+  title: z.string(),
+  message: z.string(),
+  details: z.string(),            // JSON string, parsed after validation
+  occurrence_count: z.number(),
+  acknowledged_by: z.string().nullable(),
+  acknowledged_at: z.string().nullable(),
+  resolved_at: z.string().nullable(),
+  auto_action_taken: z.string().nullable(),
+  version: z.number(),
+  created_at: z.string(),
+  updated_at: z.string(),
+}).passthrough();
+
 // Input schemas (for routes)
 // ---------------------------------------------------------------------------
 
