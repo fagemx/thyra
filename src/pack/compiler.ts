@@ -147,7 +147,7 @@ function diffConstitution(
       scope: r.scope,
     })),
     allowed_permissions: pack.allowed_permissions,
-    budget_limits: { ...pack.budget, max_cost_per_month: pack.budget.max_cost_per_month ?? 0 },
+    budget_limits: { ...pack.budget, max_cost_per_month: pack.budget.max_cost_per_month },
   });
   const currentFp = canonicalConstitutionFingerprint({
     rules: current.rules,
@@ -338,10 +338,10 @@ export class VillagePackCompiler {
       rules: pack.rules.map((r) => ({
         description: r.description,
         enforcement: r.enforcement,
-        scope: r.scope ?? ['*'],
+        scope: r.scope,
       })),
       allowed_permissions: pack.allowed_permissions,
-      budget_limits: { ...pack.budget, max_cost_per_month: pack.budget.max_cost_per_month ?? 0 },
+      budget_limits: { ...pack.budget, max_cost_per_month: pack.budget.max_cost_per_month },
     };
 
     if (action === 'create') {
