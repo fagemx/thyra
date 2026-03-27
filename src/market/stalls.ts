@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
 import { randomUUID } from 'crypto';
-import { appendAudit } from '../db';
+import { appendAudit, dbChanges } from '../db';
 import { CreateStallInput as CreateStallSchema, UpdateStallInput as UpdateStallSchema } from '../schemas/market';
 import type { CreateStallInputRaw, UpdateStallInput } from '../schemas/market';
 
@@ -116,7 +116,7 @@ export class StallManager {
       updated.version, updated.updated_at,
       id, existing.version,
     );
-    if ((result as { changes: number }).changes === 0) {
+    if (dbChanges(result) === 0) {
       throw new Error('CONCURRENCY_CONFLICT: version mismatch');
     }
 

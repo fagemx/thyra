@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
 import { randomUUID } from 'crypto';
-import { appendAudit } from './db';
+import { appendAudit, dbChanges } from './db';
 import { CreateChiefInput as CreateChiefSchema, ChiefCoreRow, ChiefExtendedRow, ChiefConfigRevisionRow } from './schemas/chief';
 import type { CreateChiefInputRaw, UpdateChiefInput, ChiefPersonality, ChiefProfile, ChiefProfileName, GovernanceActionInput, ChiefBudgetConfig, PrecedentConfig, RoleType } from './schemas/chief';
 import { GOVERNANCE_PERMISSIONS } from './schemas/chief';
@@ -423,7 +423,7 @@ export class ChiefEngine {
       updated.pause_reason, updated.paused_at,
       now, id, existingVersion,
     );
-    if ((result as { changes: number }).changes === 0) {
+    if (dbChanges(result) === 0) {
       throw new Error('CONCURRENCY_CONFLICT: version mismatch');
     }
   }
@@ -433,7 +433,7 @@ export class ChiefEngine {
     if (!chief) throw new Error('Chief not found');
     const result = this.db.prepare('UPDATE chiefs SET status = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?')
       .run('inactive', new Date().toISOString(), id, chief.version);
-    if ((result as { changes: number }).changes === 0) {
+    if (dbChanges(result) === 0) {
       throw new Error('CONCURRENCY_CONFLICT: version mismatch');
     }
     appendAudit(this.db, 'chief', id, 'deactivate', { previous_status: chief.status }, actor);
@@ -448,7 +448,7 @@ export class ChiefEngine {
     const result = this.db.prepare(
       'UPDATE chiefs SET status = ?, pause_reason = ?, paused_at = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?'
     ).run('paused', reason, now, now, id, chief.version);
-    if ((result as { changes: number }).changes === 0) {
+    if (dbChanges(result) === 0) {
       throw new Error('CONCURRENCY_CONFLICT: version mismatch');
     }
     appendAudit(this.db, 'chief', id, 'pause', { reason, previous_status: chief.status }, actor);
@@ -466,7 +466,7 @@ export class ChiefEngine {
     const result = this.db.prepare(
       'UPDATE chiefs SET status = ?, pause_reason = NULL, paused_at = NULL, version = version + 1, updated_at = ? WHERE id = ? AND version = ?'
     ).run('active', now, id, chief.version);
-    if ((result as { changes: number }).changes === 0) {
+    if (dbChanges(result) === 0) {
       throw new Error('CONCURRENCY_CONFLICT: version mismatch');
     }
     appendAudit(this.db, 'chief', id, 'resume', { resumed_by: actor, previous_pause_reason: chief.pause_reason }, actor);
@@ -485,7 +485,7 @@ export class ChiefEngine {
     const result = this.db.prepare(
       "UPDATE chiefs SET current_run_status = 'running', current_run_id = ?, last_heartbeat_at = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?"
     ).run(runId, now, now, id, version);
-    if ((result as { changes: number }).changes === 0) {
+    if (dbChanges(result) === 0) {
       throw new Error('CONCURRENCY_CONFLICT: version mismatch');
     }
   }
@@ -496,7 +496,7 @@ export class ChiefEngine {
     const result = this.db.prepare(
       "UPDATE chiefs SET current_run_status = 'idle', current_run_id = NULL, timeout_count = 0, version = version + 1, updated_at = ? WHERE id = ? AND version = ?"
     ).run(now, id, version);
-    if ((result as { changes: number }).changes === 0) {
+    if (dbChanges(result) === 0) {
       throw new Error('CONCURRENCY_CONFLICT: version mismatch');
     }
   }
@@ -507,7 +507,7 @@ export class ChiefEngine {
     const result = this.db.prepare(
       "UPDATE chiefs SET current_run_status = 'timeout', timeout_count = timeout_count + 1, version = version + 1, updated_at = ? WHERE id = ? AND version = ?"
     ).run(now, id, version);
-    if ((result as { changes: number }).changes === 0) {
+    if (dbChanges(result) === 0) {
       throw new Error('CONCURRENCY_CONFLICT: version mismatch');
     }
   }
@@ -518,7 +518,7 @@ export class ChiefEngine {
     const result = this.db.prepare(
       "UPDATE chiefs SET last_heartbeat_at = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?"
     ).run(now, now, id, version);
-    if ((result as { changes: number }).changes === 0) {
+    if (dbChanges(result) === 0) {
       throw new Error('CONCURRENCY_CONFLICT: version mismatch');
     }
   }

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Database } from 'bun:sqlite';
-import { createDb, initSchema } from './db';
+import { createDb, initSchema, dbChanges } from './db';
 import { VillageManager } from './village-manager';
 import { ConstitutionStore } from './constitution-store';
 import { SkillRegistry } from './skill-registry';
@@ -191,7 +191,7 @@ describe('ChiefEngine', () => {
     const result = db.prepare(
       'UPDATE chiefs SET version = version + 1 WHERE id = ? AND version = ?'
     ).run(chief.id, 999); // actual version is 1, passing 999 should fail
-    expect((result as { changes: number }).changes).toBe(0);
+    expect(dbChanges(result)).toBe(0);
   });
 
   it('deactivate with stale version throws CONCURRENCY_CONFLICT', () => {

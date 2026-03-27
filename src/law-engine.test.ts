@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Database } from 'bun:sqlite';
-import { createDb, initSchema } from './db';
+import { createDb, initSchema, dbChanges } from './db';
 import { VillageManager } from './village-manager';
 import { ConstitutionStore } from './constitution-store';
 import { SkillRegistry } from './skill-registry';
@@ -252,7 +252,7 @@ describe('LawEngine', () => {
     const result = db.prepare(
       'UPDATE laws SET version = version + 1 WHERE id = ? AND version = ?'
     ).run(law.id, 999);
-    expect((result as { changes: number }).changes).toBe(0);
+    expect(dbChanges(result)).toBe(0);
   });
 
   it('revoke with correct version succeeds (optimistic concurrency)', () => {

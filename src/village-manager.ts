@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
 import { randomUUID } from 'crypto';
-import { appendAudit } from './db';
+import { appendAudit, dbChanges } from './db';
 import { CreateVillageInput as CreateVillageSchema, SetBoardMappingInput as SetBoardMappingSchema, VillageRow, BoardMappingRow } from './schemas/village';
 import type { CreateVillageInputRaw, UpdateVillageInput, SetBoardMappingInput } from './schemas/village';
 import { ResolvedLlmConfigSchema } from './schemas/llm-config';
@@ -100,7 +100,7 @@ export class VillageManager {
       JSON.stringify(updated.metadata), updated.version, updated.updated_at, id,
       existing.version,
     );
-    if ((result as { changes: number }).changes === 0) {
+    if (dbChanges(result) === 0) {
       throw new Error('CONCURRENCY_CONFLICT: version mismatch');
     }
 
@@ -141,7 +141,7 @@ export class VillageManager {
         updated.board_namespace, updated.karvi_url, updated.version, updated.updated_at,
         current.id, current.version,
       );
-      if ((result as { changes: number }).changes === 0) {
+      if (dbChanges(result) === 0) {
         throw new Error('CONCURRENCY_CONFLICT: version mismatch');
       }
 
