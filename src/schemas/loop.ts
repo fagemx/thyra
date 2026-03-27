@@ -114,3 +114,25 @@ export interface LoopCycle {
   created_at: string;
   updated_at: string;
 }
+
+/** DB row schema — loop_cycles table */
+export const LoopCycleRow = z.object({
+  id: z.string(),
+  village_id: z.string(),
+  chief_id: z.string(),
+  trigger: z.enum(['scheduled', 'event', 'manual']),
+  status: z.enum(['running', 'completed', 'timeout', 'aborted']),
+  version: z.number(),
+  budget_remaining: z.number(),
+  cost_incurred: z.number(),
+  iterations: z.number(),
+  max_iterations: z.number(),
+  timeout_ms: z.number(),
+  actions: z.string(),        // JSON string, parsed after validation
+  laws_proposed: z.string(),  // JSON string, parsed after validation
+  laws_enacted: z.string(),   // JSON string, parsed after validation
+  abort_reason: z.string().nullable(),
+  intent: z.string().nullable(), // JSON string, parsed after validation
+  created_at: z.string(),
+  updated_at: z.string(),
+}).passthrough();

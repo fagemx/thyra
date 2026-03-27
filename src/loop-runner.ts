@@ -11,7 +11,7 @@ import type { DecisionEngine, ActionIntent, DecideResult } from './decision-engi
 
 import { CycleMetricsCollector } from './cycle-metrics';
 import { snapshotWorldState } from './world/snapshot';
-import { StartCycleInput as StartCycleSchema } from './schemas/loop';
+import { StartCycleInput as StartCycleSchema, LoopCycleRow } from './schemas/loop';
 import type { StartCycleInputRaw, LoopAction, CycleIntent, LoopCycle } from './schemas/loop';
 
 export type { LoopCycle } from './schemas/loop';
@@ -688,7 +688,7 @@ export class LoopRunner {
   }
 
   get(id: string): LoopCycle | null {
-    const row = this.db.prepare('SELECT * FROM loop_cycles WHERE id = ?').get(id) as Record<string, unknown> | null;
+    const row = this.db.prepare('SELECT * FROM loop_cycles WHERE id = ?').get(id);
     return row ? this.deserialize(row) : null;
   }
 
@@ -700,7 +700,7 @@ export class LoopRunner {
       params.push(opts.status);
     }
     sql += ' ORDER BY created_at DESC';
-    const rows = this.db.prepare(sql).all(...params) as Record<string, unknown>[];
+    const rows = this.db.prepare(sql).all(...params);
     return rows.map((r) => this.deserialize(r));
   }
 
@@ -709,26 +709,27 @@ export class LoopRunner {
     return cycle?.actions ?? [];
   }
 
-  private deserialize(row: Record<string, unknown>): LoopCycle {
+  private deserialize(row: unknown): LoopCycle {
+    const parsed = LoopCycleRow.parse(row);
     return {
-      id: row.id as string,
-      village_id: row.village_id as string,
-      chief_id: row.chief_id as string,
-      trigger: row.trigger as LoopCycle['trigger'],
-      status: row.status as LoopCycle['status'],
-      version: row.version as number,
-      budget_remaining: row.budget_remaining as number,
-      cost_incurred: row.cost_incurred as number,
-      iterations: row.iterations as number,
-      max_iterations: row.max_iterations as number,
-      timeout_ms: row.timeout_ms as number,
-      actions: JSON.parse((row.actions as string) || '[]') as LoopCycle['actions'],
-      laws_proposed: JSON.parse((row.laws_proposed as string) || '[]') as LoopCycle['laws_proposed'],
-      laws_enacted: JSON.parse((row.laws_enacted as string) || '[]') as LoopCycle['laws_enacted'],
-      abort_reason: (row.abort_reason as string) || null,
-      intent: row.intent ? JSON.parse(row.intent as string) as LoopCycle['intent'] : null,
-      created_at: row.created_at as string,
-      updated_at: row.updated_at as string,
+      id: parsed.id,
+      village_id: parsed.village_id,
+      chief_id: parsed.chief_id,
+      trigger: parsed.trigger,
+      status: parsed.status,
+      version: parsed.version,
+      budget_remaining: parsed.budget_remaining,
+      cost_incurred: parsed.cost_incurred,
+      iterations: parsed.iterations,
+      max_iterations: parsed.max_iterations,
+      timeout_ms: parsed.timeout_ms,
+      actions: JSON.parse(parsed.actions || '[]') as LoopCycle['actions'],
+      laws_proposed: JSON.parse(parsed.laws_proposed || '[]') as LoopCycle['laws_proposed'],
+      laws_enacted: JSON.parse(parsed.laws_enacted || '[]') as LoopCycle['laws_enacted'],
+      abort_reason: parsed.abort_reason || null,
+      intent: parsed.intent ? JSON.parse(parsed.intent) as LoopCycle['intent'] : null,
+      created_at: parsed.created_at,
+      updated_at: parsed.updated_at,
     };
   }
 }
