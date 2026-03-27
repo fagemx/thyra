@@ -53,13 +53,6 @@ export interface ApplyResult {
   state_after: WorldState | null;
 }
 
-/** 變更提案（listPendingChanges 用，目前為空實作） */
-export interface ChangeProposal {
-  id: string;
-  village_id: string;
-  change: WorldChange;
-  proposed_at: string;
-}
 
 // ---------------------------------------------------------------------------
 // WorldManager class
@@ -253,12 +246,5 @@ export class WorldManager {
    */
   verifyContinuity(villageId: string): ContinuityReport {
     return verifyContinuity(this.db, villageId);
-  }
-
-  /**
-   * 列出 pending changes（目前為空實作，Phase 2 實現 change queue）。
-   */
-  listPendingChanges(_villageId: string): ChangeProposal[] {
-    return [];
   }
 }

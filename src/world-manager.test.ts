@@ -344,17 +344,6 @@ describe('WorldManager', () => {
     });
   });
 
-  // -------------------------------------------------------------------------
-  // listPendingChanges
-  // -------------------------------------------------------------------------
-
-  describe('listPendingChanges', () => {
-    it('should return empty array (Phase 2 placeholder)', () => {
-      const village = createVillage(vm);
-      const pending = wm.listPendingChanges(village.id);
-      expect(pending).toEqual([]);
-    });
-  });
 
   // -------------------------------------------------------------------------
   // EddaBridge integration (#185)
