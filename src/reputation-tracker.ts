@@ -42,6 +42,7 @@ interface RawReputationRow {
   score: number;
   proposals_applied: number;
   proposals_rejected: number;
+  proposals_skipped: number;
   rollbacks_triggered: number;
   updated_at: string;
 }
@@ -57,7 +58,7 @@ export class ReputationTracker {
   static get(db: Database, chiefId: string): ChiefReputation | null {
     const row = db.prepare(`
       SELECT chief_id, village_id, score, proposals_applied, proposals_rejected,
-             rollbacks_triggered, updated_at
+             proposals_skipped, rollbacks_triggered, updated_at
       FROM chief_reputation
       WHERE chief_id = ?
     `).get(chiefId) as RawReputationRow | null;
@@ -75,8 +76,8 @@ export class ReputationTracker {
     const now = new Date().toISOString();
     db.prepare(`
       INSERT OR IGNORE INTO chief_reputation
-        (chief_id, village_id, score, proposals_applied, proposals_rejected, rollbacks_triggered, updated_at)
-      VALUES (?, ?, ?, 0, 0, 0, ?)
+        (chief_id, village_id, score, proposals_applied, proposals_rejected, proposals_skipped, rollbacks_triggered, updated_at)
+      VALUES (?, ?, ?, 0, 0, 0, 0, ?)
     `).run(chiefId, villageId, INITIAL_SCORE, now);
 
     // INSERT OR IGNORE 可能因 PK 衝突而不 insert（並發），再讀一次
@@ -93,7 +94,7 @@ export class ReputationTracker {
   static list(db: Database, villageId: string): ChiefReputation[] {
     const rows = db.prepare(`
       SELECT chief_id, village_id, score, proposals_applied, proposals_rejected,
-             rollbacks_triggered, updated_at
+             proposals_skipped, rollbacks_triggered, updated_at
       FROM chief_reputation
       WHERE village_id = ?
       ORDER BY score DESC
@@ -166,35 +167,35 @@ export class ReputationTracker {
   /**
    * 批量記錄 ChiefCycleResult 的聲望變動。
    *
-   * applied.length 筆 +1，skipped.length 筆 -1。
+   * applied.length 筆 +1 score。skipped 不影響 score（#403: skipped != rejected）。
    * 如果 applied + skipped 都是 0，不做任何操作（不建立記錄）。
    */
   static recordCycleResult(db: Database, villageId: string, result: CycleResultLike): void {
     const appliedCount = result.applied.length;
-    const rejectedCount = result.skipped.length;
+    const skippedCount = result.skipped.length;
 
-    if (appliedCount === 0 && rejectedCount === 0) return;
+    if (appliedCount === 0 && skippedCount === 0) return;
 
     // 確保記錄存在
     ReputationTracker.getOrCreate(db, result.chief_id, villageId);
 
-    const delta = appliedCount * DEFAULT_REWARDS.proposal_applied
-                + rejectedCount * DEFAULT_REWARDS.proposal_rejected;
+    // #403: skipped proposals 不計入 rejected，也不扣 score
+    const delta = appliedCount * DEFAULT_REWARDS.proposal_applied;
     const now = new Date().toISOString();
 
     db.prepare(`
       UPDATE chief_reputation
       SET score = MAX(?, MIN(?, score + ?)),
           proposals_applied = proposals_applied + ?,
-          proposals_rejected = proposals_rejected + ?,
+          proposals_skipped = proposals_skipped + ?,
           updated_at = ?
       WHERE chief_id = ?
-    `).run(SCORE_FLOOR, SCORE_CEILING, delta, appliedCount, rejectedCount, now, result.chief_id);
+    `).run(SCORE_FLOOR, SCORE_CEILING, delta, appliedCount, skippedCount, now, result.chief_id);
 
     // THY-07: audit log
     appendAudit(db, 'reputation', result.chief_id, 'cycle_result', {
       applied_count: appliedCount,
-      rejected_count: rejectedCount,
+      skipped_count: skippedCount,
       delta,
       village_id: villageId,
     }, 'system');
