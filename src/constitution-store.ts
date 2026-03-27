@@ -198,18 +198,24 @@ export function detectRuleViolation(ruleDescription: string, actionText: string)
   const ruleLower = ruleDescription.toLowerCase();
   const actionLower = actionText.toLowerCase();
 
-  // Extract keywords (3+ char words, skip stop words)
-  const stopWords = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'from']);
+  // Extract keywords (3+ char words, skip stop words), using word boundaries for matching
+  const stopWords = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'from', 'are', 'was', 'has', 'have', 'been']);
   const extractKeywords = (text: string) =>
     text.split(/\s+/).filter((w) => w.length >= 3 && !stopWords.has(w));
 
-  // Negation patterns: "must not", "never", "do not", "cannot", "not X"
-  const negationPattern = /(?:must\s+not|never|do\s+not|cannot|should\s+not|^not)\s+(.+)/i;
+  /** Check if keyword appears in text as a whole word (word-boundary match) */
+  const containsWord = (text: string, keyword: string): boolean => {
+    const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`\\b${escaped}\\b`).test(text);
+  };
+
+  // Negation patterns: "must not", "may not", "will not", "shall not", "never", "do not", "cannot", "should not"
+  const negationPattern = /(?:must\s+not|may\s+not|will\s+not|shall\s+not|never|do\s+not|cannot|should\s+not|^not)\s+(.+)/i;
   const negMatch = negationPattern.exec(ruleLower);
   if (negMatch) {
-    // Rule says "must not X" → violated if action contains X keywords
+    // Rule says "must not X" → violated if action contains X keywords (word-boundary)
     const forbidden = extractKeywords(negMatch[1]);
-    return forbidden.some((kw) => actionLower.includes(kw));
+    return forbidden.some((kw) => containsWord(actionLower, kw));
   }
 
   // Positive pattern: "must X" → violated if action does NOT contain X
@@ -219,7 +225,7 @@ export function detectRuleViolation(ruleDescription: string, actionText: string)
     const required = extractKeywords(posMatch[1]);
     // Only flag violation if action clearly contradicts (contains "skip"/"without" + keyword)
     return required.some((kw) =>
-      (actionLower.includes('skip') || actionLower.includes('without')) && actionLower.includes(kw),
+      (containsWord(actionLower, 'skip') || containsWord(actionLower, 'without')) && containsWord(actionLower, kw),
     );
   }
 
