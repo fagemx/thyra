@@ -8,7 +8,7 @@ import { ChiefEngine } from './chief-engine';
 import { SkillRegistry } from './skill-registry';
 import type { HeartbeatContext, HeartbeatResult } from './schemas/heartbeat';
 import {
-  AdapterRegistry,
+  ExecutionAdapterRegistry,
   LocalAdapter,
   KarviPipelineAdapter,
   buildHeartbeatContext,
@@ -65,12 +65,12 @@ function createActiveChief(
 }
 
 // ---------------------------------------------------------------------------
-// AdapterRegistry tests
+// ExecutionAdapterRegistry tests
 // ---------------------------------------------------------------------------
 
-describe('AdapterRegistry', () => {
+describe('ExecutionAdapterRegistry', () => {
   it('register and get adapter', () => {
-    const registry = new AdapterRegistry();
+    const registry = new ExecutionAdapterRegistry();
     const mockAdapter: ExecutionAdapter = {
       type: 'test',
       invoke: async (_ctx: HeartbeatContext) => ({
@@ -83,12 +83,12 @@ describe('AdapterRegistry', () => {
   });
 
   it('throws on unknown adapter type', () => {
-    const registry = new AdapterRegistry();
+    const registry = new ExecutionAdapterRegistry();
     expect(() => registry.get('nonexistent')).toThrow('ADAPTER_NOT_FOUND');
   });
 
   it('has() returns correct boolean', () => {
-    const registry = new AdapterRegistry();
+    const registry = new ExecutionAdapterRegistry();
     expect(registry.has('local')).toBe(false);
     const mockAdapter: ExecutionAdapter = {
       type: 'local',
@@ -102,7 +102,7 @@ describe('AdapterRegistry', () => {
   });
 
   it('listTypes() returns all registered types', () => {
-    const registry = new AdapterRegistry();
+    const registry = new ExecutionAdapterRegistry();
     const a1: ExecutionAdapter = {
       type: 'alpha',
       invoke: async (ctx: HeartbeatContext) => ({ heartbeat_id: ctx.heartbeat_id, status: 'completed' as const }),
@@ -117,7 +117,7 @@ describe('AdapterRegistry', () => {
   });
 
   it('register overwrites existing adapter of same type', () => {
-    const registry = new AdapterRegistry();
+    const registry = new ExecutionAdapterRegistry();
     const a1: ExecutionAdapter = {
       type: 'local',
       invoke: async (ctx: HeartbeatContext) => ({ heartbeat_id: ctx.heartbeat_id, status: 'completed' as const }),
