@@ -58,6 +58,7 @@ describe('ReputationTracker', () => {
       expect(rep.score).toBe(INITIAL_SCORE);
       expect(rep.proposals_applied).toBe(0);
       expect(rep.proposals_rejected).toBe(0);
+      expect(rep.proposals_skipped).toBe(0);
       expect(rep.rollbacks_triggered).toBe(0);
       expect(rep.updated_at).toBeTruthy();
     });
@@ -173,7 +174,7 @@ describe('ReputationTracker', () => {
   // -- Batch --
 
   describe('recordCycleResult', () => {
-    it('should record net score from applied and skipped', () => {
+    it('should record score from applied only, skipped does not affect score (#403)', () => {
       const result = {
         chief_id: 'c1',
         proposals: [],
@@ -182,16 +183,17 @@ describe('ReputationTracker', () => {
           { applied: true, judge_result: { accepted: true, reasons: [] } },
         ],
         skipped: [
-          { proposal: {} as unknown, reason: 'rejected' },
+          { proposal: {} as unknown, reason: 'deferred' },
         ],
       };
       ReputationTracker.recordCycleResult(db, 'v1', result);
       const rep = ReputationTracker.get(db, 'c1');
       expect(rep).not.toBeNull();
-      // +2 (applied) + -1 (rejected) = net +1
-      expect(rep?.score).toBe(INITIAL_SCORE + 1);
+      // +2 (applied), skipped does NOT deduct score
+      expect(rep?.score).toBe(INITIAL_SCORE + 2);
       expect(rep?.proposals_applied).toBe(2);
-      expect(rep?.proposals_rejected).toBe(1);
+      expect(rep?.proposals_rejected).toBe(0);
+      expect(rep?.proposals_skipped).toBe(1);
     });
 
     it('should not create record when no proposals', () => {

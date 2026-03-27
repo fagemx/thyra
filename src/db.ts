@@ -484,6 +484,7 @@ export function initSchema(db: Database): void {
       score INTEGER NOT NULL DEFAULT 100,
       proposals_applied INTEGER NOT NULL DEFAULT 0,
       proposals_rejected INTEGER NOT NULL DEFAULT 0,
+      proposals_skipped INTEGER NOT NULL DEFAULT 0,
       rollbacks_triggered INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (chief_id) REFERENCES chiefs(id)

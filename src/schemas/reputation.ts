@@ -16,6 +16,7 @@ export const ChiefReputationSchema = z.object({
   score: z.number().int().min(0).max(200).default(100),
   proposals_applied: z.number().int().min(0).default(0),
   proposals_rejected: z.number().int().min(0).default(0),
+  proposals_skipped: z.number().int().min(0).default(0),
   rollbacks_triggered: z.number().int().min(0).default(0),
   updated_at: z.string(),
 });
