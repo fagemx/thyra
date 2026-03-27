@@ -18,6 +18,15 @@ export function initSchema(db: Database): void {
     );
   `);
 
+  createCoreTables(db);
+  createGovernanceTables(db);
+  createMarketTables(db);
+  createCycleTables(db);
+  runMigrations(db);
+}
+
+/** 核心表：villages, audit_log, skills, constitutions, chiefs, laws, loop_cycles, territories, agreements, skill_shares, board_mappings, territory_policies */
+function createCoreTables(db: Database): void {
   db.run(`
     CREATE TABLE IF NOT EXISTS villages (
       id TEXT PRIMARY KEY,
@@ -249,60 +258,201 @@ export function initSchema(db: Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_territory_policy
       ON territory_policies(territory_id, status);
+  `);
+}
 
-    -- Canonical cycle runs (Track C: CYCLE-01, CYCLE-02)
-    CREATE TABLE IF NOT EXISTS cycle_runs (
-      id TEXT PRIMARY KEY,
-      world_id TEXT NOT NULL,
-      cycle_number INTEGER NOT NULL,
-      current_stage TEXT NOT NULL DEFAULT 'idle',
-      observe_started_at TEXT,
-      observe_completed_at TEXT,
-      propose_started_at TEXT,
-      propose_completed_at TEXT,
-      judge_started_at TEXT,
-      judge_completed_at TEXT,
-      apply_started_at TEXT,
-      apply_completed_at TEXT,
-      pulse_started_at TEXT,
-      pulse_completed_at TEXT,
-      outcome_started_at TEXT,
-      outcome_completed_at TEXT,
-      precedent_started_at TEXT,
-      precedent_completed_at TEXT,
-      adjust_started_at TEXT,
-      adjust_completed_at TEXT,
-      started_at TEXT NOT NULL,
-      completed_at TEXT,
-      failed_at TEXT,
-      failed_stage TEXT,
-      failure_reason TEXT,
-      observation_batch_id TEXT,
-      proposal_ids TEXT NOT NULL DEFAULT '[]',
-      judgment_report_ids TEXT NOT NULL DEFAULT '[]',
-      applied_change_ids TEXT NOT NULL DEFAULT '[]',
-      pulse_frame_id TEXT,
-      mode TEXT DEFAULT 'normal',
-      opened_by TEXT DEFAULT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      version INTEGER NOT NULL DEFAULT 1
-    );
-    CREATE INDEX IF NOT EXISTS idx_cycle_run_world
-      ON cycle_runs(world_id, current_stage);
-
-    CREATE TABLE IF NOT EXISTS world_snapshots (
+/** 治理表：alerts, webhooks, reputation, goals, chief_config_revisions, cycle_telemetry, outcome_windows, precedent_records, governance_adjustments */
+function createGovernanceTables(db: Database): void {
+  // Alert system tables (#236)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS alerts (
       id TEXT PRIMARY KEY,
       village_id TEXT NOT NULL REFERENCES villages(id),
-      trigger TEXT NOT NULL CHECK(trigger IN ('manual','cycle_end','pre_change')),
-      snapshot TEXT NOT NULL,
+      type TEXT NOT NULL CHECK(type IN (
+        'budget_warning','chief_timeout','consecutive_rollbacks',
+        'high_risk_proposal','health_drop','anomaly'
+      )),
+      severity TEXT NOT NULL CHECK(severity IN ('info','warning','critical','emergency')),
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN (
+        'active','acknowledged','resolved','auto_resolved','expired'
+      )),
+      title TEXT NOT NULL,
+      message TEXT NOT NULL,
+      details TEXT NOT NULL DEFAULT '{}',
+      occurrence_count INTEGER NOT NULL DEFAULT 1,
+      acknowledged_by TEXT,
+      acknowledged_at TEXT,
+      resolved_at TEXT,
+      auto_action_taken TEXT,
       version INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_snapshot_village
-      ON world_snapshots(village_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_alert_village ON alerts(village_id, status);
+    CREATE INDEX IF NOT EXISTS idx_alert_type ON alerts(village_id, type, status);
+    CREATE INDEX IF NOT EXISTS idx_alert_severity ON alerts(village_id, severity);
 
-    -- Market domain tables (B1)
+    CREATE TABLE IF NOT EXISTS alert_webhooks (
+      id TEXT PRIMARY KEY,
+      village_id TEXT NOT NULL REFERENCES villages(id),
+      url TEXT NOT NULL,
+      events TEXT NOT NULL DEFAULT '[]',
+      secret TEXT,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','disabled')),
+      last_delivery_at TEXT,
+      last_delivery_status TEXT,
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_webhook_village ON alert_webhooks(village_id, status);
+  `);
 
+  // Chief reputation table (#216: reputation & reward system)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS chief_reputation (
+      chief_id TEXT PRIMARY KEY,
+      village_id TEXT NOT NULL,
+      score INTEGER NOT NULL DEFAULT 100,
+      proposals_applied INTEGER NOT NULL DEFAULT 0,
+      proposals_rejected INTEGER NOT NULL DEFAULT 0,
+      proposals_skipped INTEGER NOT NULL DEFAULT 0,
+      rollbacks_triggered INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (chief_id) REFERENCES chiefs(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_reputation_village
+      ON chief_reputation(village_id);
+  `);
+
+  // Goal hierarchy (issue #225)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS goals (
+      id TEXT PRIMARY KEY,
+      village_id TEXT NOT NULL REFERENCES villages(id),
+      level TEXT NOT NULL CHECK(level IN ('world','team','chief','task')),
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'planned' CHECK(status IN ('planned','active','achieved','cancelled')),
+      parent_id TEXT REFERENCES goals(id),
+      owner_chief_id TEXT REFERENCES chiefs(id),
+      metrics TEXT NOT NULL DEFAULT '[]',
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_goal_village ON goals(village_id, status);
+    CREATE INDEX IF NOT EXISTS idx_goal_parent ON goals(parent_id);
+    CREATE INDEX IF NOT EXISTS idx_goal_chief ON goals(owner_chief_id);
+  `);
+
+  // Chief config revisions (#227: config versioning with rollback)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS chief_config_revisions (
+      id TEXT PRIMARY KEY,
+      chief_id TEXT NOT NULL REFERENCES chiefs(id),
+      version INTEGER NOT NULL,
+      config_snapshot TEXT NOT NULL,
+      changed_by TEXT,
+      change_reason TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_revision_chief
+      ON chief_config_revisions(chief_id, version);
+  `);
+
+  // Cycle telemetry (#232: per-operation timing for governance cycles)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS cycle_telemetry (
+      id TEXT PRIMARY KEY,
+      cycle_id TEXT NOT NULL,
+      chief_id TEXT NOT NULL,
+      village_id TEXT NOT NULL,
+      total_duration_ms INTEGER NOT NULL,
+      operations TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_telemetry_village
+      ON cycle_telemetry(village_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_telemetry_chief
+      ON cycle_telemetry(chief_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_telemetry_cycle
+      ON cycle_telemetry(cycle_id);
+  `);
+
+  // Outcome windows (Track E: OUTCOME-01)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS outcome_windows (
+      id TEXT PRIMARY KEY,
+      world_id TEXT NOT NULL,
+      applied_change_id TEXT NOT NULL,
+      proposal_id TEXT NOT NULL,
+      cycle_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open'
+        CHECK(status IN ('open', 'evaluating', 'closed')),
+      baseline_snapshot TEXT NOT NULL,
+      opened_at TEXT NOT NULL,
+      evaluated_at TEXT,
+      closed_at TEXT,
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_outcome_window_world
+      ON outcome_windows(world_id, status);
+    CREATE INDEX IF NOT EXISTS idx_outcome_window_cycle
+      ON outcome_windows(cycle_id);
+  `);
+
+  // Precedent records (Track F: PREC-01, PREC-02 — append-only)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS precedent_records (
+      id TEXT PRIMARY KEY,
+      world_id TEXT NOT NULL,
+      world_type TEXT NOT NULL,
+      proposal_id TEXT NOT NULL,
+      outcome_report_id TEXT NOT NULL,
+      change_kind TEXT NOT NULL,
+      cycle_id TEXT NOT NULL,
+      context TEXT NOT NULL,
+      decision TEXT NOT NULL,
+      outcome TEXT NOT NULL,
+      recommendation TEXT NOT NULL,
+      lessons_learned TEXT NOT NULL,
+      context_tags TEXT NOT NULL,
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_precedent_world
+      ON precedent_records(world_id);
+    CREATE INDEX IF NOT EXISTS idx_precedent_cycle
+      ON precedent_records(cycle_id);
+  `);
+
+  // Governance adjustments (Track G: ADJ-01, ADJ-02)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS governance_adjustments (
+      id TEXT PRIMARY KEY,
+      world_id TEXT NOT NULL,
+      triggered_by TEXT NOT NULL,
+      adjustment_type TEXT NOT NULL
+        CHECK(adjustment_type IN ('law_threshold','chief_permission','chief_style','risk_policy','simulation_policy')),
+      target TEXT NOT NULL,
+      before_val TEXT NOT NULL,
+      after_val TEXT NOT NULL,
+      rationale TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'proposed'
+        CHECK(status IN ('proposed','approved','applied','rejected')),
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_adjustment_world
+      ON governance_adjustments(world_id, status);
+  `);
+}
+
+/** 市場表：zones, stalls, event_slots, orders, market_metrics */
+function createMarketTables(db: Database): void {
+  db.run(`
     CREATE TABLE IF NOT EXISTS zones (
       id TEXT PRIMARY KEY,
       village_id TEXT NOT NULL REFERENCES villages(id),
@@ -380,183 +530,62 @@ export function initSchema(db: Database): void {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_metrics_village ON market_metrics(village_id, timestamp);
-
-    -- Goal hierarchy (issue #225)
-    CREATE TABLE IF NOT EXISTS goals (
-      id TEXT PRIMARY KEY,
-      village_id TEXT NOT NULL REFERENCES villages(id),
-      level TEXT NOT NULL CHECK(level IN ('world','team','chief','task')),
-      title TEXT NOT NULL,
-      description TEXT NOT NULL DEFAULT '',
-      status TEXT NOT NULL DEFAULT 'planned' CHECK(status IN ('planned','active','achieved','cancelled')),
-      parent_id TEXT REFERENCES goals(id),
-      owner_chief_id TEXT REFERENCES chiefs(id),
-      metrics TEXT NOT NULL DEFAULT '[]',
-      version INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_goal_village ON goals(village_id, status);
-    CREATE INDEX IF NOT EXISTS idx_goal_parent ON goals(parent_id);
-    CREATE INDEX IF NOT EXISTS idx_goal_chief ON goals(owner_chief_id);
-
-    -- Chief config revisions (#227: config versioning with rollback)
-    CREATE TABLE IF NOT EXISTS chief_config_revisions (
-      id TEXT PRIMARY KEY,
-      chief_id TEXT NOT NULL REFERENCES chiefs(id),
-      version INTEGER NOT NULL,
-      config_snapshot TEXT NOT NULL,
-      changed_by TEXT,
-      change_reason TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    CREATE INDEX IF NOT EXISTS idx_revision_chief
-      ON chief_config_revisions(chief_id, version);
-
-    -- Cycle telemetry (#232: per-operation timing for governance cycles)
-    CREATE TABLE IF NOT EXISTS cycle_telemetry (
-      id TEXT PRIMARY KEY,
-      cycle_id TEXT NOT NULL,
-      chief_id TEXT NOT NULL,
-      village_id TEXT NOT NULL,
-      total_duration_ms INTEGER NOT NULL,
-      operations TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    CREATE INDEX IF NOT EXISTS idx_telemetry_village
-      ON cycle_telemetry(village_id, created_at);
-    CREATE INDEX IF NOT EXISTS idx_telemetry_chief
-      ON cycle_telemetry(chief_id, created_at);
-    CREATE INDEX IF NOT EXISTS idx_telemetry_cycle
-      ON cycle_telemetry(cycle_id);
   `);
+}
 
-  // Alert system tables (#236)
+/** 週期表：cycle_runs, world_snapshots, observation_batches, canonical_proposals, applied_changes, promotion_handoffs/rollbacks, outcome_reports, pulse_frames */
+function createCycleTables(db: Database): void {
+  // Canonical cycle runs (Track C: CYCLE-01, CYCLE-02)
   db.run(`
-    CREATE TABLE IF NOT EXISTS alerts (
-      id TEXT PRIMARY KEY,
-      village_id TEXT NOT NULL REFERENCES villages(id),
-      type TEXT NOT NULL CHECK(type IN (
-        'budget_warning','chief_timeout','consecutive_rollbacks',
-        'high_risk_proposal','health_drop','anomaly'
-      )),
-      severity TEXT NOT NULL CHECK(severity IN ('info','warning','critical','emergency')),
-      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN (
-        'active','acknowledged','resolved','auto_resolved','expired'
-      )),
-      title TEXT NOT NULL,
-      message TEXT NOT NULL,
-      details TEXT NOT NULL DEFAULT '{}',
-      occurrence_count INTEGER NOT NULL DEFAULT 1,
-      acknowledged_by TEXT,
-      acknowledged_at TEXT,
-      resolved_at TEXT,
-      auto_action_taken TEXT,
-      version INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_alert_village ON alerts(village_id, status);
-    CREATE INDEX IF NOT EXISTS idx_alert_type ON alerts(village_id, type, status);
-    CREATE INDEX IF NOT EXISTS idx_alert_severity ON alerts(village_id, severity);
-
-    CREATE TABLE IF NOT EXISTS alert_webhooks (
-      id TEXT PRIMARY KEY,
-      village_id TEXT NOT NULL REFERENCES villages(id),
-      url TEXT NOT NULL,
-      events TEXT NOT NULL DEFAULT '[]',
-      secret TEXT,
-      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','disabled')),
-      last_delivery_at TEXT,
-      last_delivery_status TEXT,
-      version INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_webhook_village ON alert_webhooks(village_id, status);
-  `);
-
-  // Chief reputation table (#216: reputation & reward system)
-  db.run(`
-    CREATE TABLE IF NOT EXISTS chief_reputation (
-      chief_id TEXT PRIMARY KEY,
-      village_id TEXT NOT NULL,
-      score INTEGER NOT NULL DEFAULT 100,
-      proposals_applied INTEGER NOT NULL DEFAULT 0,
-      proposals_rejected INTEGER NOT NULL DEFAULT 0,
-      rollbacks_triggered INTEGER NOT NULL DEFAULT 0,
-      updated_at TEXT NOT NULL,
-      FOREIGN KEY (chief_id) REFERENCES chiefs(id)
-    );
-    CREATE INDEX IF NOT EXISTS idx_reputation_village
-      ON chief_reputation(village_id);
-  `);
-
-  // Outcome windows (Track E: OUTCOME-01)
-  db.run(`
-    CREATE TABLE IF NOT EXISTS outcome_windows (
+    CREATE TABLE IF NOT EXISTS cycle_runs (
       id TEXT PRIMARY KEY,
       world_id TEXT NOT NULL,
-      applied_change_id TEXT NOT NULL,
-      proposal_id TEXT NOT NULL,
-      cycle_id TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'open'
-        CHECK(status IN ('open', 'evaluating', 'closed')),
-      baseline_snapshot TEXT NOT NULL,
-      opened_at TEXT NOT NULL,
-      evaluated_at TEXT,
-      closed_at TEXT,
-      version INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      cycle_number INTEGER NOT NULL,
+      current_stage TEXT NOT NULL DEFAULT 'idle',
+      observe_started_at TEXT,
+      observe_completed_at TEXT,
+      propose_started_at TEXT,
+      propose_completed_at TEXT,
+      judge_started_at TEXT,
+      judge_completed_at TEXT,
+      apply_started_at TEXT,
+      apply_completed_at TEXT,
+      pulse_started_at TEXT,
+      pulse_completed_at TEXT,
+      outcome_started_at TEXT,
+      outcome_completed_at TEXT,
+      precedent_started_at TEXT,
+      precedent_completed_at TEXT,
+      adjust_started_at TEXT,
+      adjust_completed_at TEXT,
+      started_at TEXT NOT NULL,
+      completed_at TEXT,
+      failed_at TEXT,
+      failed_stage TEXT,
+      failure_reason TEXT,
+      observation_batch_id TEXT,
+      proposal_ids TEXT NOT NULL DEFAULT '[]',
+      judgment_report_ids TEXT NOT NULL DEFAULT '[]',
+      applied_change_ids TEXT NOT NULL DEFAULT '[]',
+      pulse_frame_id TEXT,
+      mode TEXT DEFAULT 'normal',
+      opened_by TEXT DEFAULT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      version INTEGER NOT NULL DEFAULT 1
     );
-    CREATE INDEX IF NOT EXISTS idx_outcome_window_world
-      ON outcome_windows(world_id, status);
-    CREATE INDEX IF NOT EXISTS idx_outcome_window_cycle
-      ON outcome_windows(cycle_id);
-  `);
+    CREATE INDEX IF NOT EXISTS idx_cycle_run_world
+      ON cycle_runs(world_id, current_stage);
 
-  // Precedent records (Track F: PREC-01, PREC-02 — append-only)
-  db.run(`
-    CREATE TABLE IF NOT EXISTS precedent_records (
+    CREATE TABLE IF NOT EXISTS world_snapshots (
       id TEXT PRIMARY KEY,
-      world_id TEXT NOT NULL,
-      world_type TEXT NOT NULL,
-      proposal_id TEXT NOT NULL,
-      outcome_report_id TEXT NOT NULL,
-      change_kind TEXT NOT NULL,
-      cycle_id TEXT NOT NULL,
-      context TEXT NOT NULL,
-      decision TEXT NOT NULL,
-      outcome TEXT NOT NULL,
-      recommendation TEXT NOT NULL,
-      lessons_learned TEXT NOT NULL,
-      context_tags TEXT NOT NULL,
+      village_id TEXT NOT NULL REFERENCES villages(id),
+      trigger TEXT NOT NULL CHECK(trigger IN ('manual','cycle_end','pre_change')),
+      snapshot TEXT NOT NULL,
       version INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_precedent_world
-      ON precedent_records(world_id);
-    CREATE INDEX IF NOT EXISTS idx_precedent_cycle
-      ON precedent_records(cycle_id);
-
-    -- Governance adjustments (Track G: ADJ-01, ADJ-02)
-    CREATE TABLE IF NOT EXISTS governance_adjustments (
-      id TEXT PRIMARY KEY,
-      world_id TEXT NOT NULL,
-      triggered_by TEXT NOT NULL,
-      adjustment_type TEXT NOT NULL
-        CHECK(adjustment_type IN ('law_threshold','chief_permission','chief_style','risk_policy','simulation_policy')),
-      target TEXT NOT NULL,
-      before_val TEXT NOT NULL,
-      after_val TEXT NOT NULL,
-      rationale TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'proposed'
-        CHECK(status IN ('proposed','approved','applied','rejected')),
-      version INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    CREATE INDEX IF NOT EXISTS idx_adjustment_world
-      ON governance_adjustments(world_id, status);
+    CREATE INDEX IF NOT EXISTS idx_snapshot_village
+      ON world_snapshots(village_id, created_at);
   `);
 
   // Observation batches (Track H Step 2: §10)
@@ -694,9 +723,6 @@ export function initSchema(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_pulse_frame_world
       ON pulse_frames(world_id, created_at);
   `);
-
-  // 執行待處理的資料庫遷移（處理既有資料庫的 schema 升級）
-  runMigrations(db);
 }
 
 /**
