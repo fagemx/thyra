@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite';
 import { randomUUID } from 'crypto';
+import { z } from 'zod';
 import { appendAudit } from './db';
 import { detectRuleViolation } from './constitution-store';
 import type { ConstitutionStore, Constitution, ConstitutionRule } from './constitution-store';
@@ -260,10 +261,10 @@ export class LawEngine {
       version: parsed.version,
       status: parsed.status,
       category: parsed.category,
-      content: JSON.parse(parsed.content || '{}') as Law['content'],
+      content: z.record(z.unknown()).parse(JSON.parse(parsed.content || '{}')) as Law['content'],
       risk_level: parsed.risk_level,
-      evidence: JSON.parse(parsed.evidence || '{}') as Law['evidence'],
-      effectiveness: parsed.effectiveness ? JSON.parse(parsed.effectiveness) as Law['effectiveness'] : null,
+      evidence: z.record(z.unknown()).parse(JSON.parse(parsed.evidence || '{}')) as Law['evidence'],
+      effectiveness: parsed.effectiveness ? z.record(z.unknown()).parse(JSON.parse(parsed.effectiveness)) as Law['effectiveness'] : null,
       created_at: parsed.created_at,
       updated_at: parsed.updated_at,
     };
