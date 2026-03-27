@@ -24,7 +24,7 @@ import type { Chief, ChiefEngine } from './chief-engine';
 import type { WorldManager } from './world-manager';
 import type { VillageManager } from './village-manager';
 import {
-  type AdapterRegistry,
+  type ExecutionAdapterRegistry,
   type ProcessedHeartbeat,
   createDefaultRegistry,
   buildHeartbeatContext,
@@ -83,7 +83,7 @@ export interface GovernanceSchedulerOpts {
   /** 每輪結束後的 callback hook（adapter / summary generator 用） */
   onCycleComplete?: (result: GovernanceCycleResult) => void;
   /** Adapter 註冊表（預設包含 LocalAdapter） */
-  adapterRegistry?: AdapterRegistry;
+  adapterRegistry?: ExecutionAdapterRegistry;
   /** 是否使用 heartbeat protocol 而非直接 executeChiefCycle（預設 false，向後相容） */
   useHeartbeat?: boolean;
   /** Stale detector（可選）。每輪開始前清理超時 chiefs。 */
@@ -104,7 +104,7 @@ export class GovernanceScheduler {
   private readonly karviBridge: KarviBridge | undefined;
   private readonly intervalMs: number;
   private readonly onCycleComplete?: (result: GovernanceCycleResult) => void;
-  private readonly adapterRegistry: AdapterRegistry;
+  private readonly adapterRegistry: ExecutionAdapterRegistry;
   private readonly useHeartbeat: boolean;
   private readonly staleDetector?: StaleDetector;
   private readonly eddaBridge?: EddaBridge;

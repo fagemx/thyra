@@ -1,12 +1,12 @@
 /**
  * execution-adapter.ts — Heartbeat Protocol 的 adapter 層
  *
- * 定義 ExecutionAdapter interface + AdapterRegistry + LocalAdapter。
+ * 定義 ExecutionAdapter interface + ExecutionAdapterRegistry + LocalAdapter。
  * GovernanceScheduler 透過此層 invoke chief，而非直接 executeChiefCycle。
  *
  * 核心元件：
  *   - ExecutionAdapter: 統一的 agent 呼叫介面
- *   - AdapterRegistry: adapter 註冊表（DI friendly）
+ *   - ExecutionAdapterRegistry: adapter 註冊表（DI friendly）
  *   - LocalAdapter: 包裝現有 rule-based 策略為 heartbeat protocol
  *   - buildHeartbeatContext: 組裝心跳 context（fat/thin mode）
  *   - processHeartbeatResult: 處理 agent 回報的結果
@@ -57,7 +57,7 @@ export interface ExecutionAdapter {
 }
 
 // ---------------------------------------------------------------------------
-// AdapterRegistry
+// ExecutionAdapterRegistry
 // ---------------------------------------------------------------------------
 
 /**
@@ -65,7 +65,7 @@ export interface ExecutionAdapter {
  * GovernanceScheduler 透過 registry 取得對應 adapter，
  * 不直接依賴具體 adapter 實作。
  */
-export class AdapterRegistry {
+export class ExecutionAdapterRegistry {
   private adapters = new Map<string, ExecutionAdapter>();
 
   /** 註冊一個 adapter。重複註冊同一 type 會覆蓋。 */
@@ -349,7 +349,7 @@ export function processHeartbeatResult(
 // ---------------------------------------------------------------------------
 
 /**
- * 建立預設 AdapterRegistry，已註冊 LocalAdapter。
+ * 建立預設 ExecutionAdapterRegistry，已註冊 LocalAdapter。
  * 若提供 KarviBridge，額外註冊 KarviPipelineAdapter。
  * 供 GovernanceScheduler 使用。
  */
@@ -357,8 +357,8 @@ export function createDefaultRegistry(
   worldManager: WorldManager,
   chiefLookup: (chiefId: string) => Chief | null,
   karviBridge?: KarviBridge,
-): AdapterRegistry {
-  const registry = new AdapterRegistry();
+): ExecutionAdapterRegistry {
+  const registry = new ExecutionAdapterRegistry();
   registry.register(new LocalAdapter(worldManager, chiefLookup));
   if (karviBridge) {
     registry.register(new KarviPipelineAdapter(karviBridge, chiefLookup));

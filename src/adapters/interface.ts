@@ -23,10 +23,10 @@ export interface Adapter {
 }
 
 // ---------------------------------------------------------------------------
-// AdapterRegistry — adapter 註冊與批次執行
+// PlatformAdapterRegistry — adapter 註冊與批次執行
 // ---------------------------------------------------------------------------
 
-export interface AdapterRegistry {
+export interface PlatformAdapterRegistry {
   /** 註冊一個 adapter */
   register(adapter: Adapter): void;
 

@@ -7,9 +7,9 @@
 import type { Database } from 'bun:sqlite';
 import { appendAudit } from '../db';
 import type { AdapterAction, AdapterExecutionReport } from '../schemas/adapter';
-import type { Adapter, AdapterRegistry } from './interface';
+import type { Adapter, PlatformAdapterRegistry } from './interface';
 
-export class DefaultAdapterRegistry implements AdapterRegistry {
+export class DefaultAdapterRegistry implements PlatformAdapterRegistry {
   private adapters = new Map<string, Adapter>();
 
   constructor(private db?: Database) {}
