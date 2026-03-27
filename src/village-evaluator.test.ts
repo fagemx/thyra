@@ -190,8 +190,8 @@ describe('evaluateVillage', () => {
     const law2 = insertLaw(db, vid);
     insertLaw(db, vid);
 
-    appendAudit(db, 'law', law1, 'rollback', {}, 'human');
-    appendAudit(db, 'law', law2, 'rollback', {}, 'human');
+    appendAudit(db, 'law', law1, 'rolled_back', {}, 'human');
+    appendAudit(db, 'law', law2, 'rolled_back', {}, 'human');
 
     insertCycle(db, vid);
 
