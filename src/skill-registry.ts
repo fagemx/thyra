@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite';
 import { randomUUID } from 'crypto';
+import { z } from 'zod';
 import { escapeLikePattern } from './cross-layer';
 import { appendAudit } from './db';
 import { CreateSkillInput as CreateSkillSchema } from './schemas/skill';
@@ -298,7 +299,7 @@ export class SkillRegistry {
       version: row.version as number,
       status: row.status as Skill['status'],
       village_id: (row.village_id as string) || null,
-      definition: JSON.parse(row.definition as string) as Skill['definition'],
+      definition: z.record(z.unknown()).parse(JSON.parse(row.definition as string)) as Skill['definition'],
       created_at: row.created_at as string,
       updated_at: row.updated_at as string,
       verified_at: (row.verified_at as string) || null,

@@ -1,4 +1,5 @@
 import type { Database } from 'bun:sqlite';
+import { z } from 'zod';
 import { DEFAULT_WEIGHTS, KPI_NAMES } from './schemas/village-score';
 import type { VillageScore, VillageKpis, KpiName } from './schemas/village-score';
 
@@ -49,10 +50,10 @@ function computeReviewPassRate(
   let passedReviews = 0;
 
   for (const row of rows) {
-    const actions = JSON.parse(row.actions || '[]') as Array<{
-      type?: string;
-      status?: string;
-    }>;
+    const actions = z.array(z.object({
+      type: z.string().optional(),
+      status: z.string().optional(),
+    }).passthrough()).parse(JSON.parse(row.actions || '[]'));
     for (const action of actions) {
       if (action.type && action.type.includes('review')) {
         totalReviews++;

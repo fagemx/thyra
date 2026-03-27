@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite';
 import { randomUUID } from 'crypto';
+import { z } from 'zod';
 import { appendAudit } from './db';
 import { CreateVillageInput as CreateVillageSchema, SetBoardMappingInput as SetBoardMappingSchema, VillageRow, BoardMappingRow } from './schemas/village';
 import type { CreateVillageInputRaw, UpdateVillageInput, SetBoardMappingInput } from './schemas/village';
@@ -238,7 +239,7 @@ export class VillageManager {
       description: parsed.description,
       target_repo: parsed.target_repo,
       status: parsed.status,
-      metadata: JSON.parse(parsed.metadata || '{}') as Record<string, unknown>,
+      metadata: z.record(z.unknown()).parse(JSON.parse(parsed.metadata || '{}')),
       version: parsed.version,
       created_at: parsed.created_at,
       updated_at: parsed.updated_at,

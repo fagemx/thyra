@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite';
 import { randomUUID } from 'crypto';
+import { z } from 'zod';
 import { appendAudit } from './db';
 import { CreateConstitutionInput as CreateConstitutionSchema, ConstitutionRow } from './schemas/constitution';
 import type { CreateConstitutionInputRaw, Permission } from './schemas/constitution';
@@ -163,9 +164,9 @@ export class ConstitutionStore {
       status: parsed.status,
       created_at: parsed.created_at,
       created_by: parsed.created_by,
-      rules: JSON.parse(parsed.rules || '[]') as Constitution['rules'],
-      allowed_permissions: JSON.parse(parsed.allowed_permissions || '[]') as Constitution['allowed_permissions'],
-      budget_limits: JSON.parse(parsed.budget_limits || '{}') as Constitution['budget_limits'],
+      rules: z.array(z.unknown()).parse(JSON.parse(parsed.rules || '[]')) as Constitution['rules'],
+      allowed_permissions: z.array(z.string()).parse(JSON.parse(parsed.allowed_permissions || '[]')) as Constitution['allowed_permissions'],
+      budget_limits: z.record(z.unknown()).parse(JSON.parse(parsed.budget_limits || '{}')) as Constitution['budget_limits'],
       superseded_by: parsed.superseded_by || null,
     };
   }
