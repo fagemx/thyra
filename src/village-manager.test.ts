@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Database } from 'bun:sqlite';
-import { createDb, initSchema } from './db';
+import { createDb, initSchema, dbChanges } from './db';
 import { VillageManager } from './village-manager';
 
 describe('VillageManager', () => {
@@ -106,7 +106,7 @@ describe('VillageManager', () => {
     const result = db.prepare(
       'UPDATE villages SET version = version + 1 WHERE id = ? AND version = ?'
     ).run(v.id, 1); // version is 100 now, passing 1 should fail
-    expect((result as { changes: number }).changes).toBe(0);
+    expect(dbChanges(result)).toBe(0);
   });
 
   describe('getLlmConfig', () => {

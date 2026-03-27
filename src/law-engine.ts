@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
 import { randomUUID } from 'crypto';
-import { appendAudit } from './db';
+import { appendAudit, dbChanges } from './db';
 import { detectRuleViolation } from './constitution-store';
 import type { ConstitutionStore, Constitution, ConstitutionRule } from './constitution-store';
 import type { ChiefEngine } from './chief-engine';
@@ -94,7 +94,7 @@ export class LawEngine {
     const now = new Date().toISOString();
     const result = this.db.prepare('UPDATE laws SET status = ?, approved_by = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?')
       .run('active', actor, now, id, law.version);
-    if ((result as { changes: number }).changes === 0) {
+    if (dbChanges(result) === 0) {
       throw new Error('CONCURRENCY_CONFLICT: version mismatch');
     }
     appendAudit(this.db, 'law', id, 'approved', {}, actor);
@@ -108,7 +108,7 @@ export class LawEngine {
     const now = new Date().toISOString();
     const result = this.db.prepare('UPDATE laws SET status = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?')
       .run('rejected', now, id, law.version);
-    if ((result as { changes: number }).changes === 0) {
+    if (dbChanges(result) === 0) {
       throw new Error('CONCURRENCY_CONFLICT: version mismatch');
     }
     appendAudit(this.db, 'law', id, 'rejected', { reason }, actor);
@@ -122,7 +122,7 @@ export class LawEngine {
     const now = new Date().toISOString();
     const result = this.db.prepare('UPDATE laws SET status = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?')
       .run('revoked', now, id, law.version);
-    if ((result as { changes: number }).changes === 0) {
+    if (dbChanges(result) === 0) {
       throw new Error('CONCURRENCY_CONFLICT: version mismatch');
     }
     appendAudit(this.db, 'law', id, 'revoked', {}, actor);
@@ -136,7 +136,7 @@ export class LawEngine {
     const now = new Date().toISOString();
     const result = this.db.prepare('UPDATE laws SET status = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?')
       .run('rolled_back', now, id, law.version);
-    if ((result as { changes: number }).changes === 0) {
+    if (dbChanges(result) === 0) {
       throw new Error('CONCURRENCY_CONFLICT: version mismatch');
     }
     appendAudit(this.db, 'law', id, 'rolled_back', { reason }, actor);
@@ -158,7 +158,7 @@ export class LawEngine {
     const now = new Date().toISOString();
     const result = this.db.prepare('UPDATE laws SET effectiveness = ?, version = version + 1, updated_at = ? WHERE id = ? AND version = ?')
       .run(JSON.stringify(effectiveness), now, id, law.version);
-    if ((result as { changes: number }).changes === 0) {
+    if (dbChanges(result) === 0) {
       throw new Error('CONCURRENCY_CONFLICT: version mismatch');
     }
 

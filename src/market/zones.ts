@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
 import { randomUUID } from 'crypto';
-import { appendAudit } from '../db';
+import { appendAudit, dbChanges } from '../db';
 import { CreateZoneInput as CreateZoneSchema, UpdateZoneInput as UpdateZoneSchema } from '../schemas/market';
 import type { CreateZoneInput, UpdateZoneInput } from '../schemas/market';
 
@@ -84,7 +84,7 @@ export class ZoneManager {
       updated.version, updated.updated_at,
       id, existing.version,
     );
-    if ((result as { changes: number }).changes === 0) {
+    if (dbChanges(result) === 0) {
       throw new Error('CONCURRENCY_CONFLICT: version mismatch');
     }
 
@@ -116,7 +116,7 @@ export class ZoneManager {
       updated.current_load, updated.version, updated.updated_at,
       id, existing.version,
     );
-    if ((result as { changes: number }).changes === 0) {
+    if (dbChanges(result) === 0) {
       throw new Error('CONCURRENCY_CONFLICT: version mismatch');
     }
 

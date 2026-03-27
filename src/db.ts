@@ -807,6 +807,11 @@ function runMigrations(db: Database): void {
   }
 }
 
+/** Extract `.changes` from a bun:sqlite run() result */
+export function dbChanges(result: unknown): number {
+  return (result as { changes: number }).changes;
+}
+
 /**
  * Append-only audit log（THY-07）
  */
