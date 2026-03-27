@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Database } from 'bun:sqlite';
 import { createDb, initSchema } from './db';
 import { VillageManager } from './village-manager';
-import { ConstitutionStore, checkPermission, checkBudget, checkRules } from './constitution-store';
+import { ConstitutionStore, checkPermission, checkBudget, checkRules, detectRuleViolation } from './constitution-store';
 import { ChiefEngine } from './chief-engine';
 import { SkillRegistry } from './skill-registry';
 import type { KarviBridge } from './karvi-bridge';
@@ -412,6 +412,49 @@ describe('checkRules', () => {
     expect(result.allowed).toBe(true);
     expect(result.violated).toHaveLength(0);
     expect(result.warnings).toHaveLength(0);
+  });
+});
+
+describe('detectRuleViolation', () => {
+  it('detects "may not" negation', () => {
+    expect(detectRuleViolation('may not deploy to production', 'deploy to production')).toBe(true);
+  });
+
+  it('detects "will not" negation', () => {
+    expect(detectRuleViolation('will not bypass approval', 'bypass approval process')).toBe(true);
+  });
+
+  it('detects "shall not" negation', () => {
+    expect(detectRuleViolation('shall not modify config', 'modify config files')).toBe(true);
+  });
+
+  it('detects "cannot" negation', () => {
+    expect(detectRuleViolation('cannot delete records', 'delete old records')).toBe(true);
+  });
+
+  it('uses word boundaries to avoid false positives', () => {
+    // "data" should not match "database"
+    expect(detectRuleViolation('must not delete data', 'update database schema')).toBe(false);
+  });
+
+  it('word boundary matches exact words', () => {
+    expect(detectRuleViolation('must not delete data', 'delete user data')).toBe(true);
+  });
+
+  it('positive rule: skip triggers violation', () => {
+    expect(detectRuleViolation('must review all PRs', 'skip review for hotfix')).toBe(true);
+  });
+
+  it('positive rule: without triggers violation', () => {
+    expect(detectRuleViolation('must review all PRs', 'merge without review')).toBe(true);
+  });
+
+  it('positive rule: unrelated action does not violate', () => {
+    expect(detectRuleViolation('must review all PRs', 'add linting step')).toBe(false);
+  });
+
+  it('no matching pattern returns false', () => {
+    expect(detectRuleViolation('prefer short functions', 'wrote a long function')).toBe(false);
   });
 });
 
