@@ -91,7 +91,7 @@ function computeRollbackRate(
     .prepare(
       `SELECT COUNT(*) as cnt FROM audit_log
        WHERE entity_type = 'law'
-         AND action = 'rollback'
+         AND action = 'rolled_back'
          AND entity_id IN (SELECT id FROM laws WHERE village_id = ?)
          AND created_at >= ? AND created_at <= ?`,
     )
